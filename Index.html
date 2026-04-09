@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EXPERTWOOD — Výrobný kalkulátor</title>
+<style>
+:root {
+  --brown-dark: #2e1a0e;
+  --brown-mid: #6b3f2a;
+  --brown-light: #c8956c;
+  --cream: #f7f0e8;
+  --gray: #e4dbd0;
+  --text: #2c1a0e;
+  --shadow: 0 2px 16px rgba(61,43,31,.10);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--cream); color: var(--text); min-height: 100vh; }
+
+header {
+  background: var(--brown-dark);
+  color: white;
+  padding: 18px 32px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  box-shadow: 0 2px 10px rgba(0,0,0,.35);
+}
+.logo-box {
+  width: 42px; height: 42px;
+  background: var(--brown-light);
+  border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.4rem;
+}
+header h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: 2px; }
+header p { font-size: .82rem; opacity: .6; margin-top: 1px; }
+
+main {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 28px 16px;
+  display: grid;
+  grid-template-columns: 310px 1fr;
+  gap: 22px;
+  align-items: start;
+}
+
+/* PANEL */
+.panel { background: white; border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
+.panel-header {
+  background: var(--brown-mid);
+  color: white;
+  padding: 13px 20px;
+  font-weight: 700;
+  font-size: .88rem;
+  letter-spacing: .6px;
+}
+
+/* FORM */
+.form-body { padding: 20px; }
+.sec-label {
+  font-size: .72rem; font-weight: 800;
+  color: var(--brown-light);
+  text-transform: uppercase; letter-spacing: 1.2px;
+  margin: 16px 0 10px;
+}
+.sec-label:first-child { margin-top: 0; }
+.form-row { margin-bottom: 13px; }
+.form-row label {
+  display: block; font-size: .8rem; font-weight: 600;
+  color: var(--brown-mid); margin-bottom: 5px;
+}
+.form-row input {
+  width: 100%; padding: 9px 13px;
+  border: 1.5px solid var(--gray);
+  border-radius: 8px; font-size: .97rem;
+  background: var(--cream); transition: border-color .2s;
+}
+.form-row input:focus { outline: none; border-color: var(--brown-light); background: white; }
+.form-row .unit { font-size: .75rem; color: #999; margin-top: 3px; }
+
+.derived-box {
+  background: var(--cream);
+  border: 1.5px solid var(--gray);
+  border-radius: 8px;
+  padding: 9px 13px;
+  margin-bottom: 13px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.derived-box .d-label { font-size: .78rem; color: #888; }
+.derived-box .d-val { font-size: 1rem; font-weight: 800; color: var(--brown-dark); }
+
+.sep { height: 1px; background: var(--gray); margin: 16px 0; }
+
+.btn-calc {
+  width: 100%; padding: 13px;
+  background: var(--brown-mid); color: white;
+  border: none; border-radius: 9px;
+  font-size: .97rem; font-weight: 800;
+  cursor: pointer; letter-spacing: .5px;
+  transition: background .2s; margin-top: 4px;
+}
+.btn-calc:hover { background: var(--brown-dark); }
+
+/* TABS */
+.tabs {
+  background: white; border-radius: 14px;
+  padding: 8px; box-shadow: var(--shadow);
+  display: flex; flex-wrap: wrap; gap: 4px;
+}
+.tab {
+  padding: 8px 13px; border: none; border-radius: 8px;
+  background: transparent; cursor: pointer;
+  font-size: .8rem; font-weight: 700;
+  color: #999; transition: all .18s; white-space: nowrap;
+}
+.tab.active { background: var(--brown-mid); color: white; }
+.tab:hover:not(.active) { background: var(--cream); color: var(--brown-mid); }
+
+/* RESULT PANEL */
+.result-panel { background: white; border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
+.result-header {
+  background: var(--brown-dark); color: white;
+  padding: 13px 20px; font-weight: 700; font-size: .9rem;
+}
+.result-body { padding: 20px; }
+
+/* INITIAL */
+.initial {
+  text-align: center; padding: 52px 20px; color: #bbb;
+}
+.initial .icon { font-size: 2.8rem; margin-bottom: 12px; }
+.initial p { font-size: .97rem; }
+
+/* SECTIONS */
+.section { display: none; }
+.section.active { display: block; }
+
+/* INFO ROWS */
+.info-row {
+  display: flex; justify-content: space-between;
+  padding: 9px 0; border-bottom: 1px solid var(--gray);
+  font-size: .9rem;
+}
+.info-row:last-child { border-bottom: none; }
+.info-label { color: #777; }
+.info-val { font-weight: 700; color: var(--brown-dark); text-align: right; }
+
+/* SUBSECTION */
+.sub { margin-top: 18px; }
+.sub-title {
+  font-size: .72rem; font-weight: 800;
+  color: var(--brown-light);
+  text-transform: uppercase; letter-spacing: 1.2px;
+  margin-bottom: 10px;
+}
+
+/* TABLE */
+.rt { width: 100%; border-collapse: collapse; font-size: .88rem; }
+.rt th {
+  background: var(--cream); color: var(--brown-mid);
+  text-align: left; padding: 9px 13px;
+  font-size: .73rem; text-transform: uppercase; letter-spacing: .5px;
+  border-bottom: 1px solid var(--gray);
+}
+.rt td { padding: 10px 13px; border-bottom: 1px solid var(--gray); }
+.rt tr:last-child td { border-bottom: none; }
+.rt tr:hover td { background: var(--cream); }
+.rt td:last-child { font-weight: 700; color: var(--brown-dark); }
+
+/* BADGE */
+.badge {
+  display: inline-block; padding: 2px 9px;
+  border-radius: 20px; font-size: .75rem; font-weight: 800;
+  margin-right: 6px;
+}
+.b1 { background: #e8f5e9; color: #2e7d32; }
+.b2 { background: #fff3e0; color: #e65100; }
+
+.highlight {
+  background: var(--cream);
+  border-left: 3px solid var(--brown-light);
+  padding: 10px 14px; border-radius: 0 8px 8px 0;
+  font-weight: 700; font-size: .95rem;
+  margin-bottom: 16px;
+}
+
+.no-terrace {
+  text-align: center; padding: 36px 20px;
+  color: #bbb; font-size: .92rem;
+}
+
+/* COLOR CODING — presne ako v Exceli */
+.c-gray td  { background:#737373!important; color:#E7E6E6!important; }
+.c-blue td  { background:#3C3CFF!important; color:#E7E6E6!important; }
+.c-red td   { background:#F60101!important; color:#fff!important; }
+.c-brown td { background:#8F6A40!important; color:#E7E6E6!important; }
+.c-purple td{ background:#5A009C!important; color:#E7E6E6!important; }
+.c-pink td  { background:#FFB8F5!important; color:#222!important; }
+.c-green td { background:#00B800!important; color:#fff!important; }
+.c-orange td{ background:#FF9800!important; color:#fff!important; }
+.c-yellow   { background:#FFFF00!important; color:#c00!important; font-weight:800; }
+
+/* Hover a last-child override pre farebné riadky */
+.c-gray:hover td,.c-blue:hover td,.c-red:hover td,.c-brown:hover td,
+.c-purple:hover td,.c-pink:hover td,.c-green:hover td,.c-orange:hover td
+{ background: inherit!important; }
+
+.c-gray td:last-child,.c-blue td:last-child,.c-red td:last-child,.c-brown td:last-child,
+.c-purple td:last-child,.c-pink td:last-child,.c-green td:last-child,.c-orange td:last-child
+{ color:inherit!important; font-weight:700; }
+
+/* Farebné info-riadky */
+.info-row.c-blue  { background:#3C3CFF; color:#E7E6E6; border-radius:4px; padding:7px 10px; }
+.info-row.c-green { background:#00B800; color:#fff;    border-radius:4px; padding:7px 10px; }
+.info-row.c-orange{ background:#FF9800; color:#fff;    border-radius:4px; padding:7px 10px; }
+.info-row.c-blue .info-label,.info-row.c-green .info-label,.info-row.c-orange .info-label { color:inherit; opacity:.85; }
+.info-row.c-blue .info-val,.info-row.c-green .info-val,.info-row.c-orange .info-val { color:inherit; }
+.info-row.c-yellow { background:#FFFF00; color:#c00; border-radius:4px; padding:7px 10px; font-weight:800; }
+
+/* IMAGES */
+.img-row {
+  display: flex; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.img-row img {
+  max-width: 100%; height: auto;
+  border-radius: 10px;
+  border: 1.5px solid var(--gray);
+  background: var(--cream);
+  flex: 1 1 200px;
+  object-fit: contain;
+  max-height: 340px; /* na obrazovke trochu väčšie */
+}
+
+
+/* MATERIÁL KARTY */
+.mat-card {
+  flex: 1 1 160px;
+  background: var(--cream);
+  border: 1.5px solid var(--gray);
+  border-radius: 10px;
+  padding: 14px 18px;
+  text-align: center;
+}
+.mat-card-total {
+  background: var(--brown-mid);
+  border-color: var(--brown-mid);
+}
+.mat-card-total .mat-card-label,
+.mat-card-total .mat-card-val,
+.mat-card-total .mat-card-sub { color: white; }
+.mat-card-label { font-size: .72rem; font-weight: 700; color: var(--brown-mid); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 6px; }
+.mat-card-val   { font-size: 1.8rem; font-weight: 900; color: var(--brown-dark); line-height: 1.1; }
+.mat-card-sub   { font-size: .75rem; color: #999; margin-top: 4px; }
+
+/* TOGGLE SWITCH */
+.toggle-row {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 13px;
+}
+.toggle-label { font-size: .82rem; font-weight: 600; color: var(--brown-mid); }
+.toggle-switch { position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute; inset: 0;
+  background: var(--gray); border-radius: 24px; cursor: pointer;
+  transition: background .2s;
+}
+.toggle-slider:before {
+  content: ''; position: absolute;
+  width: 18px; height: 18px; left: 3px; bottom: 3px;
+  background: white; border-radius: 50%;
+  transition: transform .2s;
+}
+.toggle-switch input:checked + .toggle-slider { background: var(--brown-mid); }
+.toggle-switch input:checked + .toggle-slider:before { transform: translateX(18px); }
+
+/* PDF BUTTONS */
+.pdf-btns {
+  display: flex; gap: 10px; flex-wrap: wrap;
+}
+.btn-pdf {
+  flex: 1; padding: 11px 14px;
+  border: none; border-radius: 9px;
+  font-size: .85rem; font-weight: 800;
+  cursor: pointer; letter-spacing: .3px;
+  transition: background .2s;
+}
+.btn-pdf-vyroba {
+  background: #1b5e20; color: white;
+}
+.btn-pdf-vyroba:hover { background: #145214; }
+.btn-pdf-kjg {
+  background: #1a237e; color: white;
+}
+.btn-pdf-kjg:hover { background: #111755; }
+
+/* PRINT */
+@media print {
+  @page { size: A4 landscape; margin: 10mm; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { background: white !important; }
+  header, .no-print { display: none !important; }
+  main { display: block !important; padding: 0 !important; max-width: 100% !important; }
+  main > .panel:first-child { display: none !important; }
+  .tabs { display: none !important; }
+  .result-panel { box-shadow: none !important; border-radius: 0 !important; }
+  .result-header { display: none !important; }
+  .result-body { padding: 0 !important; }
+  .section {
+    overflow: hidden;
+  }
+  .section.print-page {
+    display: block !important;
+    break-before: page;
+    page-break-before: always;
+  }
+  .section.print-page-first {
+    display: block !important;
+    break-before: auto;
+    page-break-before: auto;
+  }
+  /* Kompaktnejší výzor pre tlač */
+  .sub { margin-top: 8px; }
+  .sub-title { margin-bottom: 5px; }
+  .rt td, .rt th { padding: 5px 10px; }
+  .info-row { padding: 5px 0; }
+  .highlight { padding: 7px 12px; margin-bottom: 10px; }
+}
+
+@media (max-width: 760px) {
+  main { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-box">🏠</div>
+  <div>
+    <h1>EXPERTWOOD</h1>
+    <p>Výrobný kalkulátor domčekov</p>
+  </div>
+</header>
+
+<main>
+
+  <!-- INPUT PANEL -->
+  <div class="panel">
+    <div class="panel-header">📐 Vstupné rozmery</div>
+    <div class="form-body">
+
+      <div class="sec-label">Rozmery domčeka</div>
+      <div class="form-row">
+        <label>Šírka domčeka</label>
+        <input type="number" id="sirka" value="0" min="0" max="800">
+        <div class="unit">cm</div>
+      </div>
+      <div class="form-row">
+        <label>Hĺbka domčeka</label>
+        <input type="number" id="hlbka" value="0" min="0" max="800">
+        <div class="unit">cm</div>
+      </div>
+      <div class="form-row">
+        <label>Výška vzadu</label>
+        <input type="number" id="vyskaVzadu" value="210" min="0" max="350">
+        <div class="unit">cm</div>
+      </div>
+      <div class="derived-box">
+        <span class="d-label">Výška vpredu (auto)</span>
+        <span class="d-val" id="vpDisplay">190,0 cm</span>
+      </div>
+
+      <div class="sep"></div>
+      <div class="sec-label">Podlaha</div>
+      <div class="toggle-row">
+        <span class="toggle-label">S podlahou</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="bezPodlahy" checked>
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="toggle-label">Bez podlahy</span>
+      </div>
+
+      <div class="sep"></div>
+      <div class="sec-label">Terasa</div>
+      <div class="toggle-row">
+        <span class="toggle-label">S terasou</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="bezTerasy" checked>
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="toggle-label">Bez terasy</span>
+      </div>
+      <div id="terasa-input-row" style="display:none;">
+        <div class="form-row">
+          <label>Šírka terasy</label>
+          <input type="number" id="sirkaTerasy" value="0" min="0" max="500">
+          <div class="unit">cm</div>
+        </div>
+      </div>
+
+      <div class="sep"></div>
+      <div class="sec-label">Falcovaný plech — počty kusov</div>
+      <div class="form-row">
+        <label>Predná strana</label>
+        <input type="number" id="falcP" value="0" min="0" max="50">
+      </div>
+      <div class="form-row">
+        <label>Zadná strana</label>
+        <input type="number" id="falcZ" value="0" min="0" max="50">
+      </div>
+      <div class="form-row">
+        <label>Bočná ľavá</label>
+        <input type="number" id="falcL" value="0" min="0" max="50">
+      </div>
+      <div class="form-row">
+        <label>Bočná pravá</label>
+        <input type="number" id="falcR" value="0" min="0" max="50">
+      </div>
+
+      <button class="btn-calc" onclick="calc()">⚙️ Vypočítať výkaz materiálov</button>
+    </div>
+  </div>
+
+  <!-- RESULTS COLUMN -->
+  <div style="display:flex;flex-direction:column;gap:16px;">
+
+    <div class="pdf-btns no-print">
+      <button class="btn-pdf btn-pdf-vyroba" onclick="exportPDF('vyroba')">🖨 Export PDF — Výroba (bez KJG)</button>
+      <button class="btn-pdf btn-pdf-kjg" onclick="exportPDF('kjg')">🖨 Export PDF — KJG</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="bocne" onclick="showTab('bocne')">Bočné steny</button>
+      <button class="tab" data-tab="zadna" onclick="showTab('zadna')">Zadná stena</button>
+      <button class="tab" data-tab="predna" onclick="showTab('predna')">Predná stena</button>
+      <button class="tab" data-tab="strecha" onclick="showTab('strecha')">Strecha</button>
+      <button class="tab" id="tab-podlaha" data-tab="podlaha" onclick="showTab('podlaha')">Podlaha</button>
+      <button class="tab" id="tab-terasa" data-tab="terasa" onclick="showTab('terasa')">Terasa</button>
+      <button class="tab" data-tab="kjg" onclick="showTab('kjg')">KJG + Falc. plech</button>
+      <button class="tab" data-tab="material" onclick="showTab('material')">📦 Materiál</button>
+    </div>
+
+    <div class="result-panel">
+      <div class="result-header" id="resHeader">Bočné steny</div>
+      <div class="result-body">
+
+        <!-- INITIAL -->
+        <div class="initial" id="initial">
+          <div class="icon">📋</div>
+          <p>Zadaj rozmery a klikni <strong>Vypočítať</strong></p>
+        </div>
+
+        <div id="allSections" style="display:none;">
+
+          <!-- BOČNÉ -->
+          <div class="section active" id="sec-bocne">
+            <div class="img-row" id="bocne-img-row">
+              <!-- dynamicky generované JS-om vrátane overlay hodnôt -->
+            </div>
+            <div class="highlight" id="bocne-tit"></div>
+            <div class="info-row"><span class="info-label">Hĺbka steny</span><span class="info-val" id="bocne-hlbka"></span></div>
+            <div class="info-row"><span class="info-label">Uhol strechy</span><span class="info-val" id="bocne-uhol"></span></div>
+            <div class="info-row"><span class="info-label">Dĺžka šikmého hranola (A25)</span><span class="info-val" id="bocne-a25"></span></div>
+            <div class="sub">
+              <div class="sub-title">Hranoly 5×5 cm</div>
+              <table class="rt">
+                <tr><th>Prvok</th><th>Rozmery</th></tr>
+                <tr class="c-gray"><td>5×5 hranol hore (šikmý)</td><td id="bocne-horny"></td></tr>
+                <tr class="c-blue"><td>5×5 hranol dole (vodorovný)</td><td id="bocne-dolny"></td></tr>
+                <tr class="c-red" id="tr-bocne-predny"><td id="lbl-bocne-predny">5×5 hranol predok väčšej</td><td id="bocne-predny"></td></tr>
+                <tr id="tr-bocne-stredny"><td id="lbl-bocne-stredny">5×5 hranol zadok väčšej</td><td id="bocne-stredny"></td></tr>
+                <tr id="tr-bocne-predny2"><td id="lbl-bocne-predny2">5×5 hranol predok menšej</td><td id="bocne-predny2"></td></tr>
+                <tr class="c-pink" id="tr-bocne-zadny"><td id="lbl-bocne-zadny">5×5 hranol zadok menšej</td><td id="bocne-zadny"></td></tr>
+              </table>
+            </div>
+            <div class="sub">
+              <div class="sub-title">Ostatné</div>
+              <div class="info-row"><span class="info-label">OSB dosky</span><span class="info-val" id="bocne-osb"></span></div>
+              <div class="info-row c-orange"><span class="info-label">Rohový hranol 45°</span><span class="info-val" id="bocne-uhol2"></span></div>
+            </div>
+            <div class="sub">
+              <div class="sub-title">Zvislé hranoly — pozície a výšky</div>
+              <table class="rt" id="bocne-posts">
+                <tr><th>Pozícia od zadnej (cm)</th><th>Výška hranola (cm)</th></tr>
+              </table>
+            </div>
+          </div>
+
+          <!-- ZADNÁ -->
+          <div class="section" id="sec-zadna">
+            <div class="img-row">
+              <img src="images/zadna_1.png" alt="Zadná stena">
+            </div>
+            <div class="highlight" id="zadna-tit"></div>
+            <div class="info-row"><span class="info-label">Šírka steny</span><span class="info-val" id="zadna-sirka"></span></div>
+            <div class="info-row"><span class="info-label">Výška steny</span><span class="info-val" id="zadna-vyska"></span></div>
+            <div class="sub">
+              <div class="sub-title">Hranoly 5×5 cm</div>
+              <table class="rt">
+                <tr><th>Prvok</th><th>Rozmery</th></tr>
+                <tr class="c-blue"><td>5×5 hranol hore/dole</td><td id="zadna-horny"></td></tr>
+                <tr class="c-green"><td>5×5 hranol vľavo/vpravo</td><td id="zadna-bocny"></td></tr>
+                <tr class="c-green"><td>5×5 v stene</td><td id="zadna-zvisle"></td></tr>
+                <tr class="c-orange"><td>rohový hranol 45</td><td id="zadna-uhol"></td></tr>
+              </table>
+            </div>
+            <div class="sub">
+              <div class="sub-title">Ostatné</div>
+              <div class="info-row"><span class="info-label">OSB dosky</span><span class="info-val" id="zadna-osb"></span></div>
+              <div class="info-row c-yellow"><span class="info-label">⚠ Poznámka</span><span class="info-val">HORNÚ POMOCNÚ LATEČKU DAŤ 1,5 CM OD VRCHU</span></div>
+            </div>
+          </div>
+
+          <!-- PREDNÁ -->
+          <div class="section" id="sec-predna">
+            <div class="img-row">
+              <img src="images/predna_1.png" alt="Predná stena">
+            </div>
+            <div class="highlight" id="predna-tit"></div>
+            <div class="info-row"><span class="info-label">Šírka steny</span><span class="info-val" id="predna-sirka"></span></div>
+            <div class="info-row"><span class="info-label">Výška steny</span><span class="info-val" id="predna-vyska"></span></div>
+            <div class="sub">
+              <div class="sub-title">Hranoly 5×5 cm</div>
+              <table class="rt">
+                <tr><th>Prvok</th><th>Rozmery</th></tr>
+                <tr class="c-blue"><td>5×5 hranol hore/dole</td><td id="predna-horny"></td></tr>
+                <tr class="c-green"><td>5×5 hranol vľavo/vpravo</td><td id="predna-bocny"></td></tr>
+                <tr class="c-green"><td>5×5 v stene</td><td id="predna-zvisle"></td></tr>
+                <tr class="c-orange"><td>rohový hranol 45</td><td id="predna-uhol"></td></tr>
+              </table>
+            </div>
+            <div class="sub">
+              <div class="sub-title">Otvory</div>
+              <div class="info-row"><span class="info-label">Otvor — dvere</span><span class="info-val">182,5 × 87,5 cm</span></div>
+              <div class="info-row"><span class="info-label">Otvor — okno</span><span class="info-val">102,5 × 57,5 cm</span></div>
+            </div>
+            <div class="sub">
+              <div class="sub-title">Ostatné</div>
+              <div class="info-row"><span class="info-label">OSB dosky</span><span class="info-val" id="predna-osb"></span></div>
+            </div>
+          </div>
+
+          <!-- STRECHA -->
+          <div class="section" id="sec-strecha">
+            <div class="img-row">
+              <img src="images/strecha_1.png" alt="Strecha">
+            </div>
+            <div class="sub">
+              <div class="sub-title">Rozmery strechy</div>
+              <div class="info-row"><span class="info-label">Šírka (S+3)</span><span class="info-val" id="str-s"></span></div>
+              <div class="info-row"><span class="info-label">Hĺbka (H+3)</span><span class="info-val" id="str-h"></span></div>
+            </div>
+            <div class="sub">
+              <div class="sub-title">Hranoly 5×12 cm</div>
+              <table class="rt">
+                <tr><th>Prvok</th><th>Rozmery</th></tr>
+                <tr class="c-blue"><td>5×12 hranol (šírka) — 1</td><td id="str-h1"></td></tr>
+                <tr class="c-blue"><td>5×12 hranol (šírka) — 2</td><td id="str-h2"></td></tr>
+                <tr class="c-green"><td>5×12 hranol (hĺbka−10) — ľavý</td><td id="str-b1"></td></tr>
+                <tr class="c-green"><td>5×12 hranol (hĺbka−10) — pravý</td><td id="str-b2"></td></tr>
+              </table>
+            </div>
+            <div class="sub">
+              <div class="sub-title">OSB</div>
+              <div class="info-row"><span class="info-label">OSB dosky</span><span class="info-val" id="str-osb"></span></div>
+            </div>
+          </div>
+
+          <!-- PODLAHA -->
+          <div class="section" id="sec-podlaha">
+            <div class="img-row">
+              <img src="images/podlaha_1.png" alt="Podlaha">
+            </div>
+            <div class="sub">
+              <div class="sub-title">Rozmery podlahy</div>
+              <div class="info-row"><span class="info-label">Šírka (S−4)</span><span class="info-val" id="pod-s"></span></div>
+              <div class="info-row"><span class="info-label">Hĺbka (H−4)</span><span class="info-val" id="pod-h"></span></div>
+            </div>
+            <div class="sub">
+              <div class="sub-title">Hranoly 5×12 cm</div>
+              <table class="rt">
+                <tr><th>Prvok</th><th>Rozmery</th></tr>
+                <tr class="c-blue"><td>5×12 hranol (šírka) — 1</td><td id="pod-h1"></td></tr>
+                <tr class="c-blue"><td>5×12 hranol (šírka) — 2</td><td id="pod-h2"></td></tr>
+                <tr class="c-green"><td>5×12 hranol (hĺbka−10) — ľavý</td><td id="pod-b1"></td></tr>
+                <tr class="c-green"><td>5×12 hranol (hĺbka−10) — pravý</td><td id="pod-b2"></td></tr>
+              </table>
+            </div>
+            <div class="sub">
+              <div class="sub-title">OSB (pásy 40 cm)</div>
+              <div class="info-row"><span class="info-label">OSB dosky</span><span class="info-val" id="pod-osb"></span></div>
+            </div>
+          </div>
+
+          <!-- TERASA -->
+          <div class="section" id="sec-terasa">
+            <div class="img-row">
+              <img src="images/terasa_1.png" alt="Terasa">
+            </div>
+            <div class="no-terrace" id="ter-none" style="display:none;">🌿 Terasa nie je zadaná (šírka = 0)</div>
+            <div id="ter-content">
+              <div class="sub">
+                <div class="sub-title">Rozmery terasy</div>
+                <div class="info-row"><span class="info-label">Hĺbka rámu (H+2)</span><span class="info-val" id="ter-h"></span></div>
+                <div class="info-row"><span class="info-label">Šírka terasy</span><span class="info-val" id="ter-s"></span></div>
+              </div>
+              <div class="sub">
+                <div class="sub-title">Hranoly 5×12 cm</div>
+                <table class="rt">
+                  <tr><th>Prvok</th><th>Rozmery</th></tr>
+                  <tr class="c-blue"><td>5×12 hranol pozdĺžny 1 (hĺbka)</td><td id="ter-h1"></td></tr>
+                  <tr class="c-blue"><td>5×12 hranol pozdĺžny 2 (hĺbka)</td><td id="ter-h2"></td></tr>
+                  <tr class="c-green"><td>5×12 hranol priečny 1 (šírka−10)</td><td id="ter-b1"></td></tr>
+                  <tr class="c-red"><td>5×12 hranol priečny 2 (šírka−10)</td><td id="ter-b2"></td></tr>
+                </table>
+              </div>
+              <div class="sub">
+                <div class="sub-title">Stĺpiky</div>
+                <div class="info-row"><span class="info-label">Výška predná (VP−6)</span><span class="info-val" id="ter-vp"></span></div>
+                <div class="info-row"><span class="info-label">Výška zadná (VZ−6)</span><span class="info-val" id="ter-vz"></span></div>
+              </div>
+              <div class="sub">
+                <div class="sub-title">OSB</div>
+                <div class="info-row"><span class="info-label">OSB dosky</span><span class="info-val" id="ter-osb"></span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- KJG + FALCOVANÝ PLECH -->
+          <div class="section" id="sec-kjg">
+            <div class="img-row">
+              <img src="images/KJG_1.png" alt="KJG 1">
+              <img src="images/KJG_2.png" alt="KJG 2">
+              <img src="images/KJG_3.png" alt="KJG 3">
+              <img src="images/zaveterny roh.png" alt="Záveterný ROH">
+            </div>
+            <div class="sub">
+              <div class="sub-title">Klempiarsko-pokrývačské prvky</div>
+              <table class="rt">
+                <tr><th>Produkt</th><th>Množstvo</th></tr>
+                <tr><td>záveterná lišta predok</td><td id="kjg-zavet-predok"></td></tr>
+                <tr><td>záveterna lišta bok</td><td id="kjg-zavet-bok"></td></tr>
+                <tr><td>záveterný ROH (ako záveterná lišta +3mm — 183mm/103mm)</td><td>2x 40 cm</td></tr>
+                <tr><td>okapový plech</td><td id="kjg-okap"></td></tr>
+                <tr><td>rohová lišta predok</td><td id="kjg-rohova-predok"></td></tr>
+                <tr><td>rohová lišta zadok</td><td id="kjg-rohova-zadok"></td></tr>
+                <tr><td>žlab 80mm</td><td id="kjg-zlab"></td></tr>
+                <tr><td>zvod 80mm</td><td>1x 200 cm</td></tr>
+                <tr><td>čelové háky</td><td id="kjg-haky"></td></tr>
+                <tr><td>čielko žľabu s gumičkou</td><td>2 ks</td></tr>
+                <tr><td>objímka</td><td>2 ks</td></tr>
+                <tr><td>hrot s gumičkou</td><td>2 ks</td></tr>
+                <tr><td>kolienko 90s — 80mm</td><td>2 ks</td></tr>
+                <tr><td>kotlík 80mm</td><td>1 ks</td></tr>
+                <tr><td>trapez t18 — antracit matt</td><td id="kjg-trap"></td></tr>
+                <tr class="c-yellow"><td colspan="2">⚠ FARBA — antracit matt</td></tr>
+              </table>
+            </div>
+            <div class="sub" id="fp-section" style="display:none;">
+              <div class="sub-title">Falcovaný plech — krytie 30,5 cm/kus</div>
+              <table class="rt">
+                <tr><th>Strana</th><th>Počet kusov</th><th>Dĺžka plechu</th><th>Celkové krytie</th></tr>
+                <tr><td>Predná</td><td id="fp-pk"></td><td id="fp-pd"></td><td id="fp-pk2"></td></tr>
+                <tr><td>Zadná</td><td id="fp-zk"></td><td id="fp-zd"></td><td id="fp-zk2"></td></tr>
+                <tr><td>Bočná ľavá</td><td id="fp-lk"></td><td id="fp-ld"></td><td id="fp-lk2"></td></tr>
+                <tr><td>Bočná pravá</td><td id="fp-rk"></td><td id="fp-rd"></td><td id="fp-rk2"></td></tr>
+                <tr class="c-yellow"><td colspan="4">⚠ bez výstuže</td></tr>
+              </table>
+            </div>
+          </div>
+
+          <!-- MATERIÁL -->
+          <div class="section" id="sec-material">
+            <div class="sub-title">Objem dreva — prehľad</div>
+
+            <!-- m³ karty -->
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;">
+              <div class="mat-card">
+                <div class="mat-card-label">Hranoly 5×5 cm</div>
+                <div class="mat-card-val" id="mat-m3-55">—</div>
+                <div class="mat-card-sub" id="mat-bm-55">—</div>
+              </div>
+              <div class="mat-card">
+                <div class="mat-card-label">Hranoly 5×12 cm</div>
+                <div class="mat-card-val" id="mat-m3-512">—</div>
+                <div class="mat-card-sub" id="mat-bm-512">—</div>
+              </div>
+              <div class="mat-card mat-card-total">
+                <div class="mat-card-label">Spolu drevo</div>
+                <div class="mat-card-val" id="mat-m3-total">—</div>
+                <div class="mat-card-sub" id="mat-m3-rezerva">—</div>
+              </div>
+            </div>
+
+            <!-- rohový hranol -->
+            <div class="info-row c-orange" style="margin-bottom:16px;">
+              <span class="info-label">Rohový hranol 45° × 40 cm</span>
+              <span class="info-val" id="mat-roh"></span>
+            </div>
+
+            <!-- zoznam rezov — detail -->
+            <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">
+              <div style="flex:1;min-width:200px;">
+                <div class="sub-title">Súpis rezov — 5×5 cm</div>
+                <table class="rt" id="mat-55">
+                  <tr><th>Dĺžka</th><th>Počet</th></tr>
+                </table>
+              </div>
+              <div style="flex:1;min-width:200px;">
+                <div class="sub-title">Súpis rezov — 5×12 cm</div>
+                <table class="rt" id="mat-512">
+                  <tr><th>Dĺžka</th><th>Počet</th></tr>
+                </table>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /allSections -->
+      </div>
+    </div>
+
+  </div><!-- /results col -->
+</main>
+
+<script>
+const HEADERS = {
+  bocne:'🏠 Bočné steny', zadna:'◀ Zadná stena', predna:'▶ Predná stena',
+  strecha:'△ Strecha', podlaha:'▽ Podlaha', terasa:'🌿 Terasa',
+  kjg:'🔧 KJG + Falcovaný plech', material:'📦 Zoznam materiálu'
+};
+
+function exportPDF(typ) {
+  if (document.getElementById('allSections').style.display === 'none') {
+    alert('Najskôr vypočítaj výkaz materiálov!'); return;
+  }
+
+  const bezPodlahy = document.getElementById('bezPodlahy').checked;
+  const bezTerasy  = document.getElementById('bezTerasy').checked;
+  const allIds = ['bocne','zadna','predna','strecha','podlaha','terasa','kjg','material'];
+  const printIds = typ === 'vyroba'
+    ? allIds.filter(id => id !== 'kjg' && id !== 'material'
+        && !(id === 'podlaha' && bezPodlahy)
+        && !(id === 'terasa'  && bezTerasy))
+    : ['kjg'];
+
+  // Skryj všetky, zobraz len printIds
+  allIds.forEach(id => {
+    const el = document.getElementById('sec-'+id);
+    if (!el) return;
+    el.style.display = 'none';
+    el.style.zoom = '';
+    el.classList.remove('print-page', 'print-page-first');
+  });
+  printIds.forEach(id => {
+    document.getElementById('sec-'+id).style.display = 'block';
+  });
+
+  requestAnimationFrame(() => {
+    // A4 landscape: 210mm výška - 2×10mm okraje = 190mm = ~719px pri 96dpi
+    const PAGE_H = Math.round(190 * (96 / 25.4));
+
+    printIds.forEach((id, i) => {
+      const el = document.getElementById('sec-'+id);
+      el.classList.add(i === 0 ? 'print-page-first' : 'print-page');
+      const h = el.scrollHeight;
+      if (h > PAGE_H) {
+        el.style.zoom = (PAGE_H / h).toFixed(4);
+      }
+    });
+
+    document.body.classList.remove('print-vyroba', 'print-kjg');
+    document.body.classList.add('print-' + typ);
+
+    window.print();
+
+    setTimeout(() => {
+      document.body.classList.remove('print-vyroba', 'print-kjg');
+      allIds.forEach(id => {
+        const el = document.getElementById('sec-'+id);
+        if (!el) return;
+        el.style.display = '';
+        el.style.zoom = '';
+        el.classList.remove('print-page', 'print-page-first');
+      });
+    }, 600);
+  });
+}
+
+function s(id, v) { const e=document.getElementById(id); if(e) e.textContent=v; }
+function si(id, v) { const e=document.getElementById(id); if(e) e.innerHTML=v; }
+function fmt(n, d=1) { return n.toFixed(d).replace('.',','); }
+
+// Live VP preview
+function liveVP() {
+  const H = +document.getElementById('hlbka').value||200;
+  const VZ = +document.getElementById('vyskaVzadu').value||180;
+  document.getElementById('vpDisplay').textContent = fmt(VZ+(H/100)*5)+' cm';
+}
+['hlbka','vyskaVzadu'].forEach(id => document.getElementById(id).addEventListener('input', liveVP));
+
+function updatePodlahaTab() {
+  const bez = document.getElementById('bezPodlahy').checked;
+  document.getElementById('tab-podlaha').style.display = bez ? 'none' : '';
+  if (bez && document.querySelector('.section.active')?.id === 'sec-podlaha') {
+    showTab('strecha');
+  }
+}
+document.getElementById('bezPodlahy').addEventListener('change', updatePodlahaTab);
+
+function updateTerasaTab() {
+  const bez = document.getElementById('bezTerasy').checked;
+  document.getElementById('terasa-input-row').style.display = bez ? 'none' : '';
+  document.getElementById('tab-terasa').style.display = bez ? 'none' : '';
+  if (bez && document.querySelector('.section.active')?.id === 'sec-terasa') {
+    showTab('strecha');
+  }
+}
+document.getElementById('bezTerasy').addEventListener('change', updateTerasaTab);
+
+function showTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab===tab));
+  document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
+  const sec = document.getElementById('sec-'+tab);
+  if (sec) sec.classList.add('active');
+  document.getElementById('resHeader').textContent = HEADERS[tab]||tab;
+}
+
+function calc() {
+  const S  = +document.getElementById('sirka').value;
+  const H  = +document.getElementById('hlbka').value;
+  const VZ = +document.getElementById('vyskaVzadu').value;
+  const bezTerasy = document.getElementById('bezTerasy').checked;
+  const ST = bezTerasy ? 0 : (+document.getElementById('sirkaTerasy').value || 0);
+  const fP = +document.getElementById('falcP').value||0;
+  const fZ = +document.getElementById('falcZ').value||0;
+  const fL = +document.getElementById('falcL').value||0;
+  const fR = +document.getElementById('falcR').value||0;
+
+  const VP = VZ + (H/100)*5;
+
+  // ── BOČNÉ ──────────────────────────────────────────────────────────
+  const B2 = H-10, D2=VP, E2=VZ;
+  const k = B2 < 300 ? 1 : 2;
+  const A25 = Math.sqrt(Math.pow((D2-10)-(E2-10),2)+Math.pow(B2,2));
+  const uhol = Math.atan(Math.abs(D2-E2)/B2)*180/Math.PI;
+
+  si('bocne-tit', `<span class="badge ${k===1?'b1':'b2'}">${k===1?'1 KUS':'2 KUSY'}</span>BOČNÉ STENY`);
+  s('bocne-hlbka', fmt(B2)+' cm');
+  s('bocne-uhol', fmt(uhol,2)+'°');
+  s('bocne-a25', fmt(A25)+' cm');
+  // 1 kus: predok = VP-10, zadok = VZ-10; menšia = "nerobí sa"
+  // 2 kusy: predok väčšej = VP-10, zadok väčšej = (VP+VZ)/2-10
+  //         predok menšej = VP-10, zadok menšej = (VP+VZ)/2-10
+  s('bocne-horny', k===1 ? `2× ${fmt(A25)} cm` : `4× ${fmt(A25/2)} cm`);
+  s('bocne-dolny', k===1 ? `2× ${fmt(H-10)} cm` : `4× ${fmt((H-10)/2)} cm`);
+  s('bocne-osb', `${Math.floor((B2/62.5)*2)}×`);
+  s('bocne-uhol2', k===1 ? '4× 40 cm' : '8× 40 cm');
+
+  // Obrázky — 1 kus = len prvý, 2 kusy = oba
+  if (k === 1) {
+    document.getElementById('bocne-img-row').innerHTML =
+      '<img src="images/bocne_1.png" alt="Bočná stena">';
+  } else {
+    document.getElementById('bocne-img-row').innerHTML =
+      '<img src="images/bocne_1.png" alt="Bočná stena 1"><img src="images/bocne_2.png" alt="Bočná stena 2">';
+  }
+
+  // Farby a hodnoty riadkov — menia sa podľa 1/2 kusov
+  // Labely sú vždy rovnaké (ako v Exceli), menia sa len farby a hodnoty
+  if (k === 1) {
+    // 1 KUS: predný = červená, zadný (nižší) = hnedá, stredné riadky skryté
+    document.getElementById('tr-bocne-predny').className = 'c-red';
+    document.getElementById('tr-bocne-predny').style.display = '';
+    s('bocne-predny', `2× ${fmt(D2-10)} cm`);
+
+    document.getElementById('tr-bocne-stredny').style.display = 'none';
+    document.getElementById('tr-bocne-predny2').style.display = 'none';
+
+    document.getElementById('tr-bocne-zadny').className = 'c-brown';
+    document.getElementById('tr-bocne-zadny').style.display = '';
+    s('bocne-zadny', `2× ${fmt(E2-10)} cm`);
+  } else {
+    // 2 KUSY: predok väčšej=červená, zadok väčšej=hnedá, predok menšej=fialová, zadok menšej=ružová
+    document.getElementById('tr-bocne-predny').className = 'c-red';
+    document.getElementById('tr-bocne-predny').style.display = '';
+    s('bocne-predny', `2× ${fmt(D2-10)} cm`);
+
+    document.getElementById('tr-bocne-stredny').className = 'c-brown';
+    document.getElementById('tr-bocne-stredny').style.display = '';
+    s('bocne-stredny', `2× ${fmt((D2+E2)/2-10)} cm`);
+
+    document.getElementById('tr-bocne-predny2').className = 'c-purple';
+    document.getElementById('tr-bocne-predny2').style.display = '';
+    s('bocne-predny2', `2× ${fmt((D2+E2)/2-10)} cm`);
+
+    document.getElementById('tr-bocne-zadny').className = 'c-pink';
+    document.getElementById('tr-bocne-zadny').style.display = '';
+    s('bocne-zadny', `2× ${fmt(E2-10)} cm`);
+  }
+
+  const tbl = document.getElementById('bocne-posts');
+  tbl.innerHTML = '<tr><th>Pozícia od zadnej (cm)</th><th>Výška hranola (cm)</th></tr>';
+  let pos = 62.5;
+  while (pos < B2) {
+    const ph = (E2-10) + (pos/B2)*(D2-E2);
+    tbl.innerHTML += `<tr class="c-green"><td>${fmt(pos)}</td><td>${fmt(ph)}</td></tr>`;
+    pos += 62.5;
+  }
+
+  // ── ZADNÁ ──────────────────────────────────────────────────────────
+  const Zs=S-20, Zv=VZ, Zk=Zs<300?1:2;
+  si('zadna-tit', `<span class="badge ${Zk===1?'b1':'b2'}">${Zk===1?'1 KUS':'2 KUSY'}</span>ZADNÁ STENA`);
+  s('zadna-sirka', fmt(Zs)+' cm'); s('zadna-vyska', fmt(Zv)+' cm');
+  s('zadna-horny', Zk===1?`2× ${fmt(Zs)} cm`:`4× ${fmt(Zs/2)} cm`);
+  s('zadna-bocny', Zk===1?`2× ${fmt(Zv-10)} cm`:`4× ${fmt(Zv-10)} cm`);
+  s('zadna-zvisle', `${Math.floor(Zs/62.5)}× ${fmt(Zv-10)} cm`);
+  s('zadna-uhol', Zk===2?'8× 40 cm':'4× 40 cm');
+  s('zadna-osb', `${Math.floor((Zs+10)/125.3)}× celá OSB + dorez ${fmt((Zs+10)%125.3)} cm`);
+
+  // ── PREDNÁ ─────────────────────────────────────────────────────────
+  const Ps=S-20, Pv=VP, Pk=Ps<300?1:2;
+  si('predna-tit', `<span class="badge ${Pk===1?'b1':'b2'}">${Pk===1?'1 KUS':'2 KUSY'}</span>PREDNÁ STENA`);
+  s('predna-sirka', fmt(Ps)+' cm'); s('predna-vyska', fmt(Pv)+' cm');
+  s('predna-horny', Pk===1?`2× ${fmt(Ps)} cm`:`4× ${fmt(Ps/2)} cm`);
+  s('predna-bocny', Pk===1?`2× ${fmt(Pv-10)} cm`:`4× ${fmt(Pv-10)} cm`);
+  s('predna-zvisle', `${Math.floor(Ps/62.5)}× ${fmt(Pv-10)} cm`);
+  s('predna-uhol', Pk===2?'8× 40 cm':'4× 40 cm');
+  s('predna-osb', `${Math.floor((Ps+10)/125.3)}× celá OSB + dorez ${fmt((Ps+10)%125.3)} cm`);
+
+  // ── STRECHA ────────────────────────────────────────────────────────
+  const Ss=S+3, Sh=H+3;
+  s('str-s',fmt(Ss)+' cm'); s('str-h',fmt(Sh)+' cm');
+  s('str-h1',fmt(Ss)+' cm'); s('str-h2',fmt(Ss)+' cm');
+  s('str-b1',fmt(Sh-10)+' cm'); s('str-b2',fmt(Sh-10)+' cm');
+  s('str-osb',`${Math.floor(Ss/62.5)}× ${fmt(Sh-10)} cm`);
+
+  // ── PODLAHA ────────────────────────────────────────────────────────
+  const Pos=S-4, Poh=H-4;
+  s('pod-s',fmt(Pos)+' cm'); s('pod-h',fmt(Poh)+' cm');
+  s('pod-h1',fmt(Pos)+' cm'); s('pod-h2',fmt(Pos)+' cm');
+  s('pod-b1',fmt(Poh-10)+' cm'); s('pod-b2',fmt(Poh-10)+' cm');
+  s('pod-osb',`${Math.floor(Pos/40)}× ${fmt(Poh-10)} cm`);
+
+  // ── TERASA ─────────────────────────────────────────────────────────
+  if (ST<=0) {
+    document.getElementById('ter-none').style.display='block';
+    document.getElementById('ter-content').style.display='none';
+  } else {
+    document.getElementById('ter-none').style.display='none';
+    document.getElementById('ter-content').style.display='block';
+    const Th=H+2, Ts=ST;
+    s('ter-h',fmt(Th)+' cm'); s('ter-s',fmt(Ts)+' cm');
+    s('ter-h1',fmt(Th)+' cm'); s('ter-h2',fmt(Th)+' cm');
+    s('ter-b1',fmt(Ts-10)+' cm'); s('ter-b2',fmt(Ts-10)+' cm');
+    s('ter-osb',`${Math.floor(Th/62.5)}× ${fmt(Ts-10)} cm`);
+    s('ter-vp',fmt(VP-6)+' cm'); s('ter-vz',fmt(VZ-6)+' cm');
+  }
+
+  // ── KJG ────────────────────────────────────────────────────────────
+  const sz = S + ST;
+  s('kjg-zavet-predok', `2x ${fmt((S+ST)/2)} cm`);
+  s('kjg-zavet-bok', H>300 ? `4x ${fmt(H/2+4)} cm` : `2x ${fmt(H)} cm`);
+  s('kjg-okap', `2x ${fmt((S+ST)/2+4)} cm`);
+  s('kjg-rohova-predok', `2x ${fmt(VP)} cm`);
+  s('kjg-rohova-zadok', `2x ${fmt(VZ)} cm`);
+
+  let zl;
+  if(sz<=200)zl="200 cm";
+  else if(sz<=300)zl="300 cm";
+  else if(sz<=400)zl="400 cm";
+  else if(sz<=600)zl="600 cm";
+  else if(sz<=690)zl="300 + 400 cm";
+  else if(sz<=790)zl="400 + 400 cm";
+  else if(sz<=890)zl="300 + 600 cm";
+  else if(sz<=990)zl="400 + 600 cm";
+  else if(sz<=1190)zl="600 + 600 cm";
+  else zl="NEZMESTÍ SA";
+  s('kjg-zlab', zl);
+  // čelové háky: ROUND((S+ST)/100 - 2, 0) — aktuálny vzorec z Excelu
+  s('kjg-haky', Math.round(sz/100 - 1) + ' ks');
+  s('kjg-trap', `${Math.ceil(sz/110)}x ${Math.round(H+5)} cm`);
+
+  // ── FALCOVANÝ PLECH ────────────────────────────────────────────────
+  // Zobraziť len ak je zadaný aspoň jeden kus
+  const hasFalc = fP > 0 || fZ > 0 || fL > 0 || fR > 0;
+  document.getElementById('fp-section').style.display = hasFalc ? '' : 'none';
+  if (hasFalc) {
+    s('fp-pk', fP+' ks');  s('fp-pd', fmt(VP)+' cm + výstrih');  s('fp-pk2', fmt(fP*30.5)+' cm');
+    s('fp-zk', fZ+' ks');  s('fp-zd', fmt(VZ)+' cm + výstrih');  s('fp-zk2', fmt(fZ*30.5)+' cm');
+    s('fp-lk', fL+' ks');  s('fp-ld', fmt(VP)+' cm + výstrih');  s('fp-lk2', fmt(fL*30.5)+' cm');
+    s('fp-rk', fR+' ks');  s('fp-rd', fmt(VP)+' cm + výstrih');  s('fp-rk2', fmt(fR*30.5)+' cm');
+  }
+
+  // ── MATERIÁL ───────────────────────────────────────────────────────
+  {
+    const c55 = [], c512 = [];
+    let rohKs = 0;
+
+    function addC(arr, len, qty) {
+      if (qty <= 0) return;
+      const l = Math.round(len * 10) / 10;
+      const ex = arr.find(x => Math.abs(x.l - l) < 0.05);
+      if (ex) ex.q += qty; else arr.push({l, q: qty});
+    }
+
+    // Bočné — 5×5
+    if (k === 1) {
+      addC(c55, A25,    2); // šikmý
+      addC(c55, B2,     2); // vodorovný
+      addC(c55, D2-10,  2); // predný stĺp
+      addC(c55, E2-10,  2); // zadný stĺp
+      rohKs += 4;
+    } else {
+      addC(c55, A25/2,           4);
+      addC(c55, B2/2,            4);
+      addC(c55, D2-10,           2);
+      addC(c55, (D2+E2)/2-10,    4); // zadok väčšej + predok menšej
+      addC(c55, E2-10,           2);
+      rohKs += 8;
+    }
+    // bocné zvislé vnútorné stĺpy
+    for (let pos = 62.5; pos < B2; pos += 62.5) {
+      addC(c55, (E2-10) + (pos/B2)*(D2-E2), 2);
+    }
+
+    // Zadná — 5×5
+    addC(c55, Zk===1 ? Zs   : Zs/2,   Zk===1 ? 2 : 4); // hore/dole
+    addC(c55, Zv-10,                   Zk===1 ? 2 : 4); // bočné stĺpy
+    addC(c55, Zv-10, Math.floor(Zs/62.5));               // v stene
+    rohKs += Zk===2 ? 8 : 4;
+
+    // Predná — 5×5
+    addC(c55, Pk===1 ? Ps   : Ps/2,   Pk===1 ? 2 : 4);
+    addC(c55, Pv-10,                   Pk===1 ? 2 : 4);
+    addC(c55, Pv-10, Math.floor(Ps/62.5));
+    rohKs += Pk===2 ? 8 : 4;
+
+    // Strecha — 5×12
+    addC(c512, Ss,    2);
+    addC(c512, Sh-10, 2);
+
+    // Podlaha — 5×12
+    if (!document.getElementById('bezPodlahy').checked) {
+      addC(c512, Pos,    2);
+      addC(c512, Poh-10, 2);
+    }
+
+    // Terasa — 5×12
+    if (!bezTerasy && ST > 0) {
+      addC(c512, Th,    2);
+      addC(c512, Ts-10, 2);
+    }
+
+    // Zoraď od najdlhšieho
+    c55.sort((a,b)  => b.l - a.l);
+    c512.sort((a,b) => b.l - a.l);
+
+    // m³ výpočet (dĺžky sú v cm → /100 = m)
+    // 5×5: prierez 0.05×0.05 m²
+    // 5×12: prierez 0.05×0.12 m²
+    // rohový hranol 45° (trojuholník ≈ 0.05×0.05/2 m²)
+    let vol55  = c55.reduce((s,c)  => s + 0.05*0.05*(c.l/100)*c.q, 0);
+    let vol512 = c512.reduce((s,c) => s + 0.05*0.12*(c.l/100)*c.q, 0);
+    let volRoh = 0.05*0.05*0.5 * 0.40 * rohKs;
+    let volTotal = vol55 + vol512 + volRoh;
+
+    // Bežné metre (bm)
+    let bm55  = c55.reduce((s,c)  => s + (c.l/100)*c.q, 0);
+    let bm512 = c512.reduce((s,c) => s + (c.l/100)*c.q, 0);
+
+    function fmtM3(v) { return v.toFixed(3).replace('.',',') + ' m³'; }
+    function fmtBm(v) { return v.toFixed(1).replace('.',',') + ' bm'; }
+
+    s('mat-m3-55',    fmtM3(vol55));
+    s('mat-bm-55',    fmtBm(bm55));
+    s('mat-m3-512',   fmtM3(vol512));
+    s('mat-bm-512',   fmtBm(bm512));
+    s('mat-m3-total', fmtM3(volTotal));
+    s('mat-m3-rezerva', `+ 10 % rezerva → ${fmtM3(volTotal * 1.1)}`);
+    s('mat-roh', rohKs + ' ks');
+
+    // Render zoznam rezov
+    const t55  = document.getElementById('mat-55');
+    t55.innerHTML = '<tr><th>Dĺžka</th><th>Počet</th></tr>';
+    c55.forEach(c => {
+      t55.innerHTML += `<tr><td>${fmt(c.l)} cm</td><td>${c.q} ks</td></tr>`;
+    });
+
+    const t512 = document.getElementById('mat-512');
+    t512.innerHTML = '<tr><th>Dĺžka</th><th>Počet</th></tr>';
+    c512.forEach(c => {
+      t512.innerHTML += `<tr><td>${fmt(c.l)} cm</td><td>${c.q} ks</td></tr>`;
+    });
+  }
+
+  document.getElementById('initial').style.display='none';
+  document.getElementById('allSections').style.display='block';
+}
+
+liveVP();
+updatePodlahaTab();
+updateTerasaTab();
+</script>
+</body>
+</html>
