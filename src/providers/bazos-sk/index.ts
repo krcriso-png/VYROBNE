@@ -110,35 +110,34 @@ export class BazosSkProvider extends BrowserProvider {
     return this.withContext(session, ctx, async (context) => {
       const page = await context.newPage();
 
-      // Step 1 — the add page lists the main sections (Auto, Dom a záhrada, …).
-      // We must click the section matching the listing before the form shows.
-      await page.goto(`${this.baseUrl}/pridat-inzerat.php`, {
-        waitUntil: "domcontentloaded",
-      });
-      await this.acceptCookies(page, ctx);
-      await this.debugShot(page, ctx, "sections");
-      await this.logStructure(page, ctx); // section links → basis for categories
-
+      // Step 1 — sections are subdomains with stable keys (auto, dom, pc, …).
+      // Map the listing category to a section and go straight to its add page.
       const wanted =
         (listing.parameters?.["bazosCategory"] as string | undefined) ??
         listing.category;
-      const section = await clickBestSection(page, ctx, wanted);
-      if (!section) {
-        throw new Error(
-          `Nenašiel som sekciu pre kategóriu "${wanted}". Sekcie sú v logoch (ODKAZY) a na screenshote 'sections'.`,
-        );
-      }
-      await ctx.log(`Vybraná sekcia: ${section}`);
-      await page.waitForLoadState("domcontentloaded");
-      await page.waitForTimeout(900);
-
-      // Step 2 — the section's add page (subcategory + the actual form).
-      await this.debugShot(page, ctx, "form");
+      const sectionKey = matchSectionKey(wanted);
+      const sectionUrl = `https://${sectionKey}.bazos.sk/pridat-inzerat.php`;
+      await ctx.log(`Sekcia "${wanted}" → ${sectionKey} (${sectionUrl})`);
+      await page.goto(sectionUrl, { waitUntil: "domcontentloaded" });
+      await this.acceptCookies(page, ctx);
+      await this.debugShot(page, ctx, "section-add");
       await this.logStructure(page, ctx);
+
+      // Step 2 — pick a sub-category on the section's add page if the form is
+      // not shown yet (Bazoš requires choosing one before the form appears).
+      if ((await page.locator(SELECTORS.title).count()) === 0) {
+        const sub = await clickBestSubcategory(page, ctx, wanted, sectionKey);
+        if (sub) {
+          await page.waitForLoadState("domcontentloaded");
+          await page.waitForTimeout(900);
+          await this.debugShot(page, ctx, "subcat-form");
+          await this.logStructure(page, ctx);
+        }
+      }
 
       if ((await page.locator(SELECTORS.title).count()) === 0) {
         throw new Error(
-          "Po výbere sekcie ešte nie je pole 'nadpis' — možno treba podkategóriu. Pozri screenshot 'form' + POLIA v logoch.",
+          "Stále nie je pole 'nadpis' — pozri screenshot 'section-add'/'subcat-form' a POLIA v logoch.",
         );
       }
 
@@ -236,47 +235,99 @@ function wordOverlap(a: string, b: string): number {
   return n;
 }
 
+// Bazoš main sections — each is a subdomain whose key matches the "rubriky"
+// select values. Used to route a listing to the right section's add page.
+const SECTIONS: { key: string; label: string }[] = [
+  { key: "auto", label: "Auto" },
+  { key: "reality", label: "Reality" },
+  { key: "praca", label: "Práca" },
+  { key: "zvierata", label: "Zvieratá" },
+  { key: "deti", label: "Deti detský bazár" },
+  { key: "dom", label: "Dom a záhrada byt" },
+  { key: "pc", label: "PC počítače notebooky" },
+  { key: "mobil", label: "Mobily telefóny" },
+  { key: "foto", label: "Foto fotoaparáty" },
+  { key: "elektro", label: "Elektro chladnička práčka televízor" },
+  { key: "stroje", label: "Stroje náradie" },
+  { key: "motorky", label: "Motocykle motorky skútre" },
+  { key: "sport", label: "Šport bicykle" },
+  { key: "hudba", label: "Hudba nástroje" },
+  { key: "knihy", label: "Knihy učebnice" },
+  { key: "nabytok", label: "Nábytok" },
+  { key: "oblecenie", label: "Oblečenie obuv šperky hodinky" },
+  { key: "sluzby", label: "Služby" },
+  { key: "vstupenky", label: "Vstupenky" },
+  { key: "ostatne", label: "Ostatné" },
+];
+
+/** Map a free-text category to the best Bazoš section key (fallback ostatne). */
+function matchSectionKey(category: string): string {
+  const w = norm(category);
+  let best = "ostatne";
+  let bestScore = 0;
+  for (const s of SECTIONS) {
+    const score = wordOverlap(norm(s.label), w);
+    if (score > bestScore) {
+      bestScore = score;
+      best = s.key;
+    }
+  }
+  return best;
+}
+
 /**
- * On the Bazoš add page, pick the main section best matching the listing's
- * category and navigate to its add page. Prefers links that are part of the
- * "add" flow (href contains "pridat"); falls back to "Ostatné".
- * Returns the chosen section text, or null if none found.
+ * On a section's add page, pick the sub-category best matching the listing and
+ * navigate straight to that sub-category's add form
+ * (https://<section>.bazos.sk/<slug>/pridat-inzerat.php). Returns the slug or
+ * null if no sub-category links were found.
  */
-async function clickBestSection(
+async function clickBestSubcategory(
   page: import("playwright").Page,
   ctx: ProviderContext,
   wanted: string,
+  sectionKey: string,
 ): Promise<string | null> {
-  const links = await page.$$eval("a", (as) =>
-    as
-      .map((a) => ({
-        text: (a.textContent ?? "").trim(),
-        href: (a as HTMLAnchorElement).href,
-      }))
-      .filter((l) => l.text && l.href),
+  const host = `${sectionKey}.bazos.sk`;
+  const exclude = /^(oblubene|moje-inzeraty|pridat-inzerat|prihlasit|registracia|podmienky|pomoc|otazky|hodnotenie|kontakt|reklama|ochrana-udajov|rss|mapa)/i;
+
+  const links = await page.$$eval(
+    "a",
+    (as, h) =>
+      as
+        .map((a) => {
+          const el = a as HTMLAnchorElement;
+          let path = "";
+          try {
+            const u = new URL(el.href);
+            if (u.host === h) path = u.pathname;
+          } catch {
+            /* ignore */
+          }
+          return { text: (a.textContent ?? "").trim(), path };
+        })
+        .filter((l) => l.text && /^\/[a-z0-9-]+\/$/i.test(l.path)),
+    host,
   );
 
-  const addLinks = links.filter((l) => /pridat|pridanie/i.test(l.href));
-  const pool = addLinks.length ? addLinks : links;
+  const subs = links.filter((l) => !exclude.test(l.path.replace(/^\//, "")));
+  if (subs.length === 0) return null;
 
   const w = norm(wanted);
-  let best: { text: string; href: string } | null = null;
-  let bestScore = 0;
-  for (const l of pool) {
+  let best = subs[0];
+  let bestScore = -1;
+  for (const l of subs) {
     const score = wordOverlap(norm(l.text), w);
     if (score > bestScore) {
       bestScore = score;
       best = l;
     }
   }
-  if (!best || bestScore === 0) {
-    best = pool.find((l) => /ostatn/i.test(norm(l.text))) ?? null;
-  }
-  if (!best) return null;
 
-  await ctx.log(`Klikám sekciu → ${best.text} (${best.href})`);
-  await page.goto(best.href, { waitUntil: "domcontentloaded" });
-  return best.text;
+  const slug = best.path.replace(/^\/|\/$/g, "");
+  const addUrl = `https://${host}/${slug}/pridat-inzerat.php`;
+  await ctx.log(`Podkategória → ${best.text} (${addUrl})`);
+  await page.goto(addUrl, { waitUntil: "domcontentloaded" });
+  return slug;
 }
 
 async function downloadImages(
