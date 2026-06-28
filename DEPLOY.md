@@ -27,6 +27,10 @@ Budeš potrebovať tri bezplatné účty: **GitHub** (už máš, kód je tam),
    `postgresql://...`. Klikni **Copy** a ulož si ho (napr. do poznámok).
    Budeš ho potrebovať v Kroku 2.
 
+   > ⚠️ **Dôležité:** vypni prepínač **„Connection pooling"** (alebo zvoľ
+   > „Direct connection"). Reťazec **nesmie** obsahovať `-pooler` v adrese —
+   > inak zlyhá vytvorenie databázových tabuliek pri nasadení.
+
 ---
 
 ## Krok 2 — Hosting na Vercel
