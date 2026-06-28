@@ -52,24 +52,49 @@ export class BazosSkProvider extends BrowserProvider {
   protected baseUrl = BASE_URL;
 
   async login(
-    credentials: ProviderCredentials,
+    _credentials: ProviderCredentials,
     ctx: ProviderContext,
   ): Promise<ProviderSession> {
+    // DISCOVERY MODE: Bazoš has no classic login before posting (you use the
+    // "Pridať inzerát" flow). Until the live flow is fully mapped, this step
+    // dismisses the cookie banner and records the real page structure
+    // (screenshots + links + form fields) so the publish/category/import flows
+    // can be implemented against the actual DOM.
     return this.withContext(null, ctx, async (context) => {
       const page = await context.newPage();
-      await ctx.log(`Login ${this.name}`);
+      await ctx.log(`Mapujem ${this.name}…`);
       await page.goto(`${this.baseUrl}/`, { waitUntil: "domcontentloaded" });
+      await this.acceptCookies(page, ctx);
+      await this.debugShot(page, ctx, "home");
+      await this.logStructure(page, ctx);
 
-      // TODO: confirm the live login flow / cookie consent handling.
-      await page.fill(SELECTORS.loginEmail, credentials.login ?? "");
-      await page.fill(SELECTORS.loginPassword, credentials.password ?? "");
-      await Promise.all([
-        page.waitForLoadState("networkidle"),
-        page.click(SELECTORS.loginSubmit),
-      ]);
+      // Open the add-listing flow and record what it looks like.
+      try {
+        await page
+          .getByText("Pridať inzerát", { exact: false })
+          .first()
+          .click({ timeout: 8000 });
+        await page.waitForLoadState("domcontentloaded");
+        await page.waitForTimeout(800);
+        await this.debugShot(page, ctx, "pridat-inzerat");
+        await this.logStructure(page, ctx);
+      } catch (e) {
+        await ctx.log("Nepodarilo sa otvoriť 'Pridať inzerát': " + String(e));
+      }
+
+      // Record the category map (source for category import).
+      try {
+        await page.goto(`${this.baseUrl}/mapa.php`, {
+          waitUntil: "domcontentloaded",
+        });
+        await page.waitForTimeout(500);
+        await this.debugShot(page, ctx, "mapa-kategorii");
+        await this.logStructure(page, ctx);
+      } catch (e) {
+        await ctx.log("Mapa kategórií nedostupná: " + String(e));
+      }
 
       const session = await this.snapshot(context);
-      await ctx.log("Login OK — session captured");
       return {
         ...session,
         validUntil: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7),

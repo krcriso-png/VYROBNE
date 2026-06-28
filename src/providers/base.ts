@@ -1,4 +1,9 @@
-import { chromium, type Browser, type BrowserContext } from "playwright";
+import {
+  chromium,
+  type Browser,
+  type BrowserContext,
+  type Page,
+} from "playwright";
 import type {
   Provider,
   ProviderContext,
@@ -144,5 +149,88 @@ export abstract class BrowserProvider extends BaseProvider {
   protected async snapshot(context: BrowserContext): Promise<ProviderSession> {
     const state = await context.storageState();
     return { state };
+  }
+
+  /** Dismiss a cookie-consent banner if present (best-effort, never throws). */
+  protected async acceptCookies(
+    page: Page,
+    ctx: ProviderContext,
+    labels: string[] = [
+      "Súhlasím",
+      "Súhlasím so všetkým",
+      "Prijať všetko",
+      "Accept all",
+      "Rozumiem",
+    ],
+  ): Promise<void> {
+    for (const label of labels) {
+      try {
+        const btn = page.getByText(label, { exact: false }).first();
+        if (await btn.isVisible({ timeout: 1500 })) {
+          await btn.click({ timeout: 2000 });
+          await ctx.log(`Cookie lišta: kliknuté "${label}"`);
+          await page.waitForTimeout(400);
+          return;
+        }
+      } catch {
+        // try the next label
+      }
+    }
+  }
+
+  /** Capture a labelled screenshot to storage and log its /api/blob path. */
+  protected async debugShot(
+    page: Page,
+    ctx: ProviderContext,
+    label: string,
+  ): Promise<void> {
+    try {
+      const buf = await page.screenshot({ fullPage: true });
+      const key = `debug/${this.key}-${label}-${Date.now()}.png`;
+      await putObject(key, buf, "image/png");
+      await ctx.log(`📸 [${label}] /api/blob/${key} · ${page.url()}`);
+    } catch {
+      // ignore
+    }
+  }
+
+  /**
+   * Log the page's links and form fields as text (visible in Railway logs).
+   * Used to map a portal's real DOM structure when the live site can't be
+   * inspected directly.
+   */
+  protected async logStructure(
+    page: Page,
+    ctx: ProviderContext,
+  ): Promise<void> {
+    try {
+      const links = await page.$$eval("a", (as) =>
+        as
+          .map((a) => `${(a.textContent ?? "").trim()} => ${a.getAttribute("href")}`)
+          .filter((s) => s && !s.startsWith(" =>"))
+          .slice(0, 300),
+      );
+      await ctx.log(`ODKAZY(${links.length}): ${links.join(" | ")}`);
+
+      const fields = await page.$$eval("input,select,textarea", (els) =>
+        els.map((e) => {
+          const name = e.getAttribute("name") ?? e.getAttribute("id") ?? "";
+          const type = e.getAttribute("type") ?? e.tagName.toLowerCase();
+          const opts =
+            e.tagName === "SELECT"
+              ? "[" +
+                Array.from((e as HTMLSelectElement).options)
+                  .slice(0, 40)
+                  .map((o) => `${o.value}:${o.textContent?.trim()}`)
+                  .join(",") +
+                "]"
+              : "";
+          return `${e.tagName}:${name}:${type}${opts}`;
+        }),
+      );
+      await ctx.log(`POLIA(${fields.length}): ${fields.join(" | ")}`);
+    } catch (e) {
+      await ctx.log("logStructure zlyhalo: " + String(e));
+    }
   }
 }
