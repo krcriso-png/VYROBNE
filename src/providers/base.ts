@@ -9,6 +9,7 @@ import type {
   StatusResult,
 } from "./types";
 import type { IntegrationType } from "@prisma/client";
+import { putObject } from "../lib/storage";
 
 // ===========================================================================
 // Base provider classes
@@ -87,6 +88,7 @@ export abstract class BrowserProvider extends BaseProvider {
     fn: (context: BrowserContext) => Promise<T>,
   ): Promise<T> {
     let browser: Browser | null = null;
+    let context: BrowserContext | null = null;
     try {
       browser = await chromium.launch({
         headless: ctx.headless,
@@ -99,7 +101,7 @@ export abstract class BrowserProvider extends BaseProvider {
           "--disable-gpu",
         ],
       });
-      const context = await browser.newContext({
+      context = await browser.newContext({
         // Restore cookies/localStorage captured during login().
         storageState: (session?.state as never) ?? undefined,
         userAgent:
@@ -107,8 +109,34 @@ export abstract class BrowserProvider extends BaseProvider {
         locale: "sk-SK",
       });
       return await fn(context);
+    } catch (err) {
+      // Capture what the page looked like so selectors/flows can be debugged
+      // without access to the live portal. Never let capture mask the error.
+      await this.captureDebug(context, ctx).catch(() => undefined);
+      throw err;
     } finally {
       await browser?.close();
+    }
+  }
+
+  /** Save a screenshot of each open page to storage and log where it landed. */
+  private async captureDebug(
+    context: BrowserContext | null,
+    ctx: ProviderContext,
+  ): Promise<void> {
+    if (!context) return;
+    for (const page of context.pages()) {
+      try {
+        const buf = await page.screenshot({ fullPage: true });
+        const key = `debug/${this.key}-${Date.now()}.png`;
+        await putObject(key, buf, "image/png");
+        await ctx.log(
+          `Snímka pri chybe uložená: /api/blob/${key} · stránka: ${page.url()} · titulok: "${await page.title()}"`,
+          { debugScreenshot: `/api/blob/${key}`, url: page.url() },
+        );
+      } catch {
+        // ignore capture failures
+      }
     }
   }
 
