@@ -57,7 +57,8 @@ services:
 
   app:
     build: .
-    command: sh -c "npx prisma migrate deploy && npm run start"
+    # Apply migrations, seed the portal catalogue + demo admin, then start.
+    command: sh -c "npx prisma migrate deploy && npm run db:seed && npm run start"
     depends_on:
       postgres:
         condition: service_healthy
