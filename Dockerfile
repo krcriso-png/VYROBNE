@@ -42,6 +42,10 @@ ENV REDIS_URL=redis://127.0.0.1:6379
 # schema was copied, so its Prisma client is a stub that throws at runtime.)
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /root/.cache/ms-playwright /root/.cache/ms-playwright
+# Chromium's system libraries (libnss3, libgbm, …). The deps stage installed
+# these, but the runtime stage is a separate FROM base, so install them here so
+# the browser can actually launch at runtime.
+RUN npx playwright install-deps chromium && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
 COPY --from=build /app/package.json ./package.json

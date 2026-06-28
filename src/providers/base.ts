@@ -88,7 +88,17 @@ export abstract class BrowserProvider extends BaseProvider {
   ): Promise<T> {
     let browser: Browser | null = null;
     try {
-      browser = await chromium.launch({ headless: ctx.headless });
+      browser = await chromium.launch({
+        headless: ctx.headless,
+        // Required to run Chromium as root inside a container, and to avoid
+        // crashes from a small /dev/shm on hosts like Railway.
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-gpu",
+        ],
+      });
       const context = await browser.newContext({
         // Restore cookies/localStorage captured during login().
         storageState: (session?.state as never) ?? undefined,
