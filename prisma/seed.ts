@@ -13,9 +13,18 @@ import { listProviders } from "../src/providers/registry";
 
 const prisma = new PrismaClient();
 
+// Which portals are enabled is controlled per-environment via ENABLE_PORTALS
+// (comma-separated keys). Default: just the mock portal. On a server that runs
+// the worker + browser, set e.g. ENABLE_PORTALS=mock,bazos-sk,bazos-cz.
+const ENABLED = (process.env.ENABLE_PORTALS ?? "mock")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 async function main() {
   // --- Portals from the registry ---
   for (const provider of listProviders()) {
+    const enabled = ENABLED.includes(provider.key);
     await prisma.portal.upsert({
       where: { key: provider.key },
       create: {
@@ -24,19 +33,19 @@ async function main() {
         country: provider.country,
         integration: provider.integration,
         supportsRefresh: provider.supportsRefresh,
-        // The mock portal is the only one enabled by default; real portals are
-        // turned on by an admin once their flow is verified.
-        enabled: provider.key === "mock",
+        enabled,
       },
       update: {
         name: provider.name,
         country: provider.country,
         integration: provider.integration,
         supportsRefresh: provider.supportsRefresh,
+        // Reflect the env-driven enable list on every seed run.
+        enabled,
       },
     });
   }
-  console.log(`Seeded ${listProviders().length} portals`);
+  console.log(`Seeded ${listProviders().length} portals (enabled: ${ENABLED.join(", ")})`);
 
   // --- Demo admin user ---
   const email = "admin@inzeromat.local";
