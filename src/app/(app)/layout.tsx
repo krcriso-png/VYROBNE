@@ -1,13 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Layers, LogOut } from "lucide-react";
 import { auth, signOut } from "@/lib/auth";
-
-const NAV = [
-  { href: "/dashboard", label: "Prehľad" },
-  { href: "/listings", label: "Inzeráty" },
-  { href: "/portals", label: "Portály" },
-  { href: "/billing", label: "Predplatné" },
-];
+import { AppNav } from "@/components/AppNav";
+import { Button } from "@/components/ui/button";
 
 // Shared shell for the authenticated area: sidebar nav + sign-out.
 export default async function AppLayout({
@@ -18,48 +14,57 @@ export default async function AppLayout({
   const session = await auth();
   if (!session?.user) redirect("/login");
 
+  const initial =
+    (session.user.name ?? session.user.email ?? "?").charAt(0).toUpperCase();
+
   return (
-    <div className="flex min-h-screen">
-      <aside className="flex w-60 flex-col border-r bg-card p-4">
-        <Link href="/dashboard" className="mb-8 px-2 text-lg font-bold">
-          Inzeromat
+    <div className="flex min-h-screen bg-muted/30">
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r bg-card p-4 md:flex">
+        <Link href="/dashboard" className="mb-8 flex items-center gap-2 px-2">
+          <div className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground">
+            <Layers className="size-5" />
+          </div>
+          <span className="text-lg font-bold tracking-tight">Inzeromat</span>
         </Link>
-        <nav className="flex flex-1 flex-col gap-1">
-          {NAV.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              {item.label}
-            </Link>
-          ))}
-          {session.user.role === "ADMIN" && (
-            <Link
-              href="/admin"
-              className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              Admin
-            </Link>
-          )}
-        </nav>
-        <div className="border-t pt-4 text-sm">
-          <p className="truncate px-2 text-muted-foreground">
-            {session.user.email}
-          </p>
+
+        <AppNav isAdmin={session.user.role === "ADMIN"} />
+
+        <div className="mt-auto border-t pt-4">
+          <div className="flex items-center gap-3 px-2">
+            <div className="grid size-9 shrink-0 place-items-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+              {initial}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">
+                {session.user.name ?? "Používateľ"}
+              </p>
+              <p className="truncate text-xs text-muted-foreground">
+                {session.user.email}
+              </p>
+            </div>
+          </div>
           <form
             action={async () => {
               "use server";
               await signOut({ redirectTo: "/" });
             }}
           >
-            <button className="mt-2 w-full rounded-md px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted">
-              Odhlásiť sa
-            </button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-2 w-full justify-start text-muted-foreground"
+            >
+              <LogOut className="size-4" /> Odhlásiť sa
+            </Button>
           </form>
         </div>
       </aside>
-      <main className="flex-1 bg-background p-8">{children}</main>
+
+      <div className="flex-1">
+        <main className="mx-auto max-w-6xl animate-fade-in px-5 py-8 sm:px-8">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }

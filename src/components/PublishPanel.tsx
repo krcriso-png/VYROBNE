@@ -2,27 +2,24 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { UploadCloud, ExternalLink, Send, Globe } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge, Dot } from "@/components/ui/badge";
+import { PUBLICATION_STATUS } from "@/lib/status";
 
 interface PortalOption {
   key: string;
   name: string;
+  integration: string;
   hasAccount: boolean;
 }
 
 interface PublicationState {
   portalKey: string;
-  status: string;
+  status: keyof typeof PUBLICATION_STATUS;
   remoteUrl: string | null;
 }
-
-const STATUS_ICON: Record<string, string> = {
-  PUBLISHED: "🟢",
-  PENDING: "🟡",
-  PUBLISHING: "🟡",
-  UPDATING: "🟡",
-  ERROR: "🔴",
-  REMOVED: "⚪",
-};
 
 // Client panel for a listing: upload photos and publish to selected portals.
 export function PublishPanel({
@@ -45,7 +42,8 @@ export function PublishPanel({
   function toggle(key: string) {
     setSelected((prev) => {
       const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
@@ -60,7 +58,7 @@ export function PublishPanel({
       body: fd,
     });
     setBusy(false);
-    setMessage(res.ok ? "Fotky nahraté." : "Nahrávanie zlyhalo.");
+    setMessage(res.ok ? "Fotky nahraté." : "Nahrávanie zlyhalo (skontroluj úložisko).");
     router.refresh();
   }
 
@@ -74,7 +72,7 @@ export function PublishPanel({
     });
     setBusy(false);
     if (res.ok) {
-      setMessage("Publikovanie zaradené do fronty. Sleduj stav nižšie.");
+      setMessage("Publikovanie zaradené. Sleduj stav nižšie.");
       router.refresh();
     } else {
       const data = await res.json().catch(() => ({}));
@@ -84,75 +82,101 @@ export function PublishPanel({
 
   return (
     <div className="space-y-6">
-      <section className="rounded-xl border bg-card p-6">
-        <h2 className="text-lg font-semibold">Fotografie</h2>
-        <input
-          type="file"
-          multiple
-          accept="image/*"
-          className="mt-3 text-sm"
-          onChange={(e) => uploadPhotos(e.target.files)}
-          disabled={busy}
-        />
-        <p className="mt-2 text-xs text-muted-foreground">
-          Fotky sa automaticky zmenšia, skomprimujú a prekonvertujú na WebP.
-        </p>
-      </section>
+      <Card>
+        <CardHeader>
+          <CardTitle>Fotografie</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-input p-8 text-center transition-colors hover:border-primary/50 hover:bg-muted/50">
+            <UploadCloud className="size-7 text-muted-foreground" />
+            <span className="text-sm font-medium">
+              Klikni a nahraj fotografie
+            </span>
+            <span className="text-xs text-muted-foreground">
+              Automatický resize, kompresia a konverzia na WebP
+            </span>
+            <input
+              type="file"
+              multiple
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => uploadPhotos(e.target.files)}
+              disabled={busy}
+            />
+          </label>
+        </CardContent>
+      </Card>
 
-      <section className="rounded-xl border bg-card p-6">
-        <h2 className="text-lg font-semibold">Publikovať na portály</h2>
-        <ul className="mt-4 space-y-2">
+      <Card>
+        <CardHeader>
+          <CardTitle>Publikovať na portály</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
           {portals.map((p) => {
             const pub = pubByPortal.get(p.key);
+            const st = pub ? PUBLICATION_STATUS[pub.status] : null;
+            const checked = selected.has(p.key);
             return (
-              <li
+              <label
                 key={p.key}
-                className="flex items-center justify-between rounded-md border px-3 py-2"
+                className={
+                  "flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-colors " +
+                  (checked ? "border-primary/40 bg-primary/5" : "hover:bg-muted/50") +
+                  (!p.hasAccount ? " cursor-not-allowed opacity-60" : "")
+                }
               >
-                <label className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(p.key)}
-                    onChange={() => toggle(p.key)}
-                    disabled={!p.hasAccount}
-                  />
-                  <span>{p.name}</span>
-                  {!p.hasAccount && (
-                    <span className="text-xs text-muted-foreground">
-                      (chýba účet — pridaj v sekcii Portály)
-                    </span>
-                  )}
-                </label>
-                {pub && (
-                  <span className="flex items-center gap-2 text-sm">
-                    {STATUS_ICON[pub.status] ?? "⚪"}
-                    {pub.remoteUrl && (
-                      <a
-                        href={pub.remoteUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-primary underline"
-                      >
-                        otvoriť
-                      </a>
-                    )}
-                  </span>
+                <input
+                  type="checkbox"
+                  className="size-4 accent-[hsl(var(--primary))]"
+                  checked={checked}
+                  onChange={() => toggle(p.key)}
+                  disabled={!p.hasAccount}
+                />
+                <div className="grid size-9 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
+                  <Globe className="size-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">{p.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {!p.hasAccount
+                      ? "Chýba účet — pridaj v sekcii Portály"
+                      : p.integration === "BROWSER"
+                        ? "Automatizácia prehliadača"
+                        : "API"}
+                  </p>
+                </div>
+                {st && (
+                  <Badge tone={st.tone}>
+                    <Dot tone={st.tone} /> {st.label}
+                  </Badge>
                 )}
-              </li>
+                {pub?.remoteUrl && (
+                  <a
+                    href={pub.remoteUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-muted-foreground hover:text-primary"
+                  >
+                    <ExternalLink className="size-4" />
+                  </a>
+                )}
+              </label>
             );
           })}
-        </ul>
 
-        {message && <p className="mt-4 text-sm text-muted-foreground">{message}</p>}
+          {message && (
+            <p className="pt-1 text-sm text-muted-foreground">{message}</p>
+          )}
 
-        <button
-          onClick={publish}
-          disabled={busy || selected.size === 0}
-          className="mt-4 rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-60"
-        >
-          {busy ? "Pracujem…" : "Publikovať"}
-        </button>
-      </section>
+          <div className="pt-2">
+            <Button onClick={publish} disabled={busy || selected.size === 0}>
+              <Send className="size-4" />
+              {busy ? "Pracujem…" : "Publikovať"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

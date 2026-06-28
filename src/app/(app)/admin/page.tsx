@@ -1,9 +1,12 @@
 import { redirect } from "next/navigation";
+import { Users, Clock, AlertTriangle } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { formatDate } from "@/lib/utils";
 
 // Admin panel: users, subscriptions, queue health, recent errors, portals.
-// Restricted to ADMIN role (also enforced by middleware on /admin).
 export default async function AdminPage() {
   const session = await auth();
   if (session?.user.role !== "ADMIN") redirect("/dashboard");
@@ -27,82 +30,98 @@ export default async function AdminPage() {
       }),
     ]);
 
+  const stats = [
+    { label: "Používatelia", value: users.length, icon: Users, tone: "bg-primary/10 text-primary" },
+    { label: "Fronta (čaká)", value: pendingCount, icon: Clock, tone: "bg-warning/15 text-warning" },
+    { label: "Chyby publikácií", value: errorCount, icon: AlertTriangle, tone: "bg-destructive/10 text-destructive" },
+  ];
+
   return (
-    <div className="mx-auto max-w-5xl space-y-8">
-      <h1 className="text-2xl font-bold">Admin</h1>
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Admin</h1>
+        <p className="text-sm text-muted-foreground">
+          Prehľad používateľov, fronty a portálov.
+        </p>
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <Stat label="Používatelia" value={users.length} />
-        <Stat label="Fronta (čaká)" value={pendingCount} />
-        <Stat label="Chyby publikácií" value={errorCount} />
+        {stats.map((s) => (
+          <Card key={s.label} className="p-5">
+            <div className={`grid size-10 place-items-center rounded-lg ${s.tone}`}>
+              <s.icon className="size-5" />
+            </div>
+            <p className="mt-4 text-3xl font-bold tabular-nums">{s.value}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{s.label}</p>
+          </Card>
+        ))}
       </div>
 
       <section>
-        <h2 className="mb-3 text-lg font-semibold">Portály</h2>
+        <h2 className="mb-3 font-semibold">Portály</h2>
         <div className="flex flex-wrap gap-2">
           {portals.map((p) => (
-            <span
-              key={p.id}
-              className={`rounded-full px-3 py-1 text-xs font-medium ${
-                p.enabled
-                  ? "bg-green-100 text-green-700"
-                  : "bg-muted text-muted-foreground"
-              }`}
-            >
+            <Badge key={p.id} tone={p.enabled ? "success" : "neutral"}>
               {p.name} · {p.integration} {p.enabled ? "✓" : "—"}
-            </span>
+            </Badge>
           ))}
         </div>
       </section>
 
       <section>
-        <h2 className="mb-3 text-lg font-semibold">Používatelia</h2>
-        <div className="overflow-hidden rounded-xl border">
+        <h2 className="mb-3 font-semibold">Používatelia</h2>
+        <Card className="overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-muted text-left">
+            <thead className="border-b bg-muted/50 text-left text-muted-foreground">
               <tr>
-                <th className="px-4 py-2">Email</th>
-                <th className="px-4 py-2">Plán</th>
-                <th className="px-4 py-2">Inzeráty</th>
-                <th className="px-4 py-2">Stav</th>
+                <th className="px-4 py-2.5 font-medium">Email</th>
+                <th className="px-4 py-2.5 font-medium">Plán</th>
+                <th className="px-4 py-2.5 font-medium">Inzeráty</th>
+                <th className="px-4 py-2.5 font-medium">Stav</th>
               </tr>
             </thead>
             <tbody>
               {users.map((u) => (
-                <tr key={u.id} className="border-t">
-                  <td className="px-4 py-2">{u.email}</td>
-                  <td className="px-4 py-2">{u.subscription?.plan ?? "FREE"}</td>
-                  <td className="px-4 py-2">{u._count.listings}</td>
-                  <td className="px-4 py-2">
-                    {u.blocked ? "🔴 blokovaný" : "🟢 aktívny"}
+                <tr key={u.id} className="border-b last:border-0">
+                  <td className="px-4 py-2.5">{u.email}</td>
+                  <td className="px-4 py-2.5">
+                    <Badge tone="neutral">{u.subscription?.plan ?? "FREE"}</Badge>
+                  </td>
+                  <td className="px-4 py-2.5 tabular-nums">{u._count.listings}</td>
+                  <td className="px-4 py-2.5">
+                    {u.blocked ? (
+                      <Badge tone="destructive">blokovaný</Badge>
+                    ) : (
+                      <Badge tone="success">aktívny</Badge>
+                    )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
+        </Card>
       </section>
 
       <section>
-        <h2 className="mb-3 text-lg font-semibold">Posledné chyby</h2>
-        <ul className="space-y-1 text-sm">
-          {recentErrors.map((e) => (
-            <li key={e.id} className="text-muted-foreground">
-              {e.createdAt.toLocaleString("sk-SK")} · {e.portalKey ?? "—"} ·{" "}
-              {e.message}
-            </li>
-          ))}
-        </ul>
+        <h2 className="mb-3 font-semibold">Posledné chyby</h2>
+        {recentErrors.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Žiadne chyby.</p>
+        ) : (
+          <Card className="divide-y">
+            {recentErrors.map((e) => (
+              <div key={e.id} className="flex items-start gap-3 p-3 text-sm">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+                <div>
+                  <p>{e.message}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {e.portalKey ?? "—"} · {formatDate(e.createdAt)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </Card>
+        )}
       </section>
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-xl border bg-card p-5">
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="mt-1 text-3xl font-bold">{value}</p>
     </div>
   );
 }

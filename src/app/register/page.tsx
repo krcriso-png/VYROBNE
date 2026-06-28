@@ -3,6 +3,10 @@
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 import Link from "next/link";
+import { Layers, Check } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export default function RegisterPage() {
   const [email, setEmail] = useState("");
@@ -26,65 +30,96 @@ export default function RegisterPage() {
       setLoading(false);
       return;
     }
-    // Auto sign-in after successful registration.
     await signIn("credentials", { email, password, callbackUrl: "/dashboard" });
   }
 
   return (
-    <div className="mx-auto mt-24 max-w-sm px-6">
-      <h1 className="text-2xl font-bold">Vytvoriť účet</h1>
-
-      <button
-        onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
-        className="mt-6 w-full rounded-md border py-2.5 text-sm font-medium hover:bg-muted"
-      >
-        Registrovať cez Google
-      </button>
-
-      <div className="my-6 flex items-center gap-3 text-xs text-muted-foreground">
-        <div className="h-px flex-1 bg-border" /> alebo{" "}
-        <div className="h-px flex-1 bg-border" />
-      </div>
-
-      <form onSubmit={onSubmit} className="space-y-3">
-        <input
-          placeholder="Meno (voliteľné)"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-        />
-        <input
-          type="email"
-          required
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-        />
-        <input
-          type="password"
-          required
-          minLength={8}
-          placeholder="Heslo (min. 8 znakov)"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-        />
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <button
-          disabled={loading}
-          className="w-full rounded-md bg-primary py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-60"
-        >
-          {loading ? "Vytváram…" : "Vytvoriť účet"}
-        </button>
-      </form>
-
-      <p className="mt-6 text-center text-sm text-muted-foreground">
-        Máš už účet?{" "}
-        <Link href="/login" className="text-primary">
-          Prihlás sa
+    <main className="relative flex min-h-screen items-center justify-center px-6 py-10">
+      <div className="pointer-events-none absolute inset-0 grid-bg opacity-30" />
+      <div className="w-full max-w-sm">
+        <Link href="/" className="mb-8 flex items-center justify-center gap-2">
+          <div className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
+            <Layers className="size-5" />
+          </div>
+          <span className="text-xl font-bold tracking-tight">Inzeromat</span>
         </Link>
-      </p>
-    </div>
+
+        <div className="rounded-xl border bg-card p-6 shadow-card">
+          <h1 className="text-xl font-bold">Vytvor si účet</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            7 dní zadarmo · bez záväzkov
+          </p>
+
+          <Button
+            variant="outline"
+            className="mt-6 w-full"
+            onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
+          >
+            Registrovať cez Google
+          </Button>
+
+          <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
+            <div className="h-px flex-1 bg-border" /> alebo
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
+          <form onSubmit={onSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="name">Meno (voliteľné)</Label>
+              <Input
+                id="name"
+                placeholder="Tvoje meno"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                required
+                placeholder="ty@email.sk"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="password">Heslo</Label>
+              <Input
+                id="password"
+                type="password"
+                required
+                minLength={8}
+                placeholder="min. 8 znakov"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Vytváram…" : "Vytvoriť účet"}
+            </Button>
+          </form>
+
+          <ul className="mt-5 space-y-1.5 text-xs text-muted-foreground">
+            {["Všetky portály", "Automatická obnova", "Zruš kedykoľvek"].map(
+              (f) => (
+                <li key={f} className="flex items-center gap-2">
+                  <Check className="size-3.5 text-success" /> {f}
+                </li>
+              ),
+            )}
+          </ul>
+        </div>
+
+        <p className="mt-6 text-center text-sm text-muted-foreground">
+          Máš už účet?{" "}
+          <Link href="/login" className="font-medium text-primary">
+            Prihlás sa
+          </Link>
+        </p>
+      </div>
+    </main>
   );
 }
