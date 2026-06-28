@@ -24,7 +24,7 @@ export default async function AppLayout({
           <div className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground">
             <Layers className="size-5" />
           </div>
-          <span className="text-lg font-bold tracking-tight">Inzeromat</span>
+          <span className="text-lg font-bold tracking-tight">Klikado</span>
         </Link>
 
         <AppNav isAdmin={session.user.role === "ADMIN"} />

@@ -41,7 +41,7 @@ export default function RegisterPage() {
           <div className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
             <Layers className="size-5" />
           </div>
-          <span className="text-xl font-bold tracking-tight">Inzeromat</span>
+          <span className="text-xl font-bold tracking-tight">Klikado</span>
         </Link>
 
         <div className="rounded-xl border bg-card p-6 shadow-card">

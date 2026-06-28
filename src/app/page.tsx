@@ -64,7 +64,7 @@ export default function HomePage() {
             <div className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground">
               <Layers className="size-5" />
             </div>
-            <span className="text-lg font-bold tracking-tight">Inzeromat</span>
+            <span className="text-lg font-bold tracking-tight">Klikado</span>
           </div>
           <nav className="flex items-center gap-2">
             <Link href="/login">
@@ -170,7 +170,7 @@ export default function HomePage() {
         </section>
 
         <footer className="border-t py-8 text-center text-sm text-muted-foreground">
-          © {new Date().getFullYear()} Inzeromat · API-first SaaS
+          © {new Date().getFullYear()} Klikado · API-first SaaS
         </footer>
       </div>
     </main>
