@@ -1,21 +1,18 @@
 import NextAuth from "next-auth";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import Credentials from "next-auth/providers/credentials";
-import Google from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "./db";
+import { authConfig } from "./auth.config";
 
 // ===========================================================================
-// Authentication (Auth.js / NextAuth v5)
+// Authentication (Auth.js / NextAuth v5) — Node runtime
 //
-// Supports email+password (Credentials) and Google OAuth. Apple is planned.
-// Sessions are JWT-based so the worker and API can verify without a DB round
-// trip. New users get a FREE subscription row via the createUser event.
-//
-// Email verification: OAuth sign-ins are pre-verified by the provider;
-// password sign-ups must verify via a token (see src/lib/email + the
-// verification route) before they can publish.
+// Builds on the Edge-safe `authConfig` and adds the Node-only pieces: the
+// Prisma adapter, the Credentials (email+password) provider that uses bcrypt,
+// and the createUser event. Used by API route handlers and server components.
+// The middleware uses `authConfig` directly so bcrypt/Prisma never reach Edge.
 // ===========================================================================
 
 const credentialsSchema = z.object({
@@ -24,16 +21,10 @@ const credentialsSchema = z.object({
 });
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  ...authConfig,
   adapter: PrismaAdapter(prisma),
-  session: { strategy: "jwt" },
-  pages: { signIn: "/login" },
-  trustHost: true,
   providers: [
-    Google({
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      allowDangerousEmailAccountLinking: true,
-    }),
+    ...authConfig.providers,
     Credentials({
       credentials: {
         email: { label: "Email", type: "email" },
@@ -60,22 +51,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
     }),
   ],
-  callbacks: {
-    jwt: async ({ token, user }) => {
-      if (user) {
-        token.uid = user.id;
-        token.role = user.role ?? "USER";
-      }
-      return token;
-    },
-    session: async ({ session, token }) => {
-      if (session.user) {
-        session.user.id = token.uid as string;
-        session.user.role = (token.role as "USER" | "ADMIN") ?? "USER";
-      }
-      return session;
-    },
-  },
   events: {
     // Ensure every new user has a subscription record (FREE by default).
     createUser: async ({ user }) => {

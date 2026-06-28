@@ -1,5 +1,9 @@
-import { auth } from "@/lib/auth";
+import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
+import { authConfig } from "@/lib/auth.config";
+
+// Use the Edge-safe config (no bcrypt / Prisma) for middleware auth.
+const { auth } = NextAuth(authConfig);
 
 // ===========================================================================
 // Route protection
