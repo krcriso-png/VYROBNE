@@ -9,10 +9,20 @@
 # ===========================================================================
 FROM node:22-bookworm-slim AS base
 WORKDIR /app
-# System deps: openssl/CA for Prisma+TLS, redis-server for the in-container
-# queue used by the all-in-one start command.
+# System deps, installed once in the shared base so every stage (incl. the
+# runtime) has them:
+#  - openssl/CA for Prisma + TLS
+#  - redis-server for the in-container queue used by the all-in-one start command
+#  - the full set of shared libraries Chromium needs to launch (libglib2.0-0,
+#    libnss3, libgbm1, …). Installing them explicitly here is more reliable than
+#    relying on `playwright install-deps` at a later stage.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openssl ca-certificates redis-server \
+    libglib2.0-0 libnss3 libnspr4 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 \
+    libcups2 libdrm2 libxcb1 libxkbcommon0 libatspi2.0-0 libx11-6 libxcomposite1 \
+    libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 \
+    libxtst6 libgbm1 libpango-1.0-0 libcairo2 libasound2 libxshmfence1 \
+    fonts-liberation fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*
 
 # --- deps ---
@@ -42,10 +52,7 @@ ENV REDIS_URL=redis://127.0.0.1:6379
 # schema was copied, so its Prisma client is a stub that throws at runtime.)
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /root/.cache/ms-playwright /root/.cache/ms-playwright
-# Chromium's system libraries (libnss3, libgbm, …). The deps stage installed
-# these, but the runtime stage is a separate FROM base, so install them here so
-# the browser can actually launch at runtime.
-RUN npx playwright install-deps chromium && rm -rf /var/lib/apt/lists/*
+# Chromium's system libraries are installed in the base stage (shared here).
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
 COPY --from=build /app/package.json ./package.json
