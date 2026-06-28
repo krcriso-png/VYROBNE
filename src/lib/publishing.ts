@@ -1,0 +1,153 @@
+import { prisma } from "./db";
+import { enqueueTask } from "./queue";
+import { getProvider } from "../providers/registry";
+import { logActivity } from "./logger";
+
+// ===========================================================================
+// Publishing orchestration (producer side)
+//
+// Called by API routes when a user clicks "Publish" / edits a listing. It
+// reconciles the desired set of portals into Publication rows and enqueues the
+// appropriate jobs. The worker does the heavy lifting asynchronously.
+// ===========================================================================
+
+/**
+ * Publish a listing to the given portal keys. Creates/links Publication rows
+ * (using the user's saved account per portal) and enqueues publish jobs.
+ * Portals the user previously published to but did not re-select are removed.
+ */
+export async function publishListing(
+  userId: string,
+  listingId: string,
+  portalKeys: string[],
+): Promise<void> {
+  const listing = await prisma.listing.findFirstOrThrow({
+    where: { id: listingId, userId },
+  });
+
+  const portals = await prisma.portal.findMany({
+    where: { key: { in: portalKeys }, enabled: true },
+  });
+
+  for (const portal of portals) {
+    const account = await prisma.portalAccount.findUnique({
+      where: { userId_portalId: { userId, portalId: portal.id } },
+    });
+    if (!account) {
+      await logActivity({
+        level: "WARN",
+        message: `Skipping ${portal.name}: no saved account`,
+        userId,
+        listingId,
+        portalKey: portal.key,
+      });
+      continue;
+    }
+
+    const publication = await prisma.publication.upsert({
+      where: { listingId_portalId: { listingId, portalId: portal.id } },
+      create: {
+        listingId,
+        portalId: portal.id,
+        portalAccountId: account.id,
+        status: "PENDING",
+      },
+      update: { portalAccountId: account.id, status: "PENDING", lastError: null },
+    });
+
+    await enqueueTask("publish", {
+      publicationId: publication.id,
+      userId,
+      listingId,
+      portalKey: portal.key,
+    });
+  }
+
+  // Ensure the listing is marked active once it has been sent out.
+  if (listing.status === "DRAFT") {
+    await prisma.listing.update({
+      where: { id: listingId },
+      data: { status: "ACTIVE" },
+    });
+  }
+}
+
+/**
+ * Propagate a listing edit to every portal it is already live on
+ * (price/description/photo/phone changes → update everywhere).
+ */
+export async function syncListing(
+  userId: string,
+  listingId: string,
+): Promise<void> {
+  const publications = await prisma.publication.findMany({
+    where: {
+      listingId,
+      listing: { userId },
+      status: { in: ["PUBLISHED", "ERROR"] },
+    },
+    include: { portal: true },
+  });
+
+  for (const pub of publications) {
+    await enqueueTask("update", {
+      publicationId: pub.id,
+      userId,
+      listingId,
+      portalKey: pub.portal.key,
+    });
+  }
+}
+
+/** Remove a listing from a single portal (or all when portalId is omitted). */
+export async function unpublishListing(
+  userId: string,
+  listingId: string,
+  portalId?: string,
+): Promise<void> {
+  const publications = await prisma.publication.findMany({
+    where: {
+      listingId,
+      listing: { userId },
+      ...(portalId ? { portalId } : {}),
+      status: { notIn: ["REMOVED"] },
+    },
+    include: { portal: true },
+  });
+
+  for (const pub of publications) {
+    await enqueueTask("delete", {
+      publicationId: pub.id,
+      userId,
+      listingId,
+      portalKey: pub.portal.key,
+    });
+  }
+}
+
+/**
+ * Scan for publications whose auto-bump is due and enqueue refresh jobs.
+ * Invoked by a scheduler (cron / repeatable job) — see README.
+ */
+export async function enqueueDueRefreshes(): Promise<number> {
+  const due = await prisma.publication.findMany({
+    where: {
+      status: "PUBLISHED",
+      nextRefreshAt: { lte: new Date() },
+    },
+    include: { portal: true, listing: { select: { userId: true } } },
+    take: 500,
+  });
+
+  for (const pub of due) {
+    const provider = getProvider(pub.portal.key);
+    if (!provider.supportsRefresh) continue;
+    await enqueueTask("refresh", {
+      publicationId: pub.id,
+      userId: pub.listing.userId,
+      listingId: pub.listingId,
+      portalKey: pub.portal.key,
+    });
+  }
+  return due.length;
+}

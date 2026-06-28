@@ -1,0 +1,90 @@
+# ===========================================================================
+# Local development stack: Postgres, Redis, MinIO (S3), the web app and the
+# worker. For production, run the same `app` and `worker` images behind a
+# managed Postgres/Redis/S3 (Coolify / Railway / Kubernetes).
+# ===========================================================================
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: inzeromat
+      POSTGRES_PASSWORD: inzeromat
+      POSTGRES_DB: inzeromat
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inzeromat"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+
+  # Creates the bucket on startup so the app can write immediately.
+  minio-setup:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until /usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 1; done;
+      /usr/bin/mc mb --ignore-existing local/inzeromat;
+      /usr/bin/mc anonymous set download local/inzeromat;
+      exit 0;
+      "
+
+  app:
+    build: .
+    command: sh -c "npx prisma migrate deploy && npm run start"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://inzeromat:inzeromat@postgres:5432/inzeromat?schema=public
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+    ports:
+      - "3000:3000"
+
+  worker:
+    build: .
+    command: npm run worker:prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://inzeromat:inzeromat@postgres:5432/inzeromat?schema=public
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+
+volumes:
+  pgdata:
+  miniodata:

@@ -1,0 +1,46 @@
+import { prisma } from "@/lib/db";
+import { route, json, requireUser, HttpError } from "@/lib/api";
+import { checkoutSchema } from "@/lib/validation";
+import { stripe, TRIAL_DAYS } from "@/lib/stripe";
+import { PLANS } from "@/lib/plans";
+
+// POST /api/billing/checkout — start a Stripe Checkout session for a paid plan.
+// Returns a URL the client redirects to. A 7-day trial is attached.
+export const POST = route(async (req: Request) => {
+  const user = await requireUser();
+  const { plan, interval } = checkoutSchema.parse(await req.json());
+
+  const priceId = PLANS[plan].prices[interval];
+  if (!priceId) throw new HttpError(400, "Cenník nie je nakonfigurovaný");
+
+  const sub = await prisma.subscription.findUnique({
+    where: { userId: user.id },
+  });
+
+  // Reuse or create the Stripe customer.
+  let customerId = sub?.stripeCustomerId ?? undefined;
+  if (!customerId) {
+    const customer = await stripe.customers.create({
+      email: user.email,
+      metadata: { userId: user.id },
+    });
+    customerId = customer.id;
+    await prisma.subscription.update({
+      where: { userId: user.id },
+      data: { stripeCustomerId: customerId },
+    });
+  }
+
+  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+  const checkout = await stripe.checkout.sessions.create({
+    mode: "subscription",
+    customer: customerId,
+    line_items: [{ price: priceId, quantity: 1 }],
+    subscription_data: { trial_period_days: TRIAL_DAYS },
+    success_url: `${appUrl}/dashboard?billing=success`,
+    cancel_url: `${appUrl}/billing?billing=cancelled`,
+    metadata: { userId: user.id, plan },
+  });
+
+  return json({ url: checkout.url });
+});
