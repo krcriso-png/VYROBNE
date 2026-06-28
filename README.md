@@ -92,6 +92,13 @@ src/
 
 ---
 
+## Try it online (free, no card)
+
+Want a live URL you can open in a browser without installing anything? Follow
+**[DEPLOY.md](DEPLOY.md)** — a step-by-step, non-technical guide to deploy to
+Vercel + Neon for free using the built-in demo mode (`INLINE_QUEUE=true`), where
+portal tasks run inline so no separate worker/Redis is needed.
+
 ## Getting started (local)
 
 ### 1. Prerequisites

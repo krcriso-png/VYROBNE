@@ -1,6 +1,7 @@
 import {
   createCipheriv,
   createDecipheriv,
+  createHash,
   randomBytes,
 } from "node:crypto";
 
@@ -20,13 +21,23 @@ const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
 
 function getKey(): Buffer {
-  const hex = process.env.ENCRYPTION_KEY;
-  if (!hex || hex.length !== 64) {
+  const value = process.env.ENCRYPTION_KEY;
+  if (!value) {
     throw new Error(
-      "ENCRYPTION_KEY must be a 32-byte hex string (64 chars). Generate with: openssl rand -hex 32",
+      "ENCRYPTION_KEY is not set. Generate one with: openssl rand -hex 32",
     );
   }
-  return Buffer.from(hex, "hex");
+  // Preferred form: a 32-byte hex string (64 chars) used directly as the key.
+  if (/^[0-9a-fA-F]{64}$/.test(value)) {
+    return Buffer.from(value, "hex");
+  }
+  // Fallback: derive a deterministic 32-byte key from any sufficiently long
+  // secret via SHA-256. This lets hosting platforms auto-generate the secret
+  // (any random string works) without breaking AES-256's key-length rule.
+  if (value.length < 16) {
+    throw new Error("ENCRYPTION_KEY is too short; use at least 16 characters.");
+  }
+  return createHash("sha256").update(value).digest();
 }
 
 /** Encrypt a UTF-8 string. Returns a base64 envelope, or null for empty input. */

@@ -15,6 +15,9 @@
 
 generator client {
   provider = "prisma-client-js"
+  // "native" covers local/Docker; "rhel-openssl-3.0.x" is the runtime on
+  // Vercel / AWS Lambda so the deployed app finds a matching query engine.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
