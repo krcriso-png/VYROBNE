@@ -37,8 +37,11 @@ FROM base AS runtime
 ENV NODE_ENV=production
 # Default to the in-container Redis; override REDIS_URL to use managed Redis.
 ENV REDIS_URL=redis://127.0.0.1:6379
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /root/.cache/ms-playwright /root/.cache/ms-playwright
+# IMPORTANT: copy node_modules from the BUILD stage, which ran `prisma generate`
+# with the schema present. (The deps stage generated the client before the
+# schema was copied, so its Prisma client is a stub that throws at runtime.)
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /root/.cache/ms-playwright /root/.cache/ms-playwright
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
 COPY --from=build /app/package.json ./package.json

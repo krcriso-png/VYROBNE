@@ -21,15 +21,25 @@ function LoginForm() {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    const res = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-      callbackUrl,
-    });
-    setLoading(false);
-    if (res?.error) setError("Nesprávny email alebo heslo.");
-    else window.location.href = callbackUrl;
+    try {
+      const res = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
+        callbackUrl,
+      });
+      if (res?.error) {
+        setError("Nesprávny email alebo heslo.");
+      } else if (res?.ok) {
+        window.location.href = callbackUrl;
+      } else {
+        setError("Prihlásenie zlyhalo. Skús to o chvíľu znova.");
+      }
+    } catch {
+      setError("Server momentálne neodpovedá. Skús to o chvíľu znova.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
