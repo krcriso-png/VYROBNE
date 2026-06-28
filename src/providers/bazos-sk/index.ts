@@ -123,21 +123,41 @@ export class BazosSkProvider extends BrowserProvider {
       await this.debugShot(page, ctx, "section-add");
       await this.logStructure(page, ctx);
 
-      // Step 2 — pick a sub-category on the section's add page if the form is
+      // Step 2 — choose a sub-category on the section's add page if the form is
       // not shown yet (Bazoš requires choosing one before the form appears).
-      if ((await page.locator(SELECTORS.title).count()) === 0) {
+      const hasTitle = async () =>
+        (await page.locator(SELECTORS.title).count()) > 0;
+
+      if (!(await hasTitle())) {
         const sub = await clickBestSubcategory(page, ctx, wanted, sectionKey);
         if (sub) {
-          await page.waitForLoadState("domcontentloaded");
+          await page.waitForLoadState("domcontentloaded").catch(() => {});
           await page.waitForTimeout(900);
-          await this.debugShot(page, ctx, "subcat-form");
+          await this.debugShot(page, ctx, "after-subcat");
           await this.logStructure(page, ctx);
         }
       }
 
-      if ((await page.locator(SELECTORS.title).count()) === 0) {
+      // Step 3 — some flows land on the sub-category listing page; click its
+      // "Pridať inzerát" to reach the actual form.
+      if (!(await hasTitle())) {
+        try {
+          await page
+            .getByText("Pridať inzerát", { exact: false })
+            .first()
+            .click({ timeout: 6000 });
+          await page.waitForLoadState("domcontentloaded").catch(() => {});
+          await page.waitForTimeout(900);
+          await this.debugShot(page, ctx, "after-pridat");
+          await this.logStructure(page, ctx);
+        } catch {
+          /* no such link */
+        }
+      }
+
+      if (!(await hasTitle())) {
         throw new Error(
-          "Stále nie je pole 'nadpis' — pozri screenshot 'section-add'/'subcat-form' a POLIA v logoch.",
+          "Stále nie je pole 'nadpis' — pozri screenshoty 'section-add'/'after-subcat'/'after-pridat' a POLIA v logoch.",
         );
       }
 
@@ -324,9 +344,16 @@ async function clickBestSubcategory(
   }
 
   const slug = best.path.replace(/^\/|\/$/g, "");
-  const addUrl = `https://${host}/${slug}/pridat-inzerat.php`;
-  await ctx.log(`Podkategória → ${best.text} (${addUrl})`);
-  await page.goto(addUrl, { waitUntil: "domcontentloaded" });
+  await ctx.log(`Podkategória → ${best.text} (${best.path})`);
+  // Click the real link rather than guessing an add URL.
+  try {
+    await page.click(`a[href$="${best.path}"]`, { timeout: 6000 });
+  } catch {
+    // Fall back to navigating to the subcategory page directly.
+    await page.goto(`https://${host}${best.path}`, {
+      waitUntil: "domcontentloaded",
+    });
+  }
   return slug;
 }
 
