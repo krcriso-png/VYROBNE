@@ -109,11 +109,35 @@ export class BazosSkProvider extends BrowserProvider {
   ): Promise<PublishResult> {
     return this.withContext(session, ctx, async (context) => {
       const page = await context.newPage();
-      await page.goto(`${this.baseUrl}/pridat-inzerat.php`, {
-        waitUntil: "domcontentloaded",
-      });
 
-      await ctx.log("Filling listing form");
+      // Navigate the real add-listing flow: homepage → cookies → "Pridať
+      // inzerát". The form fields only appear after this, so we capture the
+      // page structure here on every attempt for reliable diagnostics.
+      await page.goto(`${this.baseUrl}/`, { waitUntil: "domcontentloaded" });
+      await this.acceptCookies(page, ctx);
+      try {
+        await page
+          .getByText("Pridať inzerát", { exact: false })
+          .first()
+          .click({ timeout: 10000 });
+        await page.waitForLoadState("domcontentloaded");
+        await page.waitForTimeout(800);
+      } catch (e) {
+        await ctx.log("Nenašiel som 'Pridať inzerát': " + String(e));
+      }
+      await this.debugShot(page, ctx, "add-form");
+      await this.logStructure(page, ctx);
+
+      // If the title field isn't present yet, a category/section must be picked
+      // first — stop with a clear message; the screenshot + POLIA log above
+      // show exactly what the page offers so the flow can be finished.
+      if ((await page.locator(SELECTORS.title).count()) === 0) {
+        throw new Error(
+          "Formulár ešte nemá pole 'nadpis' — na Bazoši treba najprv vybrať sekciu/kategóriu. Diagnostika (screenshot 'add-form' + POLIA) je v logoch.",
+        );
+      }
+
+      await ctx.log("Vypĺňam formulár inzerátu");
       await page.fill(SELECTORS.title, listing.title);
       await page.fill(SELECTORS.description, listing.description);
       if (listing.price != null) {
@@ -123,9 +147,9 @@ export class BazosSkProvider extends BrowserProvider {
       if (listing.email) await page.fill(SELECTORS.email, listing.email);
       if (listing.phone) await page.fill(SELECTORS.phone, listing.phone);
 
-      // Photos: download from object storage then set on the file input.
+      // Photos: download from storage then set on the file input.
       if (listing.images.length > 0) {
-        await ctx.log("Upload fotiek", { count: listing.images.length });
+        await ctx.log("Nahrávam fotky", { count: listing.images.length });
         const files = await downloadImages(listing.images);
         await page.setInputFiles(SELECTORS.fileInput, files);
       }
@@ -135,10 +159,9 @@ export class BazosSkProvider extends BrowserProvider {
         page.click(SELECTORS.submit),
       ]);
 
-      // TODO: parse the confirmation page for the real listing id / URL.
       const remoteUrl = page.url();
       const remoteId = extractIdFromUrl(remoteUrl) ?? remoteUrl;
-      await ctx.log("Published", { remoteId, remoteUrl });
+      await ctx.log("Publikované", { remoteId, remoteUrl });
 
       return { remoteId, remoteUrl, session: await this.snapshot(context) };
     });
