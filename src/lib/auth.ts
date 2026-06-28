@@ -33,7 +33,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       authorize: async (raw) => {
         const parsed = credentialsSchema.safeParse(raw);
         if (!parsed.success) return null;
-        const { email, password } = parsed.data;
+        // Normalise the email so an auto-capitalised first letter or stray
+        // whitespace (common on phones) still matches the stored address.
+        const email = parsed.data.email.toLowerCase().trim();
+        const { password } = parsed.data;
 
         const user = await prisma.user.findUnique({ where: { email } });
         if (!user || !user.passwordHash || user.blocked) return null;

@@ -50,7 +50,7 @@ Pre čistotu použijeme **samostatnú databázu** (oddelenú od Vercel dema).
 
 ## ČASŤ C — Vyskúšaj reálny Bazoš
 
-1. Otvor svoju Railway adresu → **Prihlásiť sa**: `admin@inzeromat.local` /
+1. Otvor svoju Railway adresu → **Prihlásiť sa**: `admin@klikado.local` /
    `admin1234`.
 2. **Portály** → teraz uvidíš aj **Bazoš SK** a **Bazoš CZ**. Pri Bazoš SK klikni
    **Pripojiť** → zadaj **svoj reálny Bazoš login a heslo** → **Uložiť**.

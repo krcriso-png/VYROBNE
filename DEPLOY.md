@@ -65,7 +65,7 @@ Budeš potrebovať tri bezplatné účty: **GitHub** (už máš, kód je tam),
 ## Krok 3 — Vyskúšaj si to
 
 1. Klikni **Prihlásiť sa** a použi demo účet:
-   - **email:** `admin@inzeromat.local`
+   - **email:** `admin@klikado.local`
    - **heslo:** `admin1234`
 2. V ľavom menu choď do **Portály** → pri *Demo Portal (Mock)* klikni
    **Pripojiť** → zadaj hocijaký login a heslo → **Uložiť**.

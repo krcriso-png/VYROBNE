@@ -48,7 +48,7 @@ async function main() {
   console.log(`Seeded ${listProviders().length} portals (enabled: ${ENABLED.join(", ")})`);
 
   // --- Demo admin user ---
-  const email = "admin@inzeromat.local";
+  const email = "admin@klikado.local";
   const passwordHash = await bcrypt.hash("admin1234", 12);
   const admin = await prisma.user.upsert({
     where: { email },

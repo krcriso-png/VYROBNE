@@ -1,4 +1,4 @@
-# Inzeromat
+# Klikado
 
 > **Jeden inzerát, všetky portály.** Modern SaaS for managing and automatically
 > publishing classified-ad listings across many portals from a single place.
@@ -137,7 +137,7 @@ npm run dev      # Next.js app on http://localhost:3000
 npm run worker   # queue worker (separate terminal)
 ```
 
-Sign in with the demo admin: **admin@inzeromat.local / admin1234**.
+Sign in with the demo admin: **admin@klikado.local / admin1234**.
 The **mock** portal is enabled by default so you can exercise the full
 publish → queue → worker → status flow without touching a real site.
 

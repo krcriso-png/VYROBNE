@@ -8,7 +8,10 @@ import { registerSchema } from "@/lib/validation";
 // email-verification token. OAuth sign-ups go through Auth.js instead.
 export const POST = route(async (req: Request) => {
   const body = await req.json();
-  const { email, password, name } = registerSchema.parse(body);
+  const parsed = registerSchema.parse(body);
+  // Store emails lowercased so login matches regardless of capitalisation.
+  const email = parsed.email.toLowerCase().trim();
+  const { password, name } = parsed;
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) throw new HttpError(409, "Email je už zaregistrovaný");
