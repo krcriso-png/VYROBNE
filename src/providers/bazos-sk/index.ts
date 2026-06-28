@@ -110,30 +110,35 @@ export class BazosSkProvider extends BrowserProvider {
     return this.withContext(session, ctx, async (context) => {
       const page = await context.newPage();
 
-      // Navigate the real add-listing flow: homepage → cookies → "Pridať
-      // inzerát". The form fields only appear after this, so we capture the
-      // page structure here on every attempt for reliable diagnostics.
-      await page.goto(`${this.baseUrl}/`, { waitUntil: "domcontentloaded" });
+      // Step 1 — the add page lists the main sections (Auto, Dom a záhrada, …).
+      // We must click the section matching the listing before the form shows.
+      await page.goto(`${this.baseUrl}/pridat-inzerat.php`, {
+        waitUntil: "domcontentloaded",
+      });
       await this.acceptCookies(page, ctx);
-      try {
-        await page
-          .getByText("Pridať inzerát", { exact: false })
-          .first()
-          .click({ timeout: 10000 });
-        await page.waitForLoadState("domcontentloaded");
-        await page.waitForTimeout(800);
-      } catch (e) {
-        await ctx.log("Nenašiel som 'Pridať inzerát': " + String(e));
+      await this.debugShot(page, ctx, "sections");
+      await this.logStructure(page, ctx); // section links → basis for categories
+
+      const wanted =
+        (listing.parameters?.["bazosCategory"] as string | undefined) ??
+        listing.category;
+      const section = await clickBestSection(page, ctx, wanted);
+      if (!section) {
+        throw new Error(
+          `Nenašiel som sekciu pre kategóriu "${wanted}". Sekcie sú v logoch (ODKAZY) a na screenshote 'sections'.`,
+        );
       }
-      await this.debugShot(page, ctx, "add-form");
+      await ctx.log(`Vybraná sekcia: ${section}`);
+      await page.waitForLoadState("domcontentloaded");
+      await page.waitForTimeout(900);
+
+      // Step 2 — the section's add page (subcategory + the actual form).
+      await this.debugShot(page, ctx, "form");
       await this.logStructure(page, ctx);
 
-      // If the title field isn't present yet, a category/section must be picked
-      // first — stop with a clear message; the screenshot + POLIA log above
-      // show exactly what the page offers so the flow can be finished.
       if ((await page.locator(SELECTORS.title).count()) === 0) {
         throw new Error(
-          "Formulár ešte nemá pole 'nadpis' — na Bazoši treba najprv vybrať sekciu/kategóriu. Diagnostika (screenshot 'add-form' + POLIA) je v logoch.",
+          "Po výbere sekcie ešte nie je pole 'nadpis' — možno treba podkategóriu. Pozri screenshot 'form' + POLIA v logoch.",
         );
       }
 
@@ -212,6 +217,67 @@ export class BazosSkProvider extends BrowserProvider {
 }
 
 // --- helpers ---------------------------------------------------------------
+
+/** Normalise text for matching: lowercase, strip diacritics. */
+function norm(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim();
+}
+
+/** Count shared significant words between two normalised strings. */
+function wordOverlap(a: string, b: string): number {
+  const wa = new Set(a.split(/[^a-z0-9]+/).filter((w) => w.length > 2));
+  const wb = b.split(/[^a-z0-9]+/).filter((w) => w.length > 2);
+  let n = 0;
+  for (const w of wb) if (wa.has(w)) n++;
+  return n;
+}
+
+/**
+ * On the Bazoš add page, pick the main section best matching the listing's
+ * category and navigate to its add page. Prefers links that are part of the
+ * "add" flow (href contains "pridat"); falls back to "Ostatné".
+ * Returns the chosen section text, or null if none found.
+ */
+async function clickBestSection(
+  page: import("playwright").Page,
+  ctx: ProviderContext,
+  wanted: string,
+): Promise<string | null> {
+  const links = await page.$$eval("a", (as) =>
+    as
+      .map((a) => ({
+        text: (a.textContent ?? "").trim(),
+        href: (a as HTMLAnchorElement).href,
+      }))
+      .filter((l) => l.text && l.href),
+  );
+
+  const addLinks = links.filter((l) => /pridat|pridanie/i.test(l.href));
+  const pool = addLinks.length ? addLinks : links;
+
+  const w = norm(wanted);
+  let best: { text: string; href: string } | null = null;
+  let bestScore = 0;
+  for (const l of pool) {
+    const score = wordOverlap(norm(l.text), w);
+    if (score > bestScore) {
+      bestScore = score;
+      best = l;
+    }
+  }
+  if (!best || bestScore === 0) {
+    best = pool.find((l) => /ostatn/i.test(norm(l.text))) ?? null;
+  }
+  if (!best) return null;
+
+  await ctx.log(`Klikám sekciu → ${best.text} (${best.href})`);
+  await page.goto(best.href, { waitUntil: "domcontentloaded" });
+  return best.text;
+}
 
 async function downloadImages(
   images: ListingPayload["images"],
