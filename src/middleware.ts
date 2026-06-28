@@ -14,7 +14,7 @@ const { auth } = NextAuth(authConfig);
 // ===========================================================================
 
 const PROTECTED_PAGES = ["/dashboard", "/listings", "/portals", "/billing", "/admin"];
-const PUBLIC_API = ["/api/auth", "/api/register", "/api/webhooks"];
+const PUBLIC_API = ["/api/auth", "/api/register", "/api/webhooks", "/api/blob"];
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;

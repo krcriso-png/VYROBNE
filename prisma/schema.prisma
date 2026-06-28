@@ -379,6 +379,21 @@ model ActivityLog {
 }
 
 // ---------------------------------------------------------------------------
+// Image blobs (zero-config storage fallback)
+//
+// When no S3-compatible storage is configured, processed image renditions are
+// stored here and served via /api/blob/<key>. This lets image upload work out
+// of the box on a single-service deploy; configure S3/R2 for production scale.
+// ---------------------------------------------------------------------------
+
+model ImageBlob {
+  key         String   @id
+  data        Bytes
+  contentType String   @default("image/webp")
+  createdAt   DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
 // Notifications
 // ---------------------------------------------------------------------------
 
