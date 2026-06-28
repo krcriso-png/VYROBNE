@@ -50,6 +50,7 @@ Budeš potrebovať tri bezplatné účty: **GitHub** (už máš, kód je tam),
    | `AUTH_SECRET` | *(napíš aspoň 30 náhodných znakov, napr. búchaj do klávesnice)* |
    | `ENCRYPTION_KEY` | *(napíš aspoň 20 náhodných znakov)* |
    | `AUTH_TRUST_HOST` | `true` |
+   | `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` | `1` |
 
 6. Klikni **Deploy** a počkaj ~2–3 minúty, kým to zostaví.
 7. Po dokončení klikni na vygenerovaný odkaz (napr.
