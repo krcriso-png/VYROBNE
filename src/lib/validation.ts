@@ -11,6 +11,7 @@ export const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8, "Heslo musí mať aspoň 8 znakov"),
   name: z.string().min(1).max(120).optional(),
+  phone: z.string().max(40).optional(),
 });
 
 export const listingInputSchema = z.object({

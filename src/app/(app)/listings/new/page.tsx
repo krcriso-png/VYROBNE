@@ -8,7 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CategoryPicker } from "@/components/CategoryPicker";
+import { bazosCategoryLabel } from "@/lib/bazos-categories";
 
 // Create-listing form. Posts to the API, then redirects to the detail page
 // where photos are uploaded and the listing is published.
@@ -19,7 +22,9 @@ export default function NewListingPage() {
     description: "",
     price: "",
     currency: "EUR",
-    category: "",
+    section: "",
+    subcategory: "",
+    renewIntervalHours: "",
     location: "",
     zip: "",
     contactName: "",
@@ -34,16 +39,23 @@ export default function NewListingPage() {
   useEffect(() => {
     fetch("/api/me")
       .then((r) => r.json())
-      .then((me: { name: string | null; email: string | null }) => {
-        setForm((f) => ({
-          ...f,
-          contactName:
-            f.contactName ||
-            me.name ||
-            (me.email ? me.email.split("@")[0] : ""),
-          contactEmail: f.contactEmail || me.email || "",
-        }));
-      })
+      .then(
+        (me: {
+          name: string | null;
+          email: string | null;
+          phone: string | null;
+        }) => {
+          setForm((f) => ({
+            ...f,
+            contactName:
+              f.contactName ||
+              me.name ||
+              (me.email ? me.email.split("@")[0] : ""),
+            contactEmail: f.contactEmail || me.email || "",
+            phone: f.phone || me.phone || "",
+          }));
+        },
+      )
       .catch(() => undefined);
   }, []);
 
@@ -59,9 +71,22 @@ export default function NewListingPage() {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        ...form,
+        title: form.title,
+        description: form.description,
         price: form.price ? Number(form.price) : null,
+        currency: form.currency,
+        category: bazosCategoryLabel(form.section, form.subcategory),
+        parameters: {
+          bazosSection: form.section,
+          bazosCategory: form.subcategory,
+        },
+        renewIntervalHours: form.renewIntervalHours
+          ? Number(form.renewIntervalHours)
+          : null,
+        location: form.location || null,
+        zip: form.zip || null,
         contactName: form.contactName || null,
+        phone: form.phone || null,
         contactEmail: form.contactEmail || null,
       }),
     });
@@ -146,15 +171,28 @@ export default function NewListingPage() {
                 />
               </div>
             </div>
+            <CategoryPicker
+              section={form.section}
+              subcategory={form.subcategory}
+              onChange={(section, subcategory) =>
+                setForm((f) => ({ ...f, section, subcategory }))
+              }
+            />
             <div className="space-y-1.5">
-              <Label htmlFor="category">Kategória *</Label>
-              <Input
-                id="category"
-                required
-                placeholder="napr. Záhrada / Domčeky"
-                value={form.category}
-                onChange={(e) => set("category", e.target.value)}
-              />
+              <Label htmlFor="renew">Automatické topovanie</Label>
+              <Select
+                id="renew"
+                value={form.renewIntervalHours}
+                onChange={(e) => set("renewIntervalHours", e.target.value)}
+              >
+                <option value="">Vypnuté</option>
+                <option value="24">Každých 24 hodín</option>
+                <option value="48">Každých 48 hodín</option>
+                <option value="168">Každý týždeň</option>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Inzerát sa automaticky zmaže a nahrá znova, aby bol stále navrchu.
+              </p>
             </div>
           </CardContent>
         </Card>

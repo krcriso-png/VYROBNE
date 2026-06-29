@@ -7,7 +7,11 @@ export const GET = route(async () => {
   const u = await requireUser();
   const user = await prisma.user.findUnique({
     where: { id: u.id },
-    select: { name: true, email: true },
+    select: { name: true, email: true, phone: true },
   });
-  return json({ name: user?.name ?? null, email: user?.email ?? null });
+  return json({
+    name: user?.name ?? null,
+    email: user?.email ?? null,
+    phone: user?.phone ?? null,
+  });
 });

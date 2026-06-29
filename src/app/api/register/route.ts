@@ -11,7 +11,7 @@ export const POST = route(async (req: Request) => {
   const parsed = registerSchema.parse(body);
   // Store emails lowercased so login matches regardless of capitalisation.
   const email = parsed.email.toLowerCase().trim();
-  const { password, name } = parsed;
+  const { password, name, phone } = parsed;
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) throw new HttpError(409, "Email je už zaregistrovaný");
@@ -21,6 +21,7 @@ export const POST = route(async (req: Request) => {
     data: {
       email,
       name,
+      phone,
       passwordHash,
       subscription: { create: { plan: "FREE", status: "ACTIVE" } },
     },

@@ -113,11 +113,19 @@ export class BazosSkProvider extends BrowserProvider {
       const page = await context.newPage();
 
       // Step 1 — sections are subdomains with stable keys (auto, dom, pc, …).
-      // Map the listing category to a section and go straight to its add page.
-      const wanted =
-        (listing.parameters?.["bazosCategory"] as string | undefined) ??
-        listing.category;
-      const sectionKey = matchSectionKey(wanted);
+      // Prefer the section/subcategory the user picked in Klikado's category
+      // picker (stored in parameters); fall back to matching the free text.
+      const pickedSection = listing.parameters?.["bazosSection"] as
+        | string
+        | undefined;
+      const pickedSub = listing.parameters?.["bazosCategory"] as
+        | string
+        | undefined;
+      const wanted = pickedSub || listing.category;
+      const sectionKey =
+        pickedSection && SECTIONS.some((s) => s.key === pickedSection)
+          ? pickedSection
+          : matchSectionKey(wanted);
       const sectionUrl = `https://${sectionKey}.bazos.sk/pridat-inzerat.php`;
       await ctx.log(`Sekcia "${wanted}" → ${sectionKey} (${sectionUrl})`);
       await page.goto(sectionUrl, { waitUntil: "domcontentloaded" });

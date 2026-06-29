@@ -12,6 +12,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -22,7 +23,7 @@ export default function RegisterPage() {
     const res = await fetch("/api/register", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, password, name }),
+      body: JSON.stringify({ email, password, name, phone }),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -65,13 +66,25 @@ export default function RegisterPage() {
 
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="name">Meno (voliteľné)</Label>
+              <Label htmlFor="name">Meno</Label>
               <Input
                 id="name"
                 placeholder="Tvoje meno"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="phone">Telefón</Label>
+              <Input
+                id="phone"
+                placeholder="0900 000 000"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Predvyplní sa do tvojich inzerátov (vieš ho zmeniť).
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="email">Email</Label>

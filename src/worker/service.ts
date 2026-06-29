@@ -270,6 +270,28 @@ export async function runUpdate(data: BaseJobData): Promise<void> {
   };
   const payload = await buildPayload(data.listingId);
   const provider = getProvider(data.portalKey);
+
+  // For "repost" portals (Bazoš), an edit = delete the old ad + publish the
+  // updated one, so the change is reflected on the portal.
+  if (provider.refreshStrategy === "repost") {
+    await ctx.log("Aktualizujem inzerát na portáli (zmazať + nahrať znova)");
+    try {
+      await provider.delete(pub.remoteId, session, ctx);
+    } catch (err) {
+      await ctx.log("Mazanie pri úprave zlyhalo, pokračujem: " + String(err));
+    }
+    const reposted = await provider.publish(payload, session, ctx);
+    await persistSessionRefresh(data.publicationId, reposted.session);
+    await setStatus(data.publicationId, "PUBLISHED", {
+      remoteId: reposted.remoteId,
+      remoteUrl: reposted.remoteUrl,
+      publishedAt: new Date(),
+      lastSyncedAt: new Date(),
+      lastError: null,
+    });
+    return;
+  }
+
   const result = await provider.update(pub.remoteId, payload, session, ctx);
   await persistSessionRefresh(data.publicationId, result.session);
   await setStatus(data.publicationId, "PUBLISHED", {

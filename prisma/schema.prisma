@@ -39,6 +39,7 @@ model User {
   email         String    @unique
   emailVerified DateTime?
   name          String?
+  phone         String? // default contact phone, pre-filled into new listings
   image         String?
   passwordHash  String? // null when the user only uses OAuth
   role          UserRole  @default(USER)

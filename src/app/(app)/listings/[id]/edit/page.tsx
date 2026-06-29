@@ -8,14 +8,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CategoryPicker } from "@/components/CategoryPicker";
+import { bazosCategoryLabel } from "@/lib/bazos-categories";
 
 type Form = {
   title: string;
   description: string;
   price: string;
   currency: string;
-  category: string;
+  section: string;
+  subcategory: string;
+  renewIntervalHours: string;
   location: string;
   zip: string;
   contactName: string;
@@ -28,7 +33,9 @@ const EMPTY: Form = {
   description: "",
   price: "",
   currency: "EUR",
-  category: "",
+  section: "",
+  subcategory: "",
+  renewIntervalHours: "",
   location: "",
   zip: "",
   contactName: "",
@@ -59,12 +66,18 @@ export default function EditListingPage({
         return;
       }
       const { listing } = await res.json();
+      const params = (listing.parameters ?? {}) as Record<string, unknown>;
       setForm({
         title: listing.title ?? "",
         description: listing.description ?? "",
         price: listing.price != null ? String(listing.price) : "",
         currency: listing.currency ?? "EUR",
-        category: listing.category ?? "",
+        section: (params.bazosSection as string) ?? "",
+        subcategory: (params.bazosCategory as string) ?? "",
+        renewIntervalHours:
+          listing.renewIntervalHours != null
+            ? String(listing.renewIntervalHours)
+            : "",
         location: listing.location ?? "",
         zip: listing.zip ?? "",
         contactName: listing.contactName ?? "",
@@ -87,9 +100,22 @@ export default function EditListingPage({
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        ...form,
+        title: form.title,
+        description: form.description,
         price: form.price ? Number(form.price) : null,
+        currency: form.currency,
+        category: bazosCategoryLabel(form.section, form.subcategory),
+        parameters: {
+          bazosSection: form.section,
+          bazosCategory: form.subcategory,
+        },
+        renewIntervalHours: form.renewIntervalHours
+          ? Number(form.renewIntervalHours)
+          : null,
+        location: form.location || null,
+        zip: form.zip || null,
         contactName: form.contactName || null,
+        phone: form.phone || null,
         contactEmail: form.contactEmail || null,
       }),
     });
@@ -169,14 +195,28 @@ export default function EditListingPage({
                 />
               </div>
             </div>
+            <CategoryPicker
+              section={form.section}
+              subcategory={form.subcategory}
+              onChange={(section, subcategory) =>
+                setForm((f) => ({ ...f, section, subcategory }))
+              }
+            />
             <div className="space-y-1.5">
-              <Label htmlFor="category">Kategória *</Label>
-              <Input
-                id="category"
-                required
-                value={form.category}
-                onChange={(e) => set("category", e.target.value)}
-              />
+              <Label htmlFor="renew">Automatické topovanie</Label>
+              <Select
+                id="renew"
+                value={form.renewIntervalHours}
+                onChange={(e) => set("renewIntervalHours", e.target.value)}
+              >
+                <option value="">Vypnuté</option>
+                <option value="24">Každých 24 hodín</option>
+                <option value="48">Každých 48 hodín</option>
+                <option value="168">Každý týždeň</option>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Inzerát sa automaticky zmaže a nahrá znova, aby bol stále navrchu.
+              </p>
             </div>
           </CardContent>
         </Card>
