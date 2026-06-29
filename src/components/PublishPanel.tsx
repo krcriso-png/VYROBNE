@@ -9,6 +9,7 @@ import {
   Globe,
   MessageSquareLock,
   AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -101,6 +102,24 @@ export function PublishPanel({
       setMessage(data.error ?? "Publikovanie zlyhalo.");
     }
   }
+
+  async function topovat() {
+    setBusy(true);
+    setMessage(null);
+    const res = await fetch(`/api/listings/${listingId}/refresh`, {
+      method: "POST",
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    setMessage(
+      res.ok
+        ? `Topovanie zaradené (${data.queued ?? 0}). Inzerát sa zmaže a nahrá znova.`
+        : (data.error ?? "Topovanie zlyhalo."),
+    );
+    router.refresh();
+  }
+
+  const hasPublished = publications.some((p) => p.status === "PUBLISHED");
 
   const waiting = publications.filter((p) => p.status === "WAITING_SMS");
 
@@ -199,11 +218,21 @@ export function PublishPanel({
             <p className="pt-1 text-sm text-muted-foreground">{message}</p>
           )}
 
-          <div className="pt-2">
+          <div className="flex gap-2 pt-2">
             <Button onClick={publish} disabled={busy || selected.size === 0}>
               <Send className="size-4" />
               {busy ? "Pracujem…" : "Publikovať"}
             </Button>
+            {hasPublished && (
+              <Button
+                variant="outline"
+                onClick={topovat}
+                disabled={busy}
+                title="Zmaže inzerát a nahrá ho znova (čerstvý dátum)"
+              >
+                <RefreshCw className="size-4" /> Topovať
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>

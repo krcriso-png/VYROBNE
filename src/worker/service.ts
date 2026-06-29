@@ -285,8 +285,53 @@ export async function runRefresh(data: BaseJobData): Promise<void> {
     where: { id: data.publicationId },
   });
   if (!pub.remoteId) return;
-  const { session } = await ensureSession(data.publicationId, data, ctx);
+  const { session, credentials, accountId, verifyPhone } = await ensureSession(
+    data.publicationId,
+    data,
+    ctx,
+  );
+  ctx.secrets = {
+    login: credentials.login,
+    password: credentials.password,
+    verifyPhone,
+  };
+  ctx.saveSession = async (s) => {
+    await prisma.portalAccount.update({
+      where: { id: accountId },
+      data: {
+        sessionEnc: encryptJson(s.state),
+        sessionValidUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        needsReauth: false,
+      },
+    });
+  };
   const provider = getProvider(data.portalKey);
+
+  if (provider.refreshStrategy === "repost") {
+    // "Topovať" = delete the old ad and publish a fresh one.
+    await ctx.log("Topujem inzerát (zmazať + nahrať znova)");
+    try {
+      await provider.delete(pub.remoteId, session, ctx);
+    } catch (err) {
+      await ctx.log("Mazanie pri topovaní zlyhalo, pokračujem: " + String(err));
+    }
+    const payload = await buildPayload(data.listingId);
+    const result = await provider.publish(payload, session, ctx);
+    await persistSessionRefresh(data.publicationId, result.session);
+    await prisma.publication.update({
+      where: { id: data.publicationId },
+      data: {
+        remoteId: result.remoteId,
+        remoteUrl: result.remoteUrl,
+        publishedAt: new Date(),
+        lastRefreshedAt: new Date(),
+        lastError: null,
+        nextRefreshAt: await computeNextRefresh(data.listingId, true),
+      },
+    });
+    return;
+  }
+
   await provider.refresh(pub.remoteId, session, ctx);
   await prisma.publication.update({
     where: { id: data.publicationId },

@@ -48,6 +48,8 @@ export class BazosSkProvider extends BrowserProvider {
   readonly name: string = "Bazoš SK";
   readonly country: string = "SK";
   readonly supportsRefresh = true;
+  // "Topovať" = delete the ad and re-post it (Bazoš has no free bump).
+  readonly refreshStrategy = "repost" as const;
 
   protected baseUrl = BASE_URL;
 
@@ -249,25 +251,45 @@ export class BazosSkProvider extends BrowserProvider {
       await this.debugShot(page, ctx, "after-confirm");
       await this.logStructure(page, ctx);
 
-      // Only report success if we can see a real, live ad.
+      // Determine success robustly. The result page usually links to the new
+      // ad (/inzerat/<id>); also accept a success message, or simply that the
+      // add form is gone and there is no validation error on the page.
       const url = page.url();
       const body = await page
         .locator("body")
         .innerText()
         .catch(() => "");
-      const idMatch = url.match(/\/inzerat\/(\d+)/);
+      const adHref = await page
+        .locator('a[href*="/inzerat/"]')
+        .first()
+        .getAttribute("href")
+        .catch(() => null);
+      const idMatch =
+        url.match(/\/inzerat\/(\d+)/) ??
+        (adHref ? adHref.match(/\/inzerat\/(\d+)/) : null);
+
+      const formStillThere =
+        (await page.locator('input[name="nadpis"]').count()) > 0;
+      const validationError =
+        /(vyplň|povinné|nesprávn|zadajte|musíte vyplniť|chyba pri)/i.test(body);
+      const successText =
+        /(bol|bola).{0,8}(pridan|vlož|zverejnen)|úspešne|aktivovan|ďakujeme/i.test(
+          body,
+        );
+
       const live =
-        !!idMatch ||
-        /bol pridan|úspešne|zverejnen|inzerát.*(pridan|aktiv)/i.test(body);
+        !!idMatch || successText || (!formStillThere && !validationError);
+
       if (!live) {
         const hint = body.replace(/\s+/g, " ").slice(0, 300);
         throw new Error(
-          `Bazoš nepotvrdil zverejnenie inzerátu — pravdepodobne chýba povinné pole alebo je krok navyše. Pozri screenshot 'after-confirm'. Text stránky: ${hint}`,
+          `Bazoš nepotvrdil zverejnenie inzerátu — pravdepodobne chýba povinné pole. Text stránky: ${hint}`,
         );
       }
 
-      const remoteUrl = url;
-      const remoteId = idMatch ? idMatch[1] : url;
+      // Prefer the actual ad URL when present.
+      const remoteUrl = adHref ? new URL(adHref, url).href : url;
+      const remoteId = idMatch ? idMatch[1] : remoteUrl;
       await ctx.log("Inzerát zverejnený ✅", { remoteId, remoteUrl });
       return { remoteId, remoteUrl, session: await this.snapshot(context) };
     });
@@ -382,9 +404,55 @@ export class BazosSkProvider extends BrowserProvider {
   ): Promise<void> {
     await this.withContext(session, ctx, async (context) => {
       const page = await context.newPage();
-      await ctx.log("Delete listing", { remoteId });
-      // TODO: navigate to the manage page and confirm deletion.
-      await page.goto(`${this.baseUrl}/`, { waitUntil: "domcontentloaded" });
+      const url = remoteId.startsWith("http")
+        ? remoteId
+        : `${this.baseUrl}/inzerat/${remoteId}`;
+      await ctx.log("Mažem inzerát z Bazoša", { remoteId });
+      await page.goto(url, { waitUntil: "domcontentloaded" }).catch(() => {});
+      await this.acceptCookies(page, ctx);
+      await this.debugShot(page, ctx, "delete-ad");
+      await this.logStructure(page, ctx);
+
+      const pass = ctx.secrets?.password || "";
+
+      // The ad page offers an "Editovať / Zmazať inzerát" link.
+      const delLink = page.getByText(/Zmazať inzer/i).first();
+      const editLink = page.getByText(/Editovať inzer/i).first();
+      if (await delLink.count()) {
+        await delLink.click().catch(() => {});
+      } else if (await editLink.count()) {
+        await editLink.click().catch(() => {});
+      } else {
+        throw new Error(
+          "Nenašiel som odkaz na úpravu/zmazanie inzerátu — pozri screenshot 'delete-ad'.",
+        );
+      }
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      await page.waitForTimeout(1000);
+      await this.debugShot(page, ctx, "delete-step2");
+      await this.logStructure(page, ctx);
+
+      // Enter the ad password if requested.
+      const passField = page
+        .locator(
+          'input[name="heslobazar"], input[name="heslo"], input[type="password"]',
+        )
+        .first();
+      if ((await passField.count()) && pass) {
+        await passField.fill(pass).catch(() => {});
+      }
+
+      // Confirm the deletion.
+      await page
+        .getByRole("button", { name: /Zmazať|Vymazať|Odstrániť|Potvrdiť/i })
+        .first()
+        .click({ timeout: 6000 })
+        .catch(() => page.click('input[type="submit"]').catch(() => {}));
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      await page.waitForTimeout(1000);
+      await this.debugShot(page, ctx, "delete-done");
+      await this.logStructure(page, ctx);
+      await ctx.log("Inzerát zmazaný (alebo pokus dokončený)");
     });
   }
 

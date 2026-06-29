@@ -132,6 +132,31 @@ export async function unpublishListing(
 }
 
 /**
+ * Manually "bump" (topovať) a listing now — enqueue a refresh for every portal
+ * it's live on, staggered so portals aren't hammered. Returns how many queued.
+ */
+export async function refreshListing(
+  userId: string,
+  listingId: string,
+): Promise<number> {
+  const pubs = await prisma.publication.findMany({
+    where: { listingId, listing: { userId }, status: "PUBLISHED" },
+    include: { portal: true },
+  });
+  const STAGGER_MS = Number(process.env.REFRESH_STAGGER_MS ?? 90_000);
+  let i = 0;
+  for (const pub of pubs) {
+    await enqueueTask(
+      "refresh",
+      { publicationId: pub.id, userId, listingId, portalKey: pub.portal.key },
+      { delayMs: i * STAGGER_MS },
+    );
+    i++;
+  }
+  return pubs.length;
+}
+
+/**
  * Scan for publications whose auto-bump is due and enqueue refresh jobs.
  * Invoked by a scheduler (cron / repeatable job) — see README.
  */
@@ -145,15 +170,24 @@ export async function enqueueDueRefreshes(): Promise<number> {
     take: 500,
   });
 
+  // Stagger jobs so we don't hammer a portal (and get rate-limited/blocked).
+  // Each subsequent due item is delayed a bit more than the previous one.
+  const STAGGER_MS = Number(process.env.REFRESH_STAGGER_MS ?? 90_000);
+  let i = 0;
   for (const pub of due) {
     const provider = getProvider(pub.portal.key);
     if (!provider.supportsRefresh) continue;
-    await enqueueTask("refresh", {
-      publicationId: pub.id,
-      userId: pub.listing.userId,
-      listingId: pub.listingId,
-      portalKey: pub.portal.key,
-    });
+    await enqueueTask(
+      "refresh",
+      {
+        publicationId: pub.id,
+        userId: pub.listing.userId,
+        listingId: pub.listingId,
+        portalKey: pub.portal.key,
+      },
+      { delayMs: i * STAGGER_MS },
+    );
+    i++;
   }
   return due.length;
 }

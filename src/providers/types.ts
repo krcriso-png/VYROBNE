@@ -109,6 +109,12 @@ export interface Provider {
   readonly country: string;
   readonly integration: IntegrationType;
   readonly supportsRefresh: boolean;
+  /**
+   * How a "bump/refresh" is performed:
+   *  - "native": call refresh() (a real top/bump action on the portal)
+   *  - "repost": delete the ad and publish it again (gets a fresh date)
+   */
+  readonly refreshStrategy?: "native" | "repost";
 
   /** Establish/validate a session from credentials. */
   login(

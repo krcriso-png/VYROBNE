@@ -47,6 +47,9 @@ FROM base AS runtime
 ENV NODE_ENV=production
 # Default to the in-container Redis; override REDIS_URL to use managed Redis.
 ENV REDIS_URL=redis://127.0.0.1:6379
+# Browser automation is heavy — keep worker concurrency low in this all-in-one
+# image to avoid memory pressure and hitting portal rate limits.
+ENV WORKER_CONCURRENCY=2
 # IMPORTANT: copy node_modules from the BUILD stage, which ran `prisma generate`
 # with the schema present. (The deps stage generated the client before the
 # schema was copied, so its Prisma client is a stub that throws at runtime.)
