@@ -1,3 +1,4 @@
+import sharp from "sharp";
 import { BrowserProvider } from "../base";
 import type {
   ProviderContext,
@@ -269,8 +270,9 @@ export class BazosSkProvider extends BrowserProvider {
         );
       }
 
-      // Real Bazoš add-form field names (verified from the live form).
+      // Log the real add-form fields so per-market field names can be verified.
       await ctx.log("Vypĺňam formulár inzerátu");
+      await this.logStructure(page, ctx);
       await page.fill('input[name="nadpis"]', listing.title);
       await page.fill('textarea[name="popis"]', listing.description);
 
@@ -301,13 +303,21 @@ export class BazosSkProvider extends BrowserProvider {
         "Inzerent";
       await page.fill('input[name="jmeno"]', jmeno).catch(() => {});
       // Always submit the phone in international format (+421/+420) so foreign
-      // portals accept it.
+      // portals accept it. Field name differs slightly across markets.
       const phone = formatPhone(listing.phone, this.phonePrefix);
       if (phone) {
-        await page.fill('input[name="telefoni"]', phone).catch(() => {});
+        await fillFirst(
+          page,
+          ['input[name="telefoni"]', 'input[name="telefon"]'],
+          phone,
+        );
       }
       if (listing.email) {
-        await page.fill('input[name="maili"]', listing.email).catch(() => {});
+        await fillFirst(
+          page,
+          ['input[name="maili"]', 'input[name="mail"]', 'input[name="maileditx"]'],
+          listing.email,
+        );
       }
       // Per-ad password (lets us — and the user — edit/delete the ad later).
       const adPass = ctx.secrets?.password || "Klikado1234";
@@ -323,6 +333,12 @@ export class BazosSkProvider extends BrowserProvider {
           .setInputFiles(files)
           .catch(() => page.setInputFiles('input[type="file"]', files));
       }
+
+      // Agree to the terms checkbox if the add form has one (required).
+      await page
+        .locator('form:has(input[name="nadpis"]) input[name="podminky"]')
+        .check()
+        .catch(() => {});
 
       await this.debugShot(page, ctx, "form-filled");
 
@@ -382,21 +398,32 @@ export class BazosSkProvider extends BrowserProvider {
 
       const urlIdMatch = url.match(/\/inzerat\/(\d+)/);
       const onMyAds = /moje-inzeraty|moje inzer/i.test(url + " " + body);
-      const successText =
-        /(bol|bola|byl|byla|bude).{0,12}(pridan|přidán|vlož|zverejnen|zveřejněn|schvál|aktivov)|úspešne|úspěšně|ďakujeme|děkujeme/i.test(
+
+      // Bazoš's rejection page literally says the ad was NOT inserted. Detect
+      // it explicitly — this MUST win over any positive guess, otherwise a
+      // sentence like "Inzerát nebyl vložen" gets misread as success.
+      const rejected =
+        /(nebyl|nebol|nebyla|nebola)\s+(vlož|vložen|přidán|pridan|zverejnen|zveřejněn)/i.test(
           body,
-        );
-      const validationError =
-        /(vyplň|povinn|nespráv|nesprávn|zadajte|zadejte|musíte vyplniť|musíte vyplnit|chyba pri|chyba při)/i.test(
+        ) ||
+        /nevyplnen|nevyplněn|nevyplnené|příliš velk|prilis velk|too large|inzerát nebyl|inzerat nebol/i.test(
           body,
         );
 
-      const live = (!!urlIdMatch || onMyAds || successText) && !validationError;
+      // Positive signals — unambiguous words that never appear in the rejection.
+      const successText =
+        /(úspešne|úspěšně|ďakujeme|děkujeme|aktivovan[ýé]|bol[ao]?\s+úspešne|byl[ao]?\s+úspěšně)/i.test(
+          body,
+        );
+
+      const live = !rejected && (!!urlIdMatch || onMyAds || successText);
 
       if (!live) {
         const hint = body.replace(/\s+/g, " ").slice(0, 300);
         throw new Error(
-          `Bazoš nepotvrdil zverejnenie inzerátu — pravdepodobne chýba povinné pole alebo overenie. Text stránky: ${hint}`,
+          rejected
+            ? `Bazoš odmietol inzerát (chýba povinné pole alebo je fotka príliš veľká): ${hint}`
+            : `Bazoš nepotvrdil zverejnenie inzerátu. Text stránky: ${hint}`,
         );
       }
 
@@ -718,6 +745,20 @@ export class BazosSkProvider extends BrowserProvider {
 
 // --- helpers ---------------------------------------------------------------
 
+/** Fill the first of several candidate selectors that exists on the page. */
+async function fillFirst(
+  page: import("playwright").Page,
+  selectors: string[],
+  value: string,
+): Promise<void> {
+  for (const sel of selectors) {
+    if ((await page.locator(sel).count()) > 0) {
+      await page.fill(sel, value).catch(() => {});
+      return;
+    }
+  }
+}
+
 /** Normalise text for matching: lowercase, strip diacritics. */
 function norm(s: string): string {
   return s
@@ -881,12 +922,20 @@ async function downloadImages(
   const out: { name: string; mimeType: string; buffer: Buffer }[] = [];
   for (const [i, img] of ordered.entries()) {
     const res = await fetch(img.url);
-    const buffer = Buffer.from(await res.arrayBuffer());
-    out.push({
-      name: `photo-${i}.webp`,
-      mimeType: res.headers.get("content-type") ?? "image/webp",
-      buffer,
-    });
+    const raw = Buffer.from(await res.arrayBuffer());
+    // Bazoš rejects WebP and oversized images ("príliš veľký obrázok"), so
+    // always re-encode to a compact JPEG (max 1200px, quality 80).
+    let buffer: Buffer = raw;
+    try {
+      buffer = await sharp(raw)
+        .rotate()
+        .resize({ width: 1200, height: 1200, fit: "inside", withoutEnlargement: true })
+        .jpeg({ quality: 80 })
+        .toBuffer();
+    } catch {
+      buffer = raw;
+    }
+    out.push({ name: `photo-${i}.jpg`, mimeType: "image/jpeg", buffer });
   }
   return out;
 }
