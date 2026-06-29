@@ -446,6 +446,16 @@ export async function runCheckStatus(data: BaseJobData): Promise<void> {
     where: { id: data.publicationId },
   });
   if (!pub.remoteId) return;
+  // Only check when the remote id is a real ad reference (a /inzerat/ URL or a
+  // numeric id). A generic page like ".../insert.php" or "moje-inzeraty.php"
+  // isn't an ad, so verifying it would wrongly flip the ad to REMOVED.
+  const isAdRef = /\/inzerat\/\d+/.test(pub.remoteId) || /^\d+$/.test(pub.remoteId);
+  if (!isAdRef) {
+    await ctx.log(
+      "Preskakujem kontrolu stavu — uložený odkaz nie je priama adresa inzerátu.",
+    );
+    return;
+  }
   const { session } = await ensureSession(data.publicationId, data, ctx);
   const provider = getProvider(data.portalKey);
   const status = await provider.checkStatus(pub.remoteId, session, ctx);

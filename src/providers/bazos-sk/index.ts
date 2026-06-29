@@ -486,12 +486,80 @@ export class BazosSkProvider extends BrowserProvider {
         );
       }
 
-      // Only trust an ad link when we actually landed on the ad page.
-      const remoteUrl = url;
-      const remoteId = urlIdMatch ? urlIdMatch[1] : url;
+      // Resolve the REAL ad URL. Bazoš shows a generic "insert.php" success
+      // page (the ad goes to e-mail activation), so there's usually no
+      // /inzerat/<id> URL here. Storing insert.php would give a broken link AND
+      // make the status check think the ad doesn't exist. Instead, look it up in
+      // "Moje inzeráty" by matching the title.
+      let remoteId = urlIdMatch ? urlIdMatch[1] : "";
+      let remoteUrl = urlIdMatch ? url : "";
+      if (!remoteId) {
+        const own = await this.resolveOwnAdUrl(page, ctx, listing.title);
+        if (own) {
+          remoteId = own.id;
+          remoteUrl = own.url;
+        } else {
+          // Couldn't pin the exact ad (e.g. not logged in). Keep a useful link
+          // to the user's ads, and leave remoteId empty so the status check
+          // never wrongly marks it removed.
+          remoteUrl = `${this.baseUrl}/moje-inzeraty.php`;
+          remoteId = "";
+        }
+      }
       await ctx.log("Inzerát zverejnený ✅", { remoteId, remoteUrl });
       return { remoteId, remoteUrl, session: await this.snapshot(context) };
     });
+  }
+
+  /**
+   * After posting, find the new ad's real URL in "Moje inzeráty" by matching
+   * the listing title. Requires the account session; returns null if it can't
+   * be pinned (so the caller keeps a safe fallback instead of a broken link).
+   */
+  private async resolveOwnAdUrl(
+    page: import("playwright").Page,
+    ctx: ProviderContext,
+    title: string,
+  ): Promise<{ id: string; url: string } | null> {
+    try {
+      await page
+        .goto(`${this.baseUrl}/moje-inzeraty.php`, {
+          waitUntil: "domcontentloaded",
+        })
+        .catch(() => {});
+      await this.acceptCookies(page, ctx);
+      await this.debugShot(page, ctx, "moje-inzeraty");
+
+      const links = await page.$$eval('a[href*="/inzerat/"]', (as) =>
+        as.map((a) => ({
+          text: (a.textContent ?? "").trim(),
+          href: (a as HTMLAnchorElement).href,
+        })),
+      );
+      if (!links.length) return null;
+
+      const w = norm(title);
+      let best: { text: string; href: string } | null = null;
+      let bestScore = 0;
+      for (const l of links) {
+        if (!/\/inzerat\/\d+/.test(l.href)) continue;
+        const score = wordOverlap(norm(l.text), w);
+        if (score > bestScore) {
+          bestScore = score;
+          best = l;
+        }
+      }
+      if (best && bestScore > 0) {
+        const m = best.href.match(/\/inzerat\/(\d+)/);
+        if (m) {
+          await ctx.log(`Nájdený vlastný inzerát → ${best.href}`);
+          return { id: m[1], url: best.href };
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   /**
