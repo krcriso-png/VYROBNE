@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const ITEMS = [
+export const NAV_ITEMS = [
   { href: "/dashboard", label: "Prehľad", icon: LayoutDashboard },
   { href: "/listings", label: "Inzeráty", icon: ListChecks },
   { href: "/portals", label: "Portály", icon: Plug },
@@ -20,11 +20,19 @@ const ITEMS = [
   { href: "/profile", label: "Profil", icon: User },
 ];
 
+export const ADMIN_ITEM = {
+  href: "/admin",
+  label: "Admin",
+  icon: ShieldCheck,
+};
+
+export function navItemsFor(isAdmin: boolean) {
+  return isAdmin ? [...NAV_ITEMS, ADMIN_ITEM] : NAV_ITEMS;
+}
+
 export function AppNav({ isAdmin }: { isAdmin: boolean }) {
   const pathname = usePathname();
-  const items = isAdmin
-    ? [...ITEMS, { href: "/admin", label: "Admin", icon: ShieldCheck }]
-    : ITEMS;
+  const items = navItemsFor(isAdmin);
 
   return (
     <nav className="flex flex-1 flex-col gap-1">

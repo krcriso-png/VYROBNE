@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Layers, LogOut, Coins } from "lucide-react";
 import { auth, signOut } from "@/lib/auth";
 import { AppNav } from "@/components/AppNav";
+import { MobileNav } from "@/components/MobileNav";
 import { Button } from "@/components/ui/button";
 import { getCreditState } from "@/lib/credits";
 
@@ -79,6 +80,12 @@ export default async function AppLayout({
       </aside>
 
       <div className="flex-1">
+        <MobileNav
+          isAdmin={session.user.role === "ADMIN"}
+          credits={credit.unlimited ? "∞" : String(credit.credits)}
+          userName={session.user.name ?? "Používateľ"}
+          userEmail={session.user.email ?? ""}
+        />
         <main className="mx-auto max-w-6xl animate-fade-in px-5 py-8 sm:px-8">
           {children}
         </main>

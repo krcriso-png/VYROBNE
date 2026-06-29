@@ -1,14 +1,12 @@
 import Link from "next/link";
-import { Plus, ImageOff, Globe, AlertTriangle, ArrowRight } from "lucide-react";
+import { Plus } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { LISTING_STATUS } from "@/lib/status";
-import { formatPrice } from "@/lib/utils";
+import { ListingsBrowser, type BrowserListing } from "@/components/ListingsBrowser";
 
-// Listings overview with per-listing publication state.
+// Listings overview with search/filter and per-listing publication state.
 export default async function ListingsPage() {
   const session = await auth();
   const listings = await prisma.listing.findMany({
@@ -20,6 +18,19 @@ export default async function ListingsPage() {
       publications: { select: { status: true } },
     },
   });
+
+  const rows: BrowserListing[] = listings.map((l) => ({
+    id: l.id,
+    title: l.title,
+    category: l.category,
+    price: l.price != null ? l.price.toString() : null,
+    currency: l.currency,
+    status: l.status,
+    mainUrl: l.images[0]?.url ?? null,
+    published: l.publications.filter((p) => p.status === "PUBLISHED").length,
+    total: l._count.publications,
+    errored: l.publications.some((p) => p.status === "ERROR"),
+  }));
 
   return (
     <div className="space-y-6">
@@ -53,55 +64,7 @@ export default async function ListingsPage() {
           </Link>
         </Card>
       ) : (
-        <div className="grid gap-3">
-          {listings.map((l) => {
-            const main = l.images[0];
-            const published = l.publications.filter(
-              (p) => p.status === "PUBLISHED",
-            ).length;
-            const errored = l.publications.some((p) => p.status === "ERROR");
-            const st = LISTING_STATUS[l.status];
-            return (
-              <Link key={l.id} href={`/listings/${l.id}`} className="group">
-                <Card className="flex items-center gap-4 p-3 transition-shadow hover:shadow-card">
-                  <div className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted text-muted-foreground">
-                    {main ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={main.url}
-                        alt=""
-                        className="size-full object-cover"
-                      />
-                    ) : (
-                      <ImageOff className="size-5" />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="truncate font-medium">{l.title}</p>
-                      <Badge tone={st.tone}>{st.label}</Badge>
-                    </div>
-                    <p className="mt-0.5 truncate text-sm text-muted-foreground">
-                      {l.category} · {formatPrice(l.price?.toString(), l.currency)}
-                    </p>
-                  </div>
-                  <div className="hidden items-center gap-4 sm:flex">
-                    {errored && (
-                      <span className="flex items-center gap-1 text-xs text-destructive">
-                        <AlertTriangle className="size-3.5" /> chyba
-                      </span>
-                    )}
-                    <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                      <Globe className="size-4" />
-                      {published}/{l._count.publications}
-                    </span>
-                  </div>
-                  <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-                </Card>
-              </Link>
-            );
-          })}
-        </div>
+        <ListingsBrowser listings={rows} />
       )}
     </div>
   );
