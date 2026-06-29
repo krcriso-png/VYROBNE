@@ -19,9 +19,9 @@ export class BazosCzProvider extends BazosSkProvider {
   protected domain = "bazos.cz";
   // Bazoš CZ accepts international numbers; Slovak sellers use +421.
   protected phonePrefix = "+421";
-  // Bazoš CZ rejects a Slovak ad without a 5-digit Czech PSČ, so provide one
-  // when the listing has no valid Czech postcode.
-  protected fallbackZip = "10000";
+  // Bazoš CZ uses the dedicated PSČ 98765 for Slovak ads — always send that on
+  // the Czech site (a real Slovak postcode like "01001" is rejected).
+  protected fallbackZip = "98765";
 
   // The Czech site uses Czech-spelled section subdomains; map the Slovak keys
   // (stored from the category picker) to their Czech equivalents. Keys not
