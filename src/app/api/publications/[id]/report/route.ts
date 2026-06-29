@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { route, json, requireUser, HttpError } from "@/lib/api";
 import { sendEmail } from "@/lib/email";
+import { publicOrigin } from "@/lib/url";
 
 // Where hidden error reports are sent.
 const REPORT_EMAIL = "krcriso@gmail.com";
@@ -32,7 +33,7 @@ export const POST = route(
       const m = l.meta as Record<string, unknown> | null;
       return m && typeof m === "object" && m.debugScreenshot;
     });
-    const origin = new URL(req.url).origin;
+    const origin = publicOrigin(req);
     const shotPath = shotLog
       ? String((shotLog.meta as Record<string, unknown>).debugScreenshot)
       : null;

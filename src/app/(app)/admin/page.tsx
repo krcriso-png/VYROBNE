@@ -1,15 +1,24 @@
 import { redirect } from "next/navigation";
-import { Users, Clock, AlertTriangle } from "lucide-react";
+import { headers } from "next/headers";
+import { Users, Clock, AlertTriangle, ImageIcon, ExternalLink } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
+import { toPublicUrl } from "@/lib/url";
 
 // Admin panel: users, subscriptions, queue health, recent errors, portals.
 export default async function AdminPage() {
   const session = await auth();
   if (session?.user.role !== "ADMIN") redirect("/dashboard");
+
+  // Public origin of this request, to repair any internal/localhost links
+  // baked into older error reports.
+  const h = await headers();
+  const host = h.get("x-forwarded-host") || h.get("host") || "";
+  const proto = h.get("x-forwarded-proto") || "https";
+  const origin = host ? `${proto}://${host}` : "";
 
   const [users, errorCount, pendingCount, portals, recentErrors, reports] =
     await Promise.all([
@@ -135,17 +144,62 @@ export default async function AdminPage() {
           <p className="text-sm text-muted-foreground">Žiadne nahlásenia.</p>
         ) : (
           <Card className="divide-y">
-            {reports.map((r) => (
-              <div key={r.id} className="p-3 text-sm">
-                <p className="font-medium">{r.title}</p>
-                <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
-                  {r.body}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {formatDate(r.createdAt)}
-                </p>
-              </div>
-            ))}
+            {reports.map((r) => {
+              const body = r.body ?? "";
+              const shotRaw = body.match(
+                /https?:\/\/\S+\/api\/blob\/\S+\.png/i,
+              )?.[0];
+              const listingRaw = body.match(
+                /https?:\/\/\S+\/listings\/[A-Za-z0-9_-]+/i,
+              )?.[0];
+              const shot = shotRaw ? toPublicUrl(shotRaw, origin) : null;
+              const listing = listingRaw
+                ? toPublicUrl(listingRaw, origin)
+                : null;
+              return (
+                <div key={r.id} className="p-3 text-sm">
+                  <p className="font-medium">{r.title}</p>
+                  <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
+                    {body}
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {shot && (
+                      <a
+                        href={shot}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90"
+                      >
+                        <ImageIcon className="size-3.5" /> Zobraziť screenshot
+                      </a>
+                    )}
+                    {listing && (
+                      <a
+                        href={listing}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium hover:bg-muted"
+                      >
+                        <ExternalLink className="size-3.5" /> Otvoriť inzerát
+                      </a>
+                    )}
+                  </div>
+                  {shot && (
+                    <a href={shot} target="_blank" rel="noreferrer">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={shot}
+                        alt="Screenshot chyby"
+                        className="mt-2 max-h-64 rounded-lg border object-contain"
+                      />
+                    </a>
+                  )}
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {formatDate(r.createdAt)}
+                  </p>
+                </div>
+              );
+            })}
           </Card>
         )}
       </section>
