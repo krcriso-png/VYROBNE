@@ -18,6 +18,7 @@ type Form = {
   category: string;
   location: string;
   zip: string;
+  contactName: string;
   phone: string;
   contactEmail: string;
 };
@@ -30,6 +31,7 @@ const EMPTY: Form = {
   category: "",
   location: "",
   zip: "",
+  contactName: "",
   phone: "",
   contactEmail: "",
 };
@@ -65,6 +67,7 @@ export default function EditListingPage({
         category: listing.category ?? "",
         location: listing.location ?? "",
         zip: listing.zip ?? "",
+        contactName: listing.contactName ?? "",
         phone: listing.phone ?? "",
         contactEmail: listing.contactEmail ?? "",
       });
@@ -86,6 +89,7 @@ export default function EditListingPage({
       body: JSON.stringify({
         ...form,
         price: form.price ? Number(form.price) : null,
+        contactName: form.contactName || null,
         contactEmail: form.contactEmail || null,
       }),
     });
@@ -199,6 +203,15 @@ export default function EditListingPage({
                   onChange={(e) => set("zip", e.target.value)}
                 />
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="contactName">Meno (kontakt) *</Label>
+              <Input
+                id="contactName"
+                required
+                value={form.contactName}
+                onChange={(e) => set("contactName", e.target.value)}
+              />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">

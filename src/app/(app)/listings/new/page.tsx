@@ -22,9 +22,11 @@ export default function NewListingPage() {
     category: "",
     location: "",
     zip: "",
+    contactName: "",
     phone: "",
     contactEmail: "",
   });
+  const [files, setFiles] = useState<FileList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -42,16 +44,29 @@ export default function NewListingPage() {
       body: JSON.stringify({
         ...form,
         price: form.price ? Number(form.price) : null,
+        contactName: form.contactName || null,
         contactEmail: form.contactEmail || null,
       }),
     });
-    setLoading(false);
     if (!res.ok) {
+      setLoading(false);
       const data = await res.json().catch(() => ({}));
       setError(data.error ?? "Nepodarilo sa vytvoriť inzerát.");
       return;
     }
     const { listing } = await res.json();
+
+    // Upload any selected photos right away (so it's all one step).
+    if (files && files.length > 0) {
+      const fd = new FormData();
+      Array.from(files).forEach((f) => fd.append("files", f));
+      await fetch(`/api/listings/${listing.id}/images`, {
+        method: "POST",
+        body: fd,
+      }).catch(() => undefined);
+    }
+
+    setLoading(false);
     router.push(`/listings/${listing.id}`);
   }
 
@@ -152,6 +167,16 @@ export default function NewListingPage() {
                 />
               </div>
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="contactName">Meno (kontakt) *</Label>
+              <Input
+                id="contactName"
+                required
+                placeholder="Tvoje meno (zobrazí sa v inzeráte)"
+                value={form.contactName}
+                onChange={(e) => set("contactName", e.target.value)}
+              />
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="phone">Telefón</Label>
@@ -173,6 +198,31 @@ export default function NewListingPage() {
                 />
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Fotografie</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-input p-8 text-center transition-colors hover:border-primary/50 hover:bg-muted/50">
+              <span className="text-sm font-medium">
+                {files && files.length > 0
+                  ? `${files.length} fotiek vybraných`
+                  : "Klikni a vyber fotografie"}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                Prvá fotka je hlavná · automatický resize a konverzia na WebP
+              </span>
+              <input
+                type="file"
+                multiple
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => setFiles(e.target.files)}
+              />
+            </label>
           </CardContent>
         </Card>
 

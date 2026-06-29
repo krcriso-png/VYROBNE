@@ -184,9 +184,14 @@ export class BazosSkProvider extends BrowserProvider {
 
       const loc = listing.zip || listing.location;
       if (loc) await page.fill('input[name="lokalita"]', loc).catch(() => {});
-      if (listing.contactName) {
-        await page.fill('input[name="jmeno"]', listing.contactName).catch(() => {});
-      }
+      // "Meno" is required by Bazoš — fall back to the email name or a default
+      // so the submit never fails on an empty name.
+      const jmeno =
+        listing.contactName ||
+        listing.email?.split("@")[0] ||
+        ctx.secrets?.login?.split("@")[0] ||
+        "Inzerent";
+      await page.fill('input[name="jmeno"]', jmeno).catch(() => {});
       if (listing.phone) {
         await page.fill('input[name="telefoni"]', listing.phone).catch(() => {});
       }
