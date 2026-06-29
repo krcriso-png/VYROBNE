@@ -299,11 +299,27 @@ export class BazosSkProvider extends BrowserProvider {
     await page.waitForLoadState("domcontentloaded").catch(() => {});
     await page.waitForTimeout(1500);
 
-    // Only wait for a code if Bazoš actually shows the code field (`klic`).
-    // If the phone is already verified, it goes straight to the form — no SMS.
+    // Decide what the page is showing after submitting the phone.
     const codeField = page.locator('input[name="klic"]');
     if ((await codeField.count()) === 0) {
-      await ctx.log("SMS kód nebol vyžiadaný (telefón už overený) — pokračujem");
+      // No code field: either already verified (form shown) or an error.
+      const body = await page
+        .locator("body")
+        .innerText()
+        .catch(() => "");
+      if (/prekročili|skúste to neskôr|maximum kódov/i.test(body)) {
+        throw new Error(
+          "Bazoš dočasne zablokoval SMS kódy pre toto číslo (priveľa pokusov). " +
+            "Skús to znova o niekoľko hodín alebo zajtra — nie je to chyba Klikada.",
+        );
+      }
+      if ((await page.locator('input[name="nadpis"]').count()) === 0) {
+        const hint = body.replace(/\s+/g, " ").slice(0, 200);
+        throw new Error(
+          `Overenie telefónu neprešlo a formulár sa neukázal. Text stránky: ${hint}`,
+        );
+      }
+      await ctx.log("Telefón už overený — pokračujem na formulár");
       return;
     }
 
