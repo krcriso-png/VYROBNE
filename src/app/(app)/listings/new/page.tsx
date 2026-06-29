@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -29,6 +29,23 @@ export default function NewListingPage() {
   const [files, setFiles] = useState<FileList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Pre-fill contact name + email from the logged-in account (editable).
+  useEffect(() => {
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then((me: { name: string | null; email: string | null }) => {
+        setForm((f) => ({
+          ...f,
+          contactName:
+            f.contactName ||
+            me.name ||
+            (me.email ? me.email.split("@")[0] : ""),
+          contactEmail: f.contactEmail || me.email || "",
+        }));
+      })
+      .catch(() => undefined);
+  }, []);
 
   function set<K extends keyof typeof form>(key: K, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
