@@ -229,30 +229,23 @@ export class BazosSkProvider extends BrowserProvider {
       await this.debugShot(page, ctx, "section-add");
       await this.logStructure(page, ctx);
 
-      // Step 2 — choose a sub-category on the section's add page if the form is
-      // not shown yet (Bazoš requires choosing one before the form appears).
       const hasTitle = async () =>
         (await page.locator(SELECTORS.title).count()) > 0;
+      const hasVerify = async () =>
+        (await page.locator('input[name="teloverit"]').count()) > 0;
 
-      if (!(await hasTitle())) {
-        const sub = await clickBestSubcategory(
-          page,
-          ctx,
-          wanted,
-          sectionKey,
-          this.domain,
-        );
-        if (sub) {
-          await page.waitForLoadState("domcontentloaded").catch(() => {});
-          await page.waitForTimeout(900);
-          await this.debugShot(page, ctx, "after-subcat");
-          await this.logStructure(page, ctx);
-        }
+      // Step 2 — the Bazoš add page LEADS with a phone-verification gate
+      // (teloverit). The real form (with 'nadpis' + the subcategory <select>)
+      // only appears AFTER the phone is verified. Verify first. Do NOT click
+      // the subcategory nav links — those go to browse pages and lose the form.
+      if (!(await hasTitle()) && (await hasVerify())) {
+        await this.handleSmsVerification(page, ctx, listing);
       }
 
-      // Step 3 — some flows land on the sub-category listing page; click its
-      // "Pridať inzerát" to reach the actual form.
-      if (!(await hasTitle())) {
+      // Step 3 — fallback: if we somehow landed on a browse/section page (no
+      // form and no verify gate), enter the add flow via its "Přidat inzerát"
+      // link, then handle the verification gate that follows.
+      if (!(await hasTitle()) && !(await hasVerify())) {
         try {
           await page
             .getByText(/p[řr]ida[tť]\s+inzer/i)
@@ -265,17 +258,14 @@ export class BazosSkProvider extends BrowserProvider {
         } catch {
           /* no such link */
         }
-      }
-
-      // Step 4 — Bazoš may require SMS phone verification before the form.
-      // Handle it with the user in the loop (they enter the code in Klikado).
-      if (await page.locator('input[name="teloverit"]').count()) {
-        await this.handleSmsVerification(page, ctx, listing);
+        if (!(await hasTitle()) && (await hasVerify())) {
+          await this.handleSmsVerification(page, ctx, listing);
+        }
       }
 
       if (!(await hasTitle())) {
         throw new Error(
-          "Stále nie je pole 'nadpis' — pozri screenshoty 'section-add'/'after-subcat'/'after-pridat'/'sms-*' a POLIA v logoch.",
+          "Stále nie je pole 'nadpis' — pozri screenshoty 'section-add'/'after-pridat'/'sms-*' a POLIA v logoch.",
         );
       }
 
@@ -377,48 +367,42 @@ export class BazosSkProvider extends BrowserProvider {
       await this.debugShot(page, ctx, "after-confirm");
       await this.logStructure(page, ctx);
 
-      // Determine success robustly. The result page usually links to the new
-      // ad (/inzerat/<id>); also accept a success message, or simply that the
-      // add form is gone and there is no validation error on the page.
+      // Determine success ONLY from a positive signal, never from "the form is
+      // gone": a browse/listing page also has no form, and its first
+      // /inzerat/<id> link belongs to a STRANGER's ad — capturing that as our
+      // remote id is exactly how a random ad got stored before. So accept only:
+      //  (a) we were redirected onto the new ad page itself (URL is /inzerat/N),
+      //  (b) a "moje inzeráty" / success page, or
+      //  (c) an explicit success message on the page.
       const url = page.url();
       const body = await page
         .locator("body")
         .innerText()
         .catch(() => "");
-      const adHref = await page
-        .locator('a[href*="/inzerat/"]')
-        .first()
-        .getAttribute("href")
-        .catch(() => null);
-      const idMatch =
-        url.match(/\/inzerat\/(\d+)/) ??
-        (adHref ? adHref.match(/\/inzerat\/(\d+)/) : null);
 
-      const formStillThere =
-        (await page.locator('input[name="nadpis"]').count()) > 0;
-      // Patterns cover Slovak (bazos.sk) and Czech (bazos.cz).
-      const validationError =
-        /(vyplň|vyplň|povinn|nespráv|nesprávn|zadajte|zadejte|musíte vyplniť|musíte vyplnit|chyba pri|chyba při)/i.test(
-          body,
-        );
+      const urlIdMatch = url.match(/\/inzerat\/(\d+)/);
+      const onMyAds = /moje-inzeraty|moje inzer/i.test(url + " " + body);
       const successText =
-        /(bol|bola|byl|byla).{0,8}(pridan|přidán|vlož|zverejnen|zveřejněn)|úspešne|úspěšně|aktivovan|ďakujeme|děkujeme/i.test(
+        /(bol|bola|byl|byla|bude).{0,12}(pridan|přidán|vlož|zverejnen|zveřejněn|schvál|aktivov)|úspešne|úspěšně|ďakujeme|děkujeme/i.test(
+          body,
+        );
+      const validationError =
+        /(vyplň|povinn|nespráv|nesprávn|zadajte|zadejte|musíte vyplniť|musíte vyplnit|chyba pri|chyba při)/i.test(
           body,
         );
 
-      const live =
-        !!idMatch || successText || (!formStillThere && !validationError);
+      const live = (!!urlIdMatch || onMyAds || successText) && !validationError;
 
       if (!live) {
         const hint = body.replace(/\s+/g, " ").slice(0, 300);
         throw new Error(
-          `Bazoš nepotvrdil zverejnenie inzerátu — pravdepodobne chýba povinné pole. Text stránky: ${hint}`,
+          `Bazoš nepotvrdil zverejnenie inzerátu — pravdepodobne chýba povinné pole alebo overenie. Text stránky: ${hint}`,
         );
       }
 
-      // Prefer the actual ad URL when present.
-      const remoteUrl = adHref ? new URL(adHref, url).href : url;
-      const remoteId = idMatch ? idMatch[1] : remoteUrl;
+      // Only trust an ad link when we actually landed on the ad page.
+      const remoteUrl = url;
+      const remoteId = urlIdMatch ? urlIdMatch[1] : url;
       await ctx.log("Inzerát zverejnený ✅", { remoteId, remoteUrl });
       return { remoteId, remoteUrl, session: await this.snapshot(context) };
     });
