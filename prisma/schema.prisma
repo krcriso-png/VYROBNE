@@ -1,5 +1,5 @@
 // ===========================================================================
-// Inzeromat — Prisma schema
+// Klikado — Prisma schema
 //
 // Data model for a multi-portal listing SaaS. A user creates a single
 // listing and the system publishes it to many classified-ad portals.
