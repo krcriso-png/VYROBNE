@@ -305,13 +305,14 @@ export class BazosSkProvider extends BrowserProvider {
         await page.selectOption('select[name="cenavyber"]', "2").catch(() => {});
       }
 
-      // Location / PSČ. Bazoš CZ requires a 5-digit Czech PSČ even for a
-      // foreign (SK) ad, so fall back to a valid placeholder when needed.
+      // Location / PSČ. A market with a fallbackZip (Bazoš CZ) requires a LOCAL
+      // postcode — a Slovak PSČ like "01001" is rejected there as not filled —
+      // so always use the local fallback on those markets. Bazoš SK has no
+      // fallback and uses the listing's own 5-digit PSČ.
       const psc = normalizeZip(listing.zip);
       const loc =
-        psc.length === 5
-          ? psc
-          : this.fallbackZip || listing.zip || listing.location || "";
+        this.fallbackZip ||
+        (psc.length === 5 ? psc : listing.zip || listing.location || "");
       if (loc) await page.fill('input[name="lokalita"]', loc).catch(() => {});
       // "Meno" is required by Bazoš — fall back to the email name or a default
       // so the submit never fails on an empty name.
@@ -355,6 +356,9 @@ export class BazosSkProvider extends BrowserProvider {
           .first()
           .setInputFiles(files)
           .catch(() => page.setInputFiles('input[type="file"]', files));
+        // Bazoš processes the photo via JS on change (and may clear the input),
+        // so give the async upload a moment before submitting.
+        await page.waitForTimeout(2500);
       }
 
       // Agree to the terms checkbox if the add form has one (required).
