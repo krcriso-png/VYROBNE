@@ -283,6 +283,14 @@ export class BazosSkProvider extends BrowserProvider {
         .selectOption('select[name="rubrikyvybrat"]', sectionKey)
         .catch(() => {});
       await page.waitForTimeout(600);
+      await ctx.log("Sekcia (rubrikyvybrat) nastavená", {
+        wanted: sectionKey,
+        actual: await page
+          .locator('select[name="rubrikyvybrat"]')
+          .first()
+          .inputValue()
+          .catch(() => "∅"),
+      });
 
       await page.fill('input[name="nadpis"]', listing.title);
       await page.fill('textarea[name="popis"]', listing.description);
@@ -336,8 +344,12 @@ export class BazosSkProvider extends BrowserProvider {
 
       // Photos.
       if (listing.images.length > 0) {
-        await ctx.log("Nahrávam fotky", { count: listing.images.length });
         const files = await downloadImages(listing.images);
+        await ctx.log("Nahrávam fotky", {
+          count: files.length,
+          sizesKB: files.map((f) => Math.round(f.buffer.length / 1024)),
+          types: files.map((f) => f.mimeType),
+        });
         await page
           .locator('form:has(input[name="nadpis"]) input[type="file"]')
           .first()
@@ -350,6 +362,35 @@ export class BazosSkProvider extends BrowserProvider {
         .locator('form:has(input[name="nadpis"]) input[name="podminky"]')
         .check()
         .catch(() => {});
+
+      // Read back what's actually in the form so we can see which required
+      // field (if any) is still empty when Bazoš rejects the ad.
+      const readback: Record<string, string> = {};
+      for (const name of [
+        "rubrikyvybrat",
+        "category",
+        "nadpis",
+        "popis",
+        "cena",
+        "cenavyber",
+        "lokalita",
+        "jmeno",
+        "telefoni",
+        "maili",
+        "heslobazar",
+      ]) {
+        readback[name] = await page
+          .locator(`[name="${name}"]`)
+          .first()
+          .inputValue()
+          .catch(() => "∅");
+      }
+      const fileCount = await page
+        .locator('input[type="file"]')
+        .first()
+        .evaluate((el) => (el as HTMLInputElement).files?.length ?? 0)
+        .catch(() => -1);
+      await ctx.log("Hodnoty formulára pred odoslaním", { ...readback, fileCount });
 
       await this.debugShot(page, ctx, "form-filled");
 
