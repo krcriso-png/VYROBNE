@@ -34,7 +34,48 @@ function buildContext(data: BaseJobData): ProviderContext {
         listingId: data.listingId,
         portalKey: data.portalKey,
       }),
+    requestUserInput: (prompt) => waitForUserInput(data, prompt),
   };
+}
+
+/**
+ * Pause the job and wait for the user to submit a value (e.g. an SMS code).
+ * Sets the publication to WAITING_SMS with a prompt, then polls for smsCode.
+ * Returns the code (and clears it) or null after a timeout.
+ */
+async function waitForUserInput(
+  data: BaseJobData,
+  prompt: string,
+  timeoutMs = 10 * 60 * 1000,
+  pollMs = 4000,
+): Promise<string | null> {
+  await prisma.publication.update({
+    where: { id: data.publicationId },
+    data: { status: "WAITING_SMS", smsPrompt: prompt, smsCode: null },
+  });
+  await logActivity({
+    message: `Čakám na zadanie: ${prompt}`,
+    userId: data.userId,
+    listingId: data.listingId,
+    portalKey: data.portalKey,
+  });
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, pollMs));
+    const pub = await prisma.publication.findUnique({
+      where: { id: data.publicationId },
+      select: { smsCode: true },
+    });
+    if (pub?.smsCode) {
+      await prisma.publication.update({
+        where: { id: data.publicationId },
+        data: { status: "PUBLISHING", smsPrompt: null, smsCode: null },
+      });
+      return pub.smsCode.trim();
+    }
+  }
+  return null;
 }
 
 /** Load + normalise the listing into the provider-facing payload. */

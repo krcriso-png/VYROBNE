@@ -155,9 +155,15 @@ export class BazosSkProvider extends BrowserProvider {
         }
       }
 
+      // Step 4 — Bazoš may require SMS phone verification before the form.
+      // Handle it with the user in the loop (they enter the code in Klikado).
+      if (await page.locator('input[name="teloverit"]').count()) {
+        await this.handleSmsVerification(page, ctx, listing);
+      }
+
       if (!(await hasTitle())) {
         throw new Error(
-          "Stále nie je pole 'nadpis' — pozri screenshoty 'section-add'/'after-subcat'/'after-pridat' a POLIA v logoch.",
+          "Stále nie je pole 'nadpis' — pozri screenshoty 'section-add'/'after-subcat'/'after-pridat'/'sms-*' a POLIA v logoch.",
         );
       }
 
@@ -189,6 +195,95 @@ export class BazosSkProvider extends BrowserProvider {
 
       return { remoteId, remoteUrl, session: await this.snapshot(context) };
     });
+  }
+
+  /**
+   * Handle Bazoš's pre-posting SMS phone verification with the user in the
+   * loop: enter the phone, trigger the SMS, ask the user for the code via
+   * ctx.requestUserInput, then submit it. After a successful verification the
+   * captured session usually skips this step on future posts.
+   */
+  private async handleSmsVerification(
+    page: import("playwright").Page,
+    ctx: ProviderContext,
+    listing: ListingPayload,
+  ): Promise<void> {
+    await ctx.log("Bazoš žiada SMS overenie telefónu");
+    const phone = (listing.phone ?? "").replace(/[^\d+]/g, "");
+    if (!phone) {
+      throw new Error(
+        "Bazoš vyžaduje overenie telefónu, ale inzerát nemá telefónne číslo.",
+      );
+    }
+
+    // Enter phone, agree to terms, trigger the SMS.
+    await page.fill('input[name="teloverit"]', phone);
+    await page.locator('input[name="podminky"]').check().catch(() => {});
+    await this.debugShot(page, ctx, "sms-phone");
+    await page
+      .getByRole("button", { name: /Odoslať/i })
+      .first()
+      .click({ timeout: 8000 })
+      .catch(() => page.click('input[type="submit"]'));
+    await page.waitForLoadState("domcontentloaded").catch(() => {});
+    await page.waitForTimeout(1200);
+    await this.debugShot(page, ctx, "sms-code-page");
+    await this.logStructure(page, ctx);
+
+    if (!ctx.requestUserInput) {
+      throw new Error("SMS overenie vyžaduje interaktívne zadanie kódu.");
+    }
+    const code = await ctx.requestUserInput(
+      "Zadaj SMS kód (mobilný kľúč) z Bazoš, ktorý ti prišiel na telefón.",
+    );
+    if (!code) {
+      throw new Error("SMS kód nebol zadaný včas — skús publikovať znova.");
+    }
+
+    // Enter the code. The field name varies; try a few, then the first
+    // plausible text input on the page.
+    const candidates = [
+      'input[name="overovacikod"]',
+      'input[name="overeni"]',
+      'input[name="klic"]',
+      'input[name="kod"]',
+      'input[name="sms"]',
+    ];
+    let filled = false;
+    for (const sel of candidates) {
+      if (await page.locator(sel).count()) {
+        await page.fill(sel, code);
+        filled = true;
+        break;
+      }
+    }
+    if (!filled) {
+      const generic = page
+        .locator(
+          'input[type="text"]:not([name="hledat"]):not([name="hlokalita"])',
+        )
+        .first();
+      if (await generic.count()) {
+        await generic.fill(code);
+        filled = true;
+      }
+    }
+    if (!filled) {
+      throw new Error(
+        "Nenašiel som pole na SMS kód — pozri screenshot 'sms-code-page' a POLIA.",
+      );
+    }
+
+    await page
+      .getByRole("button", { name: /Odoslať|Overiť|Potvrdiť/i })
+      .first()
+      .click({ timeout: 8000 })
+      .catch(() => page.click('input[type="submit"]'));
+    await page.waitForLoadState("domcontentloaded").catch(() => {});
+    await page.waitForTimeout(1200);
+    await this.debugShot(page, ctx, "after-sms");
+    await this.logStructure(page, ctx);
+    await ctx.log("SMS kód odoslaný");
   }
 
   async refresh(

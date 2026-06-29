@@ -117,9 +117,11 @@ export default async function ListingDetailPage({
               hasAccount: p.accounts.length > 0,
             }))}
             publications={listing.publications.map((pub) => ({
+              id: pub.id,
               portalKey: pub.portal.key,
               status: pub.status,
               remoteUrl: pub.remoteUrl,
+              smsPrompt: pub.smsPrompt,
             }))}
           />
         </div>

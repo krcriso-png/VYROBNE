@@ -272,6 +272,7 @@ model PortalAccount {
 enum PublicationStatus {
   PENDING // queued, not yet processed
   PUBLISHING // worker is acting on it
+  WAITING_SMS // paused: the portal needs an SMS/verification code from the user
   PUBLISHED // live on the portal
   ERROR // failed; see lastError / logs
   UPDATING
@@ -301,6 +302,12 @@ model Publication {
 
   lastError String? @db.Text
   attempts  Int     @default(0)
+
+  // Human-in-the-loop verification (e.g. Bazoš SMS code). When the worker
+  // pauses for input it sets status=WAITING_SMS + smsPrompt; the user submits
+  // the code into smsCode and the worker resumes.
+  smsPrompt String?
+  smsCode   String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -9,6 +9,7 @@ export const PUBLICATION_STATUS: Record<
 > = {
   PENDING: { label: "Čaká", tone: "warning" },
   PUBLISHING: { label: "Publikuje sa", tone: "warning" },
+  WAITING_SMS: { label: "Čaká na SMS kód", tone: "warning" },
   PUBLISHED: { label: "Publikované", tone: "success" },
   UPDATING: { label: "Aktualizuje sa", tone: "warning" },
   REMOVING: { label: "Odstraňuje sa", tone: "warning" },

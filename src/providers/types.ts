@@ -77,6 +77,12 @@ export interface ProviderContext {
   log: (message: string, meta?: Record<string, unknown>) => Promise<void>;
   signal?: AbortSignal;
   headless: boolean;
+  /**
+   * Pause and ask the user for a value (e.g. an SMS/verification code). The
+   * worker sets the publication to WAITING_SMS and resolves when the user
+   * submits it, or null on timeout. Undefined when not running under a worker.
+   */
+  requestUserInput?: (prompt: string) => Promise<string | null>;
 }
 
 /**
