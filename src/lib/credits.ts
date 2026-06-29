@@ -130,6 +130,7 @@ export async function grantCredits(
 const REASON_LABEL: Record<string, string> = {
   publish: "Zverejnenie inzerátu",
   topovat: "Topovanie",
+  ai_generovanie: "AI generovanie inzerátu",
   monthly_grant: "Mesačný kredit",
   signup: "Bonus za registráciu",
   admin: "Úprava adminom",

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -34,6 +34,8 @@ export default function NewListingPage() {
   const [files, setFiles] = useState<FileList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   // Pre-fill contact name + email from the logged-in account (editable).
   useEffect(() => {
@@ -61,6 +63,60 @@ export default function NewListingPage() {
 
   function set<K extends keyof typeof form>(key: K, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  // Read a File as bare base64 (without the data: URL prefix).
+  function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const res = String(reader.result);
+        resolve(res.includes(",") ? res.split(",")[1] : res);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Ask the AI to draft a title/description/price from the first photo and/or
+  // the title field, then fill the form with the result.
+  async function generateWithAi() {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const payload: Record<string, unknown> = {
+        hint: form.title || undefined,
+        category:
+          form.section && form.subcategory
+            ? bazosCategoryLabel(form.section, form.subcategory)
+            : undefined,
+      };
+      const photo = files?.[0];
+      if (photo) {
+        payload.imageBase64 = await fileToBase64(photo);
+        payload.imageMediaType = photo.type || "image/jpeg";
+      }
+      const res = await fetch("/api/ai/generate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAiError(data.error ?? "Generovanie zlyhalo.");
+        return;
+      }
+      setForm((f) => ({
+        ...f,
+        title: data.title || f.title,
+        description: data.description || f.description,
+        price: data.price ? String(data.price) : f.price,
+      }));
+    } catch {
+      setAiError("Generovanie zlyhalo. Skús to znova.");
+    } finally {
+      setAiLoading(false);
+    }
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -125,6 +181,34 @@ export default function NewListingPage() {
       </div>
 
       <form onSubmit={onSubmit} className="space-y-6">
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
+                <Sparkles className="size-5" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">Napíš inzerát za teba</p>
+                <p className="text-xs text-muted-foreground">
+                  Nahraj fotku alebo napíš pár slov do názvu a AI vytvorí názov,
+                  popis aj odhad ceny. (1 kredit)
+                </p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={generateWithAi}
+              disabled={aiLoading}
+              className="shrink-0"
+            >
+              <Sparkles className="size-4" />
+              {aiLoading ? "Generujem…" : "Vygenerovať AI"}
+            </Button>
+          </CardContent>
+        </Card>
+        {aiError && <p className="-mt-3 text-sm text-destructive">{aiError}</p>}
+
         <Card>
           <CardHeader>
             <CardTitle>Základné informácie</CardTitle>
