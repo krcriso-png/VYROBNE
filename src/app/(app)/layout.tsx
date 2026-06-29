@@ -30,7 +30,10 @@ export default async function AppLayout({
         <AppNav isAdmin={session.user.role === "ADMIN"} />
 
         <div className="mt-auto border-t pt-4">
-          <div className="flex items-center gap-3 px-2">
+          <Link
+            href="/profile"
+            className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted"
+          >
             <div className="grid size-9 shrink-0 place-items-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
               {initial}
             </div>
@@ -42,7 +45,7 @@ export default async function AppLayout({
                 {session.user.email}
               </p>
             </div>
-          </div>
+          </Link>
           <form
             action={async () => {
               "use server";

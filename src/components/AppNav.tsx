@@ -8,6 +8,7 @@ import {
   Plug,
   CreditCard,
   ShieldCheck,
+  User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +17,7 @@ const ITEMS = [
   { href: "/listings", label: "Inzeráty", icon: ListChecks },
   { href: "/portals", label: "Portály", icon: Plug },
   { href: "/billing", label: "Predplatné", icon: CreditCard },
+  { href: "/profile", label: "Profil", icon: User },
 ];
 
 export function AppNav({ isAdmin }: { isAdmin: boolean }) {

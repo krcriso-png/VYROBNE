@@ -5,7 +5,6 @@ import {
   Plus,
   ImageOff,
   ArrowRight,
-  Timer,
   ExternalLink,
 } from "lucide-react";
 import { prisma } from "@/lib/db";
@@ -16,6 +15,7 @@ import { Badge, Dot } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LISTING_STATUS, PUBLICATION_STATUS } from "@/lib/status";
 import { formatPrice } from "@/lib/utils";
+import { AutoTopToggle } from "@/components/AutoTopToggle";
 
 const RENEW_LABEL: Record<number, string> = {
   24: "každých 24 h",
@@ -172,9 +172,10 @@ export default async function DashboardPage() {
                     </div>
                   </div>
                   <div className="hidden items-center gap-2 sm:flex">
-                    {l.renewIntervalHours && (
-                      <Timer className="size-4 text-muted-foreground" />
-                    )}
+                    <AutoTopToggle
+                      listingId={l.id}
+                      initialOn={l.renewIntervalHours === 24}
+                    />
                     {publishedPub?.remoteUrl && (
                       <a
                         href={publishedPub.remoteUrl}

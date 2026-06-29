@@ -14,6 +14,17 @@ export const registerSchema = z.object({
   phone: z.string().max(40).optional(),
 });
 
+export const profileUpdateSchema = z.object({
+  name: z.string().max(120).nullable().optional(),
+  email: z.string().email().optional(),
+  phone: z.string().max(40).nullable().optional(),
+  password: z
+    .string()
+    .min(8, "Heslo musí mať aspoň 8 znakov")
+    .max(200)
+    .optional(),
+});
+
 export const listingInputSchema = z.object({
   title: z.string().min(3).max(160),
   description: z.string().min(1).max(20_000),
