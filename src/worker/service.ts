@@ -1,5 +1,6 @@
 import { prisma } from "../lib/db";
 import { logActivity } from "../lib/logger";
+import { spendCredits, hasCredits } from "../lib/credits";
 import { signedDownloadUrl } from "../lib/storage";
 import { encryptJson, decrypt, decryptJson } from "../lib/crypto";
 import { getProvider } from "../providers/registry";
@@ -235,10 +236,12 @@ export async function runPublish(data: BaseJobData): Promise<void> {
     where: { id: data.publicationId },
   });
 
-  // If already published, update in place; otherwise create.
-  const result = pub.remoteId
-    ? await provider.update(pub.remoteId, payload, session, ctx)
-    : await provider.publish(payload, session, ctx);
+  // A fresh publish (no prior remote id) costs a credit; re-publishing an
+  // already-live ad just updates it in place and is free.
+  const wasNew = !pub.remoteId;
+  const result = wasNew
+    ? await provider.publish(payload, session, ctx)
+    : await provider.update(pub.remoteId!, payload, session, ctx);
 
   await persistSessionRefresh(data.publicationId, result.session);
   await setStatus(data.publicationId, "PUBLISHED", {
@@ -249,6 +252,13 @@ export async function runPublish(data: BaseJobData): Promise<void> {
     lastError: null,
     nextRefreshAt: await computeNextRefresh(data.listingId, provider.supportsRefresh),
   });
+
+  if (wasNew) {
+    // Charge after a confirmed publish so failures never cost the user.
+    await spendCredits(data.userId, 1, "publish", data.listingId).catch(
+      () => undefined,
+    );
+  }
 }
 
 export async function runUpdate(data: BaseJobData): Promise<void> {
@@ -307,6 +317,18 @@ export async function runRefresh(data: BaseJobData): Promise<void> {
     where: { id: data.publicationId },
   });
   if (!pub.remoteId) return;
+
+  // Topovať costs a credit. If the user is out, skip this run and push the
+  // next attempt forward so the scheduler doesn't loop on it every tick.
+  if (!(await hasCredits(data.userId, 1))) {
+    await ctx.log("Nedostatok kreditov — automatické topovanie preskočené");
+    await prisma.publication.update({
+      where: { id: data.publicationId },
+      data: { nextRefreshAt: await computeNextRefresh(data.listingId, true) },
+    });
+    return;
+  }
+
   const { session, credentials, accountId, verifyPhone } = await ensureSession(
     data.publicationId,
     data,
@@ -351,6 +373,9 @@ export async function runRefresh(data: BaseJobData): Promise<void> {
         nextRefreshAt: await computeNextRefresh(data.listingId, true),
       },
     });
+    await spendCredits(data.userId, 1, "topovat", data.listingId).catch(
+      () => undefined,
+    );
     return;
   }
 
@@ -362,6 +387,9 @@ export async function runRefresh(data: BaseJobData): Promise<void> {
       nextRefreshAt: await computeNextRefresh(data.listingId, true),
     },
   });
+  await spendCredits(data.userId, 1, "topovat", data.listingId).catch(
+    () => undefined,
+  );
 }
 
 export async function runDelete(data: BaseJobData): Promise<void> {

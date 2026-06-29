@@ -48,13 +48,14 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  accounts        Account[]
-  sessions        Session[]
-  subscription    Subscription?
-  listings        Listing[]
-  portalAccounts  PortalAccount[]
-  notifications   Notification[]
-  logs            ActivityLog[]
+  accounts            Account[]
+  sessions            Session[]
+  subscription        Subscription?
+  listings            Listing[]
+  portalAccounts      PortalAccount[]
+  notifications       Notification[]
+  logs                ActivityLog[]
+  creditTransactions  CreditTransaction[]
 
   @@index([role])
 }
@@ -124,6 +125,12 @@ model Subscription {
   plan   Plan               @default(FREE)
   status SubscriptionStatus @default(ACTIVE)
 
+  // Credit wallet: each publish / topovať costs one credit. The monthly
+  // allowance (per plan) is reset on creditsRenewAt. PRO is unlimited and is
+  // not decremented. See src/lib/credits.ts.
+  credits       Int       @default(30)
+  creditsRenewAt DateTime?
+
   stripeCustomerId     String? @unique
   stripeSubscriptionId String? @unique
   stripePriceId        String?
@@ -134,6 +141,22 @@ model Subscription {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// Append-only ledger of credit movements (grants and spends) for the user's
+// history view and accounting. Negative amount = spent, positive = granted.
+model CreditTransaction {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  amount    Int // negative = spent, positive = granted
+  reason    String // "publish" | "topovat" | "monthly_grant" | "signup" | "admin"
+  listingId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }
 
 // ---------------------------------------------------------------------------

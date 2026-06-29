@@ -12,6 +12,10 @@ export interface PlanDefinition {
   name: string;
   /** Maximum number of ACTIVE listings; null = unlimited. */
   maxActiveListings: number | null;
+  /** Monthly credit allowance; null = unlimited (PRO). */
+  monthlyCredits: number | null;
+  /** Display price in EUR per month (0 = free). */
+  priceEur: number;
   /** Whether auto-renewal (bump) is available on this plan. */
   autoRenew: boolean;
   prices: {
@@ -20,18 +24,24 @@ export interface PlanDefinition {
   };
 }
 
+// Credit model: each publish/topovať costs 1 credit. Creating drafts and
+// editing/deleting are free. The allowance resets monthly (PRO = unlimited).
 export const PLANS: Record<Plan, PlanDefinition> = {
   FREE: {
     key: "FREE",
     name: "Free",
-    maxActiveListings: 3,
-    autoRenew: false,
+    maxActiveListings: null,
+    monthlyCredits: 30,
+    priceEur: 0,
+    autoRenew: true,
     prices: {},
   },
   BASIC: {
     key: "BASIC",
-    name: "Basic",
-    maxActiveListings: 30,
+    name: "Štart",
+    maxActiveListings: null,
+    monthlyCredits: 300,
+    priceEur: 6.99,
     autoRenew: true,
     prices: {
       monthly: process.env.STRIPE_PRICE_BASIC_MONTHLY,
@@ -42,6 +52,8 @@ export const PLANS: Record<Plan, PlanDefinition> = {
     key: "PRO",
     name: "Pro",
     maxActiveListings: null, // unlimited
+    monthlyCredits: null, // unlimited (fair-use)
+    priceEur: 12.99,
     autoRenew: true,
     prices: {
       monthly: process.env.STRIPE_PRICE_PRO_MONTHLY,

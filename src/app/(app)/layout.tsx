@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Layers, LogOut } from "lucide-react";
+import { Layers, LogOut, Coins } from "lucide-react";
 import { auth, signOut } from "@/lib/auth";
 import { AppNav } from "@/components/AppNav";
 import { Button } from "@/components/ui/button";
+import { getCreditState } from "@/lib/credits";
 
 // Shared shell for the authenticated area: sidebar nav + sign-out.
 export default async function AppLayout({
@@ -17,6 +18,8 @@ export default async function AppLayout({
   const initial =
     (session.user.name ?? session.user.email ?? "?").charAt(0).toUpperCase();
 
+  const credit = await getCreditState(session.user.id);
+
   return (
     <div className="flex min-h-screen bg-muted/30">
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r bg-card p-4 md:flex">
@@ -25,6 +28,18 @@ export default async function AppLayout({
             <Layers className="size-5" />
           </div>
           <span className="text-lg font-bold tracking-tight">Klikado</span>
+        </Link>
+
+        <Link
+          href="/billing"
+          className="mb-4 flex items-center justify-between rounded-lg border bg-muted/40 px-3 py-2.5 transition-colors hover:bg-muted"
+        >
+          <span className="flex items-center gap-2 text-sm font-medium">
+            <Coins className="size-4 text-primary" /> Kredity
+          </span>
+          <span className="text-sm font-bold tabular-nums">
+            {credit.unlimited ? "∞" : credit.credits}
+          </span>
         </Link>
 
         <AppNav isAdmin={session.user.role === "ADMIN"} />

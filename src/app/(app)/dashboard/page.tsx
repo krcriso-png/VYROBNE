@@ -6,10 +6,12 @@ import {
   ImageOff,
   ArrowRight,
   ExternalLink,
+  Coins,
 } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { PLANS } from "@/lib/plans";
+import { getCreditState } from "@/lib/credits";
 import { Card } from "@/components/ui/card";
 import { Badge, Dot } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,7 +31,7 @@ export default async function DashboardPage() {
   const session = await auth();
   const userId = session!.user.id;
 
-  const [listings, published, sub] = await Promise.all([
+  const [listings, published, sub, credit] = await Promise.all([
     prisma.listing.findMany({
       where: { userId, status: { not: "ARCHIVED" } },
       orderBy: { updatedAt: "desc" },
@@ -43,16 +45,16 @@ export default async function DashboardPage() {
       where: { listing: { userId }, status: "PUBLISHED" },
     }),
     prisma.subscription.findUnique({ where: { userId } }),
+    getCreditState(userId),
   ]);
 
   const plan = sub?.plan ?? "FREE";
-  const limit = PLANS[plan].maxActiveListings;
   const activeCount = listings.filter((l) => l.status === "ACTIVE").length;
 
   const cards = [
     {
       label: "Aktívne inzeráty",
-      value: `${activeCount}${limit ? ` / ${limit}` : ""}`,
+      value: activeCount,
       icon: ListChecks,
       tone: "bg-primary/10 text-primary",
     },
@@ -61,6 +63,12 @@ export default async function DashboardPage() {
       value: published,
       icon: Globe,
       tone: "bg-success/12 text-success",
+    },
+    {
+      label: "Zostatok kreditov",
+      value: credit.unlimited ? "∞" : credit.credits,
+      icon: Coins,
+      tone: "bg-warning/12 text-warning",
     },
   ];
 
@@ -83,7 +91,7 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:max-w-md">
+      <div className="grid gap-4 sm:grid-cols-3">
         {cards.map((c) => (
           <Card key={c.label} className="p-5">
             <div className={`grid size-10 place-items-center rounded-lg ${c.tone}`}>
