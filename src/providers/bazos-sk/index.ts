@@ -221,10 +221,49 @@ export class BazosSkProvider extends BrowserProvider {
       await this.debugShot(page, ctx, "after-submit");
       await this.logStructure(page, ctx);
 
-      const remoteUrl = page.url();
-      const remoteId = extractIdFromUrl(remoteUrl) ?? remoteUrl;
-      await ctx.log("Inzerát odoslaný", { remoteId, remoteUrl });
+      // Bazoš usually shows a preview; click the final confirm if present.
+      for (const label of [
+        "Vložiť inzerát",
+        "Pridať inzerát",
+        "Pridať",
+        "Vložiť",
+        "Potvrdiť",
+        "Odoslať inzerát",
+      ]) {
+        const btn = page
+          .getByRole("button", { name: new RegExp(`^${label}$`, "i") })
+          .first();
+        if (await btn.count()) {
+          await ctx.log(`Potvrdzujem náhľad → ${label}`);
+          await btn.click().catch(() => {});
+          await page.waitForLoadState("domcontentloaded").catch(() => {});
+          await page.waitForTimeout(1500);
+          break;
+        }
+      }
+      await this.debugShot(page, ctx, "after-confirm");
+      await this.logStructure(page, ctx);
 
+      // Only report success if we can see a real, live ad.
+      const url = page.url();
+      const body = await page
+        .locator("body")
+        .innerText()
+        .catch(() => "");
+      const idMatch = url.match(/\/inzerat\/(\d+)/);
+      const live =
+        !!idMatch ||
+        /bol pridan|úspešne|zverejnen|inzerát.*(pridan|aktiv)/i.test(body);
+      if (!live) {
+        const hint = body.replace(/\s+/g, " ").slice(0, 300);
+        throw new Error(
+          `Bazoš nepotvrdil zverejnenie inzerátu — pravdepodobne chýba povinné pole alebo je krok navyše. Pozri screenshot 'after-confirm'. Text stránky: ${hint}`,
+        );
+      }
+
+      const remoteUrl = url;
+      const remoteId = idMatch ? idMatch[1] : url;
+      await ctx.log("Inzerát zverejnený ✅", { remoteId, remoteUrl });
       return { remoteId, remoteUrl, session: await this.snapshot(context) };
     });
   }

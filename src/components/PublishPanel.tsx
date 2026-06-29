@@ -173,15 +173,15 @@ export function PublishPanel({
                     <Dot tone={st.tone} /> {st.label}
                   </Badge>
                 )}
-                {pub?.remoteUrl && (
+                {pub?.remoteUrl && pub.status === "PUBLISHED" && (
                   <a
                     href={pub.remoteUrl}
                     target="_blank"
                     rel="noreferrer"
                     onClick={(e) => e.stopPropagation()}
-                    className="text-muted-foreground hover:text-primary"
+                    className="flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/20"
                   >
-                    <ExternalLink className="size-4" />
+                    Otvoriť inzerát <ExternalLink className="size-3.5" />
                   </a>
                 )}
               </label>
