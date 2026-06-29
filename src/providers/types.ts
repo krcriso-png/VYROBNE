@@ -83,6 +83,8 @@ export interface ProviderContext {
    * submits it, or null on timeout. Undefined when not running under a worker.
    */
   requestUserInput?: (prompt: string) => Promise<string | null>;
+  /** Decrypted portal credentials (e.g. the per-ad password) for form fields. */
+  secrets?: { login: string | null; password: string | null };
 }
 
 /**

@@ -48,6 +48,8 @@ export interface EnqueueOptions {
   delayMs?: number;
   /** Stable job id for idempotency / de-duplication. */
   jobId?: string;
+  /** Override the retry count (e.g. 1 for browser publishes with SMS). */
+  attempts?: number;
 }
 
 /** Run a task immediately, in-process (inline/demo mode). */
@@ -81,6 +83,7 @@ export async function enqueueTask(
   return portalQueue.add(name, data, {
     delay: opts.delayMs,
     jobId: opts.jobId,
+    attempts: opts.attempts,
   });
 }
 

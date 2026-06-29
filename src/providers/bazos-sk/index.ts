@@ -167,31 +167,63 @@ export class BazosSkProvider extends BrowserProvider {
         );
       }
 
+      // Real Bazoš add-form field names (verified from the live form).
       await ctx.log("Vypĺňam formulár inzerátu");
-      await page.fill(SELECTORS.title, listing.title);
-      await page.fill(SELECTORS.description, listing.description);
-      if (listing.price != null) {
-        await page.fill(SELECTORS.price, String(listing.price));
-      }
-      if (listing.zip) await page.fill(SELECTORS.zip, listing.zip);
-      if (listing.email) await page.fill(SELECTORS.email, listing.email);
-      if (listing.phone) await page.fill(SELECTORS.phone, listing.phone);
+      await page.fill('input[name="nadpis"]', listing.title);
+      await page.fill('textarea[name="popis"]', listing.description);
 
-      // Photos: download from storage then set on the file input.
+      // Sub-category dropdown (required) — pick the best matching option.
+      await selectBestCategoryOption(page, ctx, wanted);
+
+      if (listing.price != null) {
+        await page.fill('input[name="cena"]', String(listing.price));
+      } else {
+        // No fixed price → "Dohodou".
+        await page.selectOption('select[name="cenavyber"]', "2").catch(() => {});
+      }
+
+      const loc = listing.zip || listing.location;
+      if (loc) await page.fill('input[name="lokalita"]', loc).catch(() => {});
+      if (listing.contactName) {
+        await page.fill('input[name="jmeno"]', listing.contactName).catch(() => {});
+      }
+      if (listing.phone) {
+        await page.fill('input[name="telefoni"]', listing.phone).catch(() => {});
+      }
+      if (listing.email) {
+        await page.fill('input[name="maili"]', listing.email).catch(() => {});
+      }
+      // Per-ad password (lets us — and the user — edit/delete the ad later).
+      const adPass = ctx.secrets?.password || "Klikado1234";
+      await page.fill('input[name="heslobazar"]', adPass).catch(() => {});
+
+      // Photos.
       if (listing.images.length > 0) {
         await ctx.log("Nahrávam fotky", { count: listing.images.length });
         const files = await downloadImages(listing.images);
-        await page.setInputFiles(SELECTORS.fileInput, files);
+        await page
+          .locator('form:has(input[name="nadpis"]) input[type="file"]')
+          .first()
+          .setInputFiles(files)
+          .catch(() => page.setInputFiles('input[type="file"]', files));
       }
 
-      await Promise.all([
-        page.waitForLoadState("networkidle"),
-        page.click(SELECTORS.submit),
-      ]);
+      await this.debugShot(page, ctx, "form-filled");
+
+      // Submit the add form (its submit button, not the search one).
+      await page
+        .locator('form:has(input[name="nadpis"]) input[type="submit"]')
+        .first()
+        .click({ timeout: 10000 })
+        .catch(() => page.click('input[name="Submit"]'));
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      await page.waitForTimeout(1500);
+      await this.debugShot(page, ctx, "after-submit");
+      await this.logStructure(page, ctx);
 
       const remoteUrl = page.url();
       const remoteId = extractIdFromUrl(remoteUrl) ?? remoteUrl;
-      await ctx.log("Publikované", { remoteId, remoteUrl });
+      await ctx.log("Inzerát odoslaný", { remoteId, remoteUrl });
 
       return { remoteId, remoteUrl, session: await this.snapshot(context) };
     });
@@ -357,7 +389,7 @@ const SECTIONS: { key: string; label: string }[] = [
   { key: "reality", label: "Reality" },
   { key: "praca", label: "Práca" },
   { key: "zvierata", label: "Zvieratá" },
-  { key: "deti", label: "Deti detský bazár" },
+  { key: "deti", label: "Deti detský bazár hračky bábätko kočík oblečenie" },
   { key: "dom", label: "Dom a záhrada byt" },
   { key: "pc", label: "PC počítače notebooky" },
   { key: "mobil", label: "Mobily telefóny" },
@@ -450,6 +482,41 @@ async function clickBestSubcategory(
     });
   }
   return slug;
+}
+
+/**
+ * Select the best-matching option in the Bazoš add-form sub-category dropdown
+ * (select[name="category"]). Falls back to the first real option so the
+ * required field is always satisfied.
+ */
+async function selectBestCategoryOption(
+  page: import("playwright").Page,
+  ctx: ProviderContext,
+  wanted: string,
+): Promise<void> {
+  const sel = 'select[name="category"]';
+  if ((await page.locator(sel).count()) === 0) return;
+  const options = await page.$$eval(`${sel} option`, (opts) =>
+    opts.map((o) => ({
+      value: (o as HTMLOptionElement).value,
+      text: (o.textContent ?? "").trim(),
+    })),
+  );
+  const real = options.filter((o) => o.value && o.value !== "0");
+  if (real.length === 0) return;
+
+  const w = norm(wanted);
+  let best = real[0];
+  let bestScore = -1;
+  for (const o of real) {
+    const score = wordOverlap(norm(o.text), w);
+    if (score > bestScore) {
+      bestScore = score;
+      best = o;
+    }
+  }
+  await page.selectOption(sel, best.value).catch(() => {});
+  await ctx.log(`Podkategória (select) → ${best.text}`);
 }
 
 async function downloadImages(

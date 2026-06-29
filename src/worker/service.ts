@@ -136,7 +136,11 @@ async function ensureSession(
   publicationId: string,
   data: BaseJobData,
   ctx: ProviderContext,
-): Promise<{ session: ProviderSession; accountId: string }> {
+): Promise<{
+  session: ProviderSession;
+  accountId: string;
+  credentials: ProviderCredentials;
+}> {
   const publication = await prisma.publication.findUniqueOrThrow({
     where: { id: publicationId },
     include: { portalAccount: true, portal: true },
@@ -160,7 +164,7 @@ async function ensureSession(
     !account.needsReauth;
 
   if (stillValid) {
-    return { session: { state: stored }, accountId: account.id };
+    return { session: { state: stored }, accountId: account.id, credentials };
   }
 
   const session = await provider.login(credentials, ctx);
@@ -173,7 +177,7 @@ async function ensureSession(
       needsReauth: false,
     },
   });
-  return { session, accountId: account.id };
+  return { session, accountId: account.id, credentials };
 }
 
 async function setStatus(
@@ -192,7 +196,12 @@ async function setStatus(
 export async function runPublish(data: BaseJobData): Promise<void> {
   const ctx = buildContext(data);
   await setStatus(data.publicationId, "PUBLISHING");
-  const { session } = await ensureSession(data.publicationId, data, ctx);
+  const { session, credentials } = await ensureSession(
+    data.publicationId,
+    data,
+    ctx,
+  );
+  ctx.secrets = { login: credentials.login, password: credentials.password };
   const payload = await buildPayload(data.listingId);
   const provider = getProvider(data.portalKey);
 
@@ -223,7 +232,12 @@ export async function runUpdate(data: BaseJobData): Promise<void> {
   });
   if (!pub.remoteId) return runPublish(data); // nothing remote yet
   await setStatus(data.publicationId, "UPDATING");
-  const { session } = await ensureSession(data.publicationId, data, ctx);
+  const { session, credentials } = await ensureSession(
+    data.publicationId,
+    data,
+    ctx,
+  );
+  ctx.secrets = { login: credentials.login, password: credentials.password };
   const payload = await buildPayload(data.listingId);
   const provider = getProvider(data.portalKey);
   const result = await provider.update(pub.remoteId, payload, session, ctx);

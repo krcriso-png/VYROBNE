@@ -55,12 +55,18 @@ export async function publishListing(
       update: { portalAccountId: account.id, status: "PENDING", lastError: null },
     });
 
-    await enqueueTask("publish", {
-      publicationId: publication.id,
-      userId,
-      listingId,
-      portalKey: portal.key,
-    });
+    await enqueueTask(
+      "publish",
+      {
+        publicationId: publication.id,
+        userId,
+        listingId,
+        portalKey: portal.key,
+      },
+      // No auto-retry: a browser publish may trigger an SMS, and retrying would
+      // re-send it. The user re-publishes manually if it fails.
+      { attempts: 1 },
+    );
   }
 
   // Ensure the listing is marked active once it has been sent out.
