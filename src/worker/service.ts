@@ -196,12 +196,23 @@ async function setStatus(
 export async function runPublish(data: BaseJobData): Promise<void> {
   const ctx = buildContext(data);
   await setStatus(data.publicationId, "PUBLISHING");
-  const { session, credentials } = await ensureSession(
+  const { session, credentials, accountId } = await ensureSession(
     data.publicationId,
     data,
     ctx,
   );
   ctx.secrets = { login: credentials.login, password: credentials.password };
+  // Allow the provider to persist a freshly-verified session mid-flow.
+  ctx.saveSession = async (s) => {
+    await prisma.portalAccount.update({
+      where: { id: accountId },
+      data: {
+        sessionEnc: encryptJson(s.state),
+        sessionValidUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        needsReauth: false,
+      },
+    });
+  };
   const payload = await buildPayload(data.listingId);
   const provider = getProvider(data.portalKey);
 

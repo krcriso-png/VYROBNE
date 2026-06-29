@@ -85,6 +85,12 @@ export interface ProviderContext {
   requestUserInput?: (prompt: string) => Promise<string | null>;
   /** Decrypted portal credentials (e.g. the per-ad password) for form fields. */
   secrets?: { login: string | null; password: string | null };
+  /**
+   * Persist the current session immediately (e.g. right after a phone
+   * verification) so it survives even if a later step fails and future runs
+   * can skip the verification. Implemented by the worker.
+   */
+  saveSession?: (session: ProviderSession) => Promise<void>;
 }
 
 /**
