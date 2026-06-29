@@ -672,16 +672,32 @@ export class BazosSkProvider extends BrowserProvider {
         ? remoteId
         : `${this.baseUrl}/inzerat/${remoteId}`;
       const resp = await page.goto(url, { waitUntil: "domcontentloaded" });
-      const live = !!resp && resp.status() < 400;
-      let views: number | undefined;
-      if (live) {
-        const body = await page
-          .locator("body")
-          .innerText()
-          .catch(() => "");
-        views = parseViews(body);
-      }
-      await ctx.log("Status check", { remoteId, live, views });
+      const httpStatus = resp?.status() ?? 0;
+      const body = await page
+        .locator("body")
+        .innerText()
+        .catch(() => "");
+
+      // Only treat the ad as gone when we POSITIVELY confirm it: an HTTP error,
+      // or an explicit "removed / expired / not found" message. Anything else
+      // (incl. a momentary glitch) keeps it PUBLISHED so we never falsely tell
+      // the user it was deleted while it's actually still online.
+      const removed =
+        httpStatus >= 400 ||
+        /inzer\w*\s+(bol|bola)?\s*(vymazan|zmazan|odstr[aá]n|deaktivov|expirov)/i.test(
+          body,
+        ) ||
+        /(inzer\w*\s+(už\s+)?neexistuje|nebol\s+n[aá]jden|str[aá]nka\s+nebola\s+n[aá]jden|404\s+not\s+found)/i.test(
+          body,
+        );
+      const live = !removed;
+      const views = live ? parseViews(body) : undefined;
+      await ctx.log("Kontrola stavu inzerátu", {
+        remoteId,
+        live,
+        httpStatus,
+        views,
+      });
       return { live, remoteUrl: url, views };
     });
   }

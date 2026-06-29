@@ -342,6 +342,26 @@ export async function runRefresh(data: BaseJobData): Promise<void> {
     } catch (err) {
       await ctx.log("Mazanie pri topovaní zlyhalo, pokračujem: " + String(err));
     }
+
+    // Make sure the old ad is really gone before re-posting; otherwise we'd
+    // create a duplicate. If it's still live, skip this round and try again
+    // on the next cycle instead of doubling the ad.
+    try {
+      const check = await provider.checkStatus(pub.remoteId, session, ctx);
+      if (check.live) {
+        await ctx.log(
+          "Pôvodný inzerát sa nepodarilo zmazať — preskakujem topovanie, aby nevznikol duplikát.",
+        );
+        await prisma.publication.update({
+          where: { id: data.publicationId },
+          data: { nextRefreshAt: await computeNextRefresh(data.listingId, true) },
+        });
+        return;
+      }
+    } catch {
+      // Verification failed — proceed (delete already returned without error).
+    }
+
     const payload = await buildPayload(data.listingId);
     const result = await provider.publish(payload, session, ctx);
     await persistSessionRefresh(data.publicationId, result.session);
@@ -389,6 +409,29 @@ export async function runDelete(data: BaseJobData): Promise<void> {
     const { session } = await ensureSession(data.publicationId, data, ctx);
     const provider = getProvider(data.portalKey);
     await provider.delete(pub.remoteId, session, ctx);
+
+    // Verify the ad is actually gone before reporting it removed — don't tell
+    // the user it was deleted while it's still online on the portal.
+    try {
+      const status = await provider.checkStatus(pub.remoteId, session, ctx);
+      if (status.live) {
+        await ctx.log(
+          "Inzerát je po pokuse o zmazanie stále online — neoznačujem ako zmazaný.",
+        );
+        await prisma.publication.update({
+          where: { id: data.publicationId },
+          data: {
+            status: "ERROR",
+            lastError:
+              "Zmazanie sa nepodarilo overiť — inzerát je pravdepodobne ešte online na portáli. Skús to znova alebo ho zmaž priamo na portáli.",
+          },
+        });
+        return;
+      }
+    } catch {
+      // If the verification itself failed, fall through and mark removed
+      // optimistically (the delete call already succeeded without throwing).
+    }
   }
   await setStatus(data.publicationId, "REMOVED", {
     remoteId: null,
