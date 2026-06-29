@@ -156,11 +156,18 @@ export abstract class BrowserProvider extends BaseProvider {
     page: Page,
     ctx: ProviderContext,
     labels: string[] = [
+      // Slovak (bazos.sk)
       "Súhlasím",
       "Súhlasím so všetkým",
       "Prijať všetko",
-      "Accept all",
       "Rozumiem",
+      // Czech (bazos.cz)
+      "Souhlasím",
+      "Souhlasím se vším",
+      "Přijmout vše",
+      "Rozumím",
+      // English fallback
+      "Accept all",
     ],
   ): Promise<void> {
     for (const label of labels) {

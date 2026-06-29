@@ -61,6 +61,15 @@ export class BazosSkProvider extends BrowserProvider {
   // (Bazoš CZ rejects a Slovak ad without a 5-digit Czech PSČ).
   protected fallbackZip = "";
 
+  /**
+   * Map a Slovak section key to this market's real subdomain key. Identity for
+   * Bazoš SK; Bazoš CZ overrides it (the Czech site uses different keys, e.g.
+   * ostatne→ostatni, dom→dum, nabytok→nabytek).
+   */
+  protected mapSectionKey(key: string): string {
+    return key;
+  }
+
   async login(
     credentials: ProviderCredentials,
     ctx: ProviderContext,
@@ -93,7 +102,7 @@ export class BazosSkProvider extends BrowserProvider {
       // Open the add-listing flow and record what it looks like.
       try {
         await page
-          .getByText("Pridať inzerát", { exact: false })
+          .getByText(/p[řr]ida[tť]\s+inzer/i)
           .first()
           .click({ timeout: 8000 });
         await page.waitForLoadState("domcontentloaded");
@@ -205,10 +214,14 @@ export class BazosSkProvider extends BrowserProvider {
         | string
         | undefined;
       const wanted = pickedSub || listing.category;
-      const sectionKey =
+      const rawKey =
         pickedSection && SECTIONS.some((s) => s.key === pickedSection)
           ? pickedSection
           : matchSectionKey(wanted);
+      // Map the (Slovak) section key to this market's actual subdomain — Bazoš
+      // CZ uses different keys (ostatne→ostatni, dom→dum, …). A wrong key
+      // resolves to the homepage ("Stránka nenalezena").
+      const sectionKey = this.mapSectionKey(rawKey);
       const sectionUrl = `https://${sectionKey}.${this.domain}/pridat-inzerat.php`;
       await ctx.log(`Sekcia "${wanted}" → ${sectionKey} (${sectionUrl})`);
       await page.goto(sectionUrl, { waitUntil: "domcontentloaded" });
@@ -242,7 +255,7 @@ export class BazosSkProvider extends BrowserProvider {
       if (!(await hasTitle())) {
         try {
           await page
-            .getByText("Pridať inzerát", { exact: false })
+            .getByText(/p[řr]ida[tť]\s+inzer/i)
             .first()
             .click({ timeout: 6000 });
           await page.waitForLoadState("domcontentloaded").catch(() => {});
@@ -335,13 +348,20 @@ export class BazosSkProvider extends BrowserProvider {
       await this.logStructure(page, ctx);
 
       // Bazoš usually shows a preview; click the final confirm if present.
+      // Labels cover both Slovak (bazos.sk) and Czech (bazos.cz) wording.
       for (const label of [
         "Vložiť inzerát",
+        "Vložit inzerát",
         "Pridať inzerát",
+        "Přidat inzerát",
         "Pridať",
+        "Přidat",
         "Vložiť",
+        "Vložit",
         "Potvrdiť",
+        "Potvrdit",
         "Odoslať inzerát",
+        "Odeslat inzerát",
       ]) {
         const btn = page
           .getByRole("button", { name: new RegExp(`^${label}$`, "i") })
@@ -376,10 +396,13 @@ export class BazosSkProvider extends BrowserProvider {
 
       const formStillThere =
         (await page.locator('input[name="nadpis"]').count()) > 0;
+      // Patterns cover Slovak (bazos.sk) and Czech (bazos.cz).
       const validationError =
-        /(vyplň|povinné|nesprávn|zadajte|musíte vyplniť|chyba pri)/i.test(body);
+        /(vyplň|vyplň|povinn|nespráv|nesprávn|zadajte|zadejte|musíte vyplniť|musíte vyplnit|chyba pri|chyba při)/i.test(
+          body,
+        );
       const successText =
-        /(bol|bola).{0,8}(pridan|vlož|zverejnen)|úspešne|aktivovan|ďakujeme/i.test(
+        /(bol|bola|byl|byla).{0,8}(pridan|přidán|vlož|zverejnen|zveřejněn)|úspešne|úspěšně|aktivovan|ďakujeme|děkujeme/i.test(
           body,
         );
 
@@ -444,7 +467,11 @@ export class BazosSkProvider extends BrowserProvider {
         .locator("body")
         .innerText()
         .catch(() => "");
-      if (/prekročili|skúste to neskôr|maximum kódov/i.test(body)) {
+      if (
+        /prekročili|překročili|skúste to neskôr|zkuste to později|maximum kódov|maximum kódů/i.test(
+          body,
+        )
+      ) {
         throw new Error(
           "Bazoš dočasne zablokoval SMS kódy pre toto číslo (priveľa pokusov). " +
             "Skús to znova o niekoľko hodín alebo zajtra — nie je to chyba Klikada.",
@@ -620,9 +647,9 @@ export class BazosSkProvider extends BrowserProvider {
 
       const pass = ctx.secrets?.password || "";
 
-      // The ad page offers an "Editovať / Zmazať inzerát" link.
-      const delLink = page.getByText(/Zmazať inzer/i).first();
-      const editLink = page.getByText(/Editovať inzer/i).first();
+      // The ad page offers an "Editovať / Zmazať inzerát" link (SK + CZ).
+      const delLink = page.getByText(/(zmaza|smaza)[tť]\s*inzer/i).first();
+      const editLink = page.getByText(/editova[tť]\s*inzer/i).first();
       if (await delLink.count()) {
         await delLink.click().catch(() => {});
       } else if (await editLink.count()) {
@@ -649,7 +676,9 @@ export class BazosSkProvider extends BrowserProvider {
 
       // Confirm the deletion.
       await page
-        .getByRole("button", { name: /Zmazať|Vymazať|Odstrániť|Potvrdiť/i })
+        .getByRole("button", {
+          name: /Zmazať|Smazat|Vymazať|Odstrániť|Odstranit|Potvrdiť|Potvrdit/i,
+        })
         .first()
         .click({ timeout: 6000 })
         .catch(() => page.click('input[type="submit"]').catch(() => {}));

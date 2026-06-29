@@ -22,4 +22,21 @@ export class BazosCzProvider extends BazosSkProvider {
   // Bazoš CZ rejects a Slovak ad without a 5-digit Czech PSČ, so provide one
   // when the listing has no valid Czech postcode.
   protected fallbackZip = "10000";
+
+  // The Czech site uses Czech-spelled section subdomains; map the Slovak keys
+  // (stored from the category picker) to their Czech equivalents. Keys not
+  // listed here are identical on both sites (auto, reality, pc, deti, …).
+  private static readonly KEY_MAP: Record<string, string> = {
+    praca: "prace",
+    zvierata: "zvirata",
+    dom: "dum",
+    nabytok: "nabytek",
+    oblecenie: "obleceni",
+    ostatne: "ostatni",
+    vstupenky: "listky",
+  };
+
+  protected mapSectionKey(key: string): string {
+    return BazosCzProvider.KEY_MAP[key] ?? key;
+  }
 }
