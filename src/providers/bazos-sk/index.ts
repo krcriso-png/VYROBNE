@@ -273,6 +273,17 @@ export class BazosSkProvider extends BrowserProvider {
       // Log the real add-form fields so per-market field names can be verified.
       await ctx.log("Vypĺňam formulár inzerátu");
       await this.logStructure(page, ctx);
+
+      // The add form has TWO selects: the section (rubrikyvybrat: Auto/Děti/…)
+      // and the sub-category (category: Hračky…). The section defaults to the
+      // first option (Auto), so it must be set explicitly to match our section,
+      // otherwise Bazoš reports "nevyplněné údaje". Set it first (it reloads the
+      // sub-category list), then pick the sub-category.
+      await page
+        .selectOption('select[name="rubrikyvybrat"]', sectionKey)
+        .catch(() => {});
+      await page.waitForTimeout(600);
+
       await page.fill('input[name="nadpis"]', listing.title);
       await page.fill('textarea[name="popis"]', listing.description);
 
@@ -410,9 +421,12 @@ export class BazosSkProvider extends BrowserProvider {
           body,
         );
 
-      // Positive signals — unambiguous words that never appear in the rejection.
+      // Positive signals. Rejection is checked first, so once we're past it
+      // these words mean success (Bazoš shows "byl vložen … aktivujte přes
+      // e-mail" / "úspešne pridaný").
       const successText =
-        /(úspešne|úspěšně|ďakujeme|děkujeme|aktivovan[ýé]|bol[ao]?\s+úspešne|byl[ao]?\s+úspěšně)/i.test(
+        !rejected &&
+        /(úspešne|úspěšně|ďakujeme|děkujeme|aktivuj|aktiva[čc]|aktivovan|odeslali|odesláli|byl[ao]?\s+vlož|bol[ao]?\s+vlož|vložen do|vložený do|pridaný|přidán)/i.test(
           body,
         );
 
