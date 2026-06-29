@@ -157,6 +157,44 @@ export async function refreshListing(
 }
 
 /**
+ * Enqueue a status check for every live publication that hasn't been checked
+ * recently. Keeps the view count + "is it still live" + current date fresh so
+ * the dashboard reflects reality without the user doing anything. Staggered to
+ * avoid hammering portals.
+ */
+export async function enqueueDueStatusChecks(
+  maxAgeMs = Number(process.env.STATUS_CHECK_INTERVAL_MS ?? 60 * 60 * 1000),
+): Promise<number> {
+  const cutoff = new Date(Date.now() - maxAgeMs);
+  const due = await prisma.publication.findMany({
+    where: {
+      status: "PUBLISHED",
+      remoteId: { not: null },
+      OR: [{ lastSyncedAt: null }, { lastSyncedAt: { lte: cutoff } }],
+    },
+    include: { portal: true, listing: { select: { userId: true } } },
+    take: 200,
+  });
+
+  const STAGGER_MS = Number(process.env.REFRESH_STAGGER_MS ?? 90_000);
+  let i = 0;
+  for (const pub of due) {
+    await enqueueTask(
+      "check_status",
+      {
+        publicationId: pub.id,
+        userId: pub.listing.userId,
+        listingId: pub.listingId,
+        portalKey: pub.portal.key,
+      },
+      { delayMs: i * 5_000 < STAGGER_MS ? i * 5_000 : STAGGER_MS },
+    );
+    i++;
+  }
+  return due.length;
+}
+
+/**
  * Scan for publications whose auto-bump is due and enqueue refresh jobs.
  * Invoked by a scheduler (cron / repeatable job) — see README.
  */

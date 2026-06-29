@@ -78,12 +78,13 @@ export default function RegisterPage() {
               <Label htmlFor="phone">Telefón</Label>
               <Input
                 id="phone"
-                placeholder="0900 000 000"
+                placeholder="+421 900 000 000"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                Predvyplní sa do tvojich inzerátov (vieš ho zmeniť).
+                Vo formáte +421… — predvyplní sa do inzerátov a funguje aj na
+                českom Bazoši.
               </p>
             </div>
             <div className="space-y-1.5">

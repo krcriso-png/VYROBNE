@@ -1,4 +1,4 @@
-import { enqueueDueRefreshes } from "../lib/publishing";
+import { enqueueDueRefreshes, enqueueDueStatusChecks } from "../lib/publishing";
 
 // ===========================================================================
 // Auto-refresh scheduler
@@ -18,6 +18,11 @@ export function startScheduler(): NodeJS.Timeout {
       if (n > 0) {
         // eslint-disable-next-line no-console
         console.log(`⏱️  Scheduler enqueued ${n} refresh job(s)`);
+      }
+      const s = await enqueueDueStatusChecks();
+      if (s > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`⏱️  Scheduler enqueued ${s} status check(s)`);
       }
     } catch (err) {
       // eslint-disable-next-line no-console

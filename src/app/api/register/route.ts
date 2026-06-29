@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { route, json, HttpError } from "@/lib/api";
 import { registerSchema } from "@/lib/validation";
+import { normalizePhone } from "@/lib/phone";
 
 // POST /api/register — email+password sign-up.
 // Creates the user, a FREE subscription, and (in a full deployment) sends an
@@ -21,7 +22,7 @@ export const POST = route(async (req: Request) => {
     data: {
       email,
       name,
-      phone,
+      phone: normalizePhone(phone),
       passwordHash,
       subscription: { create: { plan: "FREE", status: "ACTIVE" } },
     },

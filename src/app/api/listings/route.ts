@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { route, json, requireUser, HttpError } from "@/lib/api";
 import { listingInputSchema } from "@/lib/validation";
 import { canAddActiveListing } from "@/lib/plans";
+import { normalizePhone } from "@/lib/phone";
 
 // GET /api/listings — list the current user's listings (with summary counts).
 export const GET = route(async () => {
@@ -50,7 +51,7 @@ export const POST = route(async (req: Request) => {
       location: data.location ?? null,
       zip: data.zip ?? null,
       contactName: data.contactName ?? null,
-      phone: data.phone ?? null,
+      phone: normalizePhone(data.phone),
       contactEmail: data.contactEmail ?? null,
       web: data.web ?? null,
       renewIntervalHours: data.renewIntervalHours ?? null,

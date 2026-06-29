@@ -323,10 +323,16 @@ model Publication {
 
   remoteId    String? // listing ID assigned by the portal
   remoteUrl   String? // public URL of the published listing
-  publishedAt DateTime?
+  publishedAt DateTime? // when the CURRENT live ad was posted (resets on repost)
   lastSyncedAt DateTime?
   lastRefreshedAt DateTime?
   nextRefreshAt   DateTime? // when the auto-bump should next run
+
+  // View tracking. Bazoš resets views when an ad is re-posted (topovať), so we
+  // keep a cumulative figure: total reach = viewsBase + viewsCurrent.
+  viewsCurrent Int @default(0) // views on the current live ad
+  viewsBase    Int @default(0) // summed views of all previous (reposted) ads
+  viewsCheckedAt DateTime? // last time we scraped the view count
 
   lastError String? @db.Text
   attempts  Int     @default(0)

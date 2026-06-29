@@ -52,22 +52,42 @@ export class BazosSkProvider extends BrowserProvider {
   readonly refreshStrategy = "repost" as const;
 
   protected baseUrl = BASE_URL;
+  // Domain used for section subdomains + ad links. Bazoš CZ overrides this so
+  // the whole flow stays on bazos.cz instead of leaking back to bazos.sk.
+  protected domain = "bazos.sk";
+  // International dialling prefix for this market (foreign portals require it).
+  protected phonePrefix = "+421";
+  // Some markets require a local-format postcode even for foreign sellers
+  // (Bazoš CZ rejects a Slovak ad without a 5-digit Czech PSČ).
+  protected fallbackZip = "";
 
   async login(
-    _credentials: ProviderCredentials,
+    credentials: ProviderCredentials,
     ctx: ProviderContext,
   ): Promise<ProviderSession> {
-    // DISCOVERY MODE: Bazoš has no classic login before posting (you use the
-    // "Pridať inzerát" flow). Until the live flow is fully mapped, this step
-    // dismisses the cookie banner and records the real page structure
-    // (screenshots + links + form fields) so the publish/category/import flows
-    // can be implemented against the actual DOM.
+    // Sign in to the Bazoš account when credentials are present. A registered,
+    // phone-verified account is NOT asked for an SMS code on every post, so
+    // logging in (and persisting the cookies) is what stops the repeated SMS
+    // prompts. Falls back to anonymous mapping if no credentials / login fails.
     return this.withContext(null, ctx, async (context) => {
       const page = await context.newPage();
-      await ctx.log(`Mapujem ${this.name}…`);
+      await ctx.log(`Otváram ${this.name}…`);
       await page.goto(`${this.baseUrl}/`, { waitUntil: "domcontentloaded" });
       await this.acceptCookies(page, ctx);
       await this.debugShot(page, ctx, "home");
+
+      if (credentials.login && credentials.password) {
+        await this.tryAccountLogin(
+          page,
+          ctx,
+          credentials.login,
+          credentials.password,
+        );
+      } else {
+        await ctx.log(
+          "Bez prihlasovacích údajov k Bazoš účtu — Bazoš môže žiadať SMS pri každom pridaní. Pridaj email a heslo k portálu pre menej overovaní.",
+        );
+      }
       await this.logStructure(page, ctx);
 
       // Open the add-listing flow and record what it looks like.
@@ -104,6 +124,69 @@ export class BazosSkProvider extends BrowserProvider {
     });
   }
 
+  /**
+   * Best-effort sign-in to a Bazoš account so future posts skip SMS. Bazoš
+   * exposes the login at /prihlasit.php with fields name="login" / name="heslo".
+   * Logs + screenshots each step so the flow can be verified against the live
+   * site; never throws (mapping/publish continues even if login fails).
+   */
+  private async tryAccountLogin(
+    page: import("playwright").Page,
+    ctx: ProviderContext,
+    login: string,
+    password: string,
+  ): Promise<void> {
+    try {
+      await ctx.log("Prihlasujem sa do Bazoš účtu");
+      await page
+        .goto(`${this.baseUrl}/prihlasit.php`, { waitUntil: "domcontentloaded" })
+        .catch(() => {});
+      await this.acceptCookies(page, ctx);
+
+      const emailField = page
+        .locator('input[name="login"], input[name="email"]')
+        .first();
+      const passField = page
+        .locator('input[name="heslo"], input[type="password"]')
+        .first();
+      if ((await emailField.count()) === 0 || (await passField.count()) === 0) {
+        await this.debugShot(page, ctx, "login-form-missing");
+        await ctx.log(
+          "Prihlasovací formulár sa nenašiel — pokračujem bez prihlásenia.",
+        );
+        return;
+      }
+
+      await emailField.fill(login).catch(() => {});
+      await passField.fill(password).catch(() => {});
+      await this.debugShot(page, ctx, "login-filled");
+      await page
+        .locator(
+          'form:has(input[name="heslo"]) input[type="submit"], input[type="submit"][value*="Prihl"]',
+        )
+        .first()
+        .click({ timeout: 8000 })
+        .catch(() => page.click('input[type="submit"]').catch(() => {}));
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      await page.waitForTimeout(1200);
+      await this.debugShot(page, ctx, "login-after");
+
+      const body = await page
+        .locator("body")
+        .innerText()
+        .catch(() => "");
+      if (/odhlás|moje inzeráty|môj účet|odhlasit/i.test(body)) {
+        await ctx.log("Prihlásenie do Bazoš účtu úspešné ✅");
+      } else {
+        await ctx.log(
+          "Prihlásenie sa nepotvrdilo (pozri 'login-after') — pokračujem, no Bazoš môže žiadať SMS.",
+        );
+      }
+    } catch (e) {
+      await ctx.log("Prihlásenie zlyhalo, pokračujem bez neho: " + String(e));
+    }
+  }
+
   async publish(
     listing: ListingPayload,
     session: ProviderSession,
@@ -126,7 +209,7 @@ export class BazosSkProvider extends BrowserProvider {
         pickedSection && SECTIONS.some((s) => s.key === pickedSection)
           ? pickedSection
           : matchSectionKey(wanted);
-      const sectionUrl = `https://${sectionKey}.bazos.sk/pridat-inzerat.php`;
+      const sectionUrl = `https://${sectionKey}.${this.domain}/pridat-inzerat.php`;
       await ctx.log(`Sekcia "${wanted}" → ${sectionKey} (${sectionUrl})`);
       await page.goto(sectionUrl, { waitUntil: "domcontentloaded" });
       await this.acceptCookies(page, ctx);
@@ -139,7 +222,13 @@ export class BazosSkProvider extends BrowserProvider {
         (await page.locator(SELECTORS.title).count()) > 0;
 
       if (!(await hasTitle())) {
-        const sub = await clickBestSubcategory(page, ctx, wanted, sectionKey);
+        const sub = await clickBestSubcategory(
+          page,
+          ctx,
+          wanted,
+          sectionKey,
+          this.domain,
+        );
         if (sub) {
           await page.waitForLoadState("domcontentloaded").catch(() => {});
           await page.waitForTimeout(900);
@@ -192,7 +281,13 @@ export class BazosSkProvider extends BrowserProvider {
         await page.selectOption('select[name="cenavyber"]', "2").catch(() => {});
       }
 
-      const loc = listing.zip || listing.location;
+      // Location / PSČ. Bazoš CZ requires a 5-digit Czech PSČ even for a
+      // foreign (SK) ad, so fall back to a valid placeholder when needed.
+      const psc = normalizeZip(listing.zip);
+      const loc =
+        psc.length === 5
+          ? psc
+          : this.fallbackZip || listing.zip || listing.location || "";
       if (loc) await page.fill('input[name="lokalita"]', loc).catch(() => {});
       // "Meno" is required by Bazoš — fall back to the email name or a default
       // so the submit never fails on an empty name.
@@ -202,8 +297,11 @@ export class BazosSkProvider extends BrowserProvider {
         ctx.secrets?.login?.split("@")[0] ||
         "Inzerent";
       await page.fill('input[name="jmeno"]', jmeno).catch(() => {});
-      if (listing.phone) {
-        await page.fill('input[name="telefoni"]', listing.phone).catch(() => {});
+      // Always submit the phone in international format (+421/+420) so foreign
+      // portals accept it.
+      const phone = formatPhone(listing.phone, this.phonePrefix);
+      if (phone) {
+        await page.fill('input[name="telefoni"]', phone).catch(() => {});
       }
       if (listing.email) {
         await page.fill('input[name="maili"]', listing.email).catch(() => {});
@@ -317,7 +415,7 @@ export class BazosSkProvider extends BrowserProvider {
     // Prefer the account's dedicated verification phone (your phone that gets
     // the SMS), falling back to the listing's contact phone.
     const rawPhone = ctx.secrets?.verifyPhone || listing.phone || "";
-    const phone = rawPhone.replace(/[^\d+]/g, "");
+    const phone = formatPhone(rawPhone, this.phonePrefix);
     if (!phone) {
       throw new Error(
         "Bazoš vyžaduje overenie telefónu, ale nie je zadané žiadne číslo " +
@@ -390,6 +488,105 @@ export class BazosSkProvider extends BrowserProvider {
       /* non-fatal */
     }
     await ctx.log("Telefón overený ✅ (relácia uložená)");
+  }
+
+  /**
+   * Edit an existing ad IN PLACE (no delete + re-post). Bazoš lets you edit a
+   * live ad via its "Editovať inzerát" link + the per-ad password, which does
+   * NOT trigger a new SMS verification. Keeps the same remote id/URL and the
+   * accumulated views. Falls back to a fresh publish only if the ad is gone.
+   */
+  async update(
+    remoteId: string,
+    listing: ListingPayload,
+    session: ProviderSession,
+    ctx: ProviderContext,
+  ): Promise<PublishResult> {
+    return this.withContext(session, ctx, async (context) => {
+      const page = await context.newPage();
+      const url = remoteId.startsWith("http")
+        ? remoteId
+        : `${this.baseUrl}/inzerat/${remoteId}`;
+      await ctx.log("Upravujem inzerát na portáli (priama úprava)", { remoteId });
+      await page.goto(url, { waitUntil: "domcontentloaded" }).catch(() => {});
+      await this.acceptCookies(page, ctx);
+      await this.debugShot(page, ctx, "edit-open");
+
+      const editLink = page.getByText(/Editova[tť] inzer/i).first();
+      if ((await editLink.count()) === 0) {
+        await ctx.log(
+          "Odkaz na úpravu sa nenašiel — inzerát asi neexistuje, nahrávam nový",
+        );
+        return this.publish(listing, session, ctx);
+      }
+      await editLink.click().catch(() => {});
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      await page.waitForTimeout(800);
+      await this.debugShot(page, ctx, "edit-pass");
+
+      // Enter the per-ad password if Bazoš asks for it before showing the form.
+      const pass = ctx.secrets?.password || "Klikado1234";
+      const passField = page
+        .locator('input[name="heslobazar"], input[name="heslo"]')
+        .first();
+      if (
+        (await passField.count()) &&
+        (await page.locator('input[name="nadpis"]').count()) === 0
+      ) {
+        await passField.fill(pass).catch(() => {});
+        await page
+          .locator(
+            'form:has(input[name="heslobazar"]) input[type="submit"], form:has(input[name="heslo"]) input[type="submit"]',
+          )
+          .first()
+          .click({ timeout: 8000 })
+          .catch(() => page.click('input[type="submit"]').catch(() => {}));
+        await page.waitForLoadState("domcontentloaded").catch(() => {});
+        await page.waitForTimeout(800);
+      }
+      await this.debugShot(page, ctx, "edit-form");
+      await this.logStructure(page, ctx);
+
+      if ((await page.locator('input[name="nadpis"]').count()) === 0) {
+        throw new Error(
+          "Nepodarilo sa otvoriť editačný formulár (pozri 'edit-pass'/'edit-form') " +
+            "— pravdepodobne nesprávne heslo inzerátu.",
+        );
+      }
+
+      // Update the editable fields in place.
+      await page.fill('input[name="nadpis"]', listing.title).catch(() => {});
+      await page
+        .fill('textarea[name="popis"]', listing.description)
+        .catch(() => {});
+      if (listing.price != null) {
+        await page.fill('input[name="cena"]', String(listing.price)).catch(() => {});
+      }
+      const phone = formatPhone(listing.phone, this.phonePrefix);
+      if (phone) {
+        await page.fill('input[name="telefoni"]', phone).catch(() => {});
+      }
+      if (listing.email) {
+        await page.fill('input[name="maili"]', listing.email).catch(() => {});
+      }
+
+      await this.debugShot(page, ctx, "edit-filled");
+      await page
+        .locator('form:has(input[name="nadpis"]) input[type="submit"]')
+        .first()
+        .click({ timeout: 10000 })
+        .catch(() => page.click('input[type="submit"]').catch(() => {}));
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      await page.waitForTimeout(1200);
+      await this.debugShot(page, ctx, "edit-done");
+
+      await ctx.log("Inzerát upravený ✅ (bez nového overenia)", { remoteId });
+      return {
+        remoteId,
+        remoteUrl: url,
+        session: await this.snapshot(context),
+      };
+    });
   }
 
   async refresh(
@@ -476,8 +673,16 @@ export class BazosSkProvider extends BrowserProvider {
         : `${this.baseUrl}/inzerat/${remoteId}`;
       const resp = await page.goto(url, { waitUntil: "domcontentloaded" });
       const live = !!resp && resp.status() < 400;
-      await ctx.log("Status check", { remoteId, live });
-      return { live, remoteUrl: url };
+      let views: number | undefined;
+      if (live) {
+        const body = await page
+          .locator("body")
+          .innerText()
+          .catch(() => "");
+        views = parseViews(body);
+      }
+      await ctx.log("Status check", { remoteId, live, views });
+      return { live, remoteUrl: url, views };
     });
   }
 }
@@ -553,8 +758,9 @@ async function clickBestSubcategory(
   ctx: ProviderContext,
   wanted: string,
   sectionKey: string,
+  domain: string,
 ): Promise<string | null> {
-  const host = `${sectionKey}.bazos.sk`;
+  const host = `${sectionKey}.${domain}`;
   const exclude = /^(oblubene|moje-inzeraty|pridat-inzerat|prihlasit|registracia|podmienky|pomoc|otazky|hodnotenie|kontakt|reklama|ochrana-udajov|rss|mapa)/i;
 
   const links = await page.$$eval(
@@ -659,4 +865,33 @@ async function downloadImages(
 function extractIdFromUrl(url: string): string | null {
   const m = url.match(/(\d{6,})/);
   return m ? m[1] : null;
+}
+
+/** Normalise a phone number to international format (+421 / +420 …). */
+function formatPhone(raw: string | null | undefined, prefix: string): string {
+  if (!raw) return "";
+  const p = raw.replace(/[^\d+]/g, "");
+  if (!p) return "";
+  if (p.startsWith("+")) return p;
+  if (p.startsWith("00")) return "+" + p.slice(2);
+  if (p.startsWith("0")) return prefix + p.slice(1); // local 0900… → +421900…
+  return prefix + p;
+}
+
+/** Keep only digits from a postcode (e.g. "010 01" → "01001"). */
+function normalizeZip(zip: string | null | undefined): string {
+  return (zip ?? "").replace(/\D/g, "");
+}
+
+/**
+ * Parse a Bazoš ad's view count from the page text. Bazoš shows it as e.g.
+ * "Počet zobrazení: 1 234" / "Videné: 1234". Returns undefined when not found.
+ */
+function parseViews(body: string): number | undefined {
+  const m = body.match(
+    /(?:po[čc]et\s+zobrazen[ií]|viden[ée]|zhliadnut[ií])[:\s]*([\d\s.]+)/i,
+  );
+  if (!m) return undefined;
+  const n = parseInt(m[1].replace(/[^\d]/g, ""), 10);
+  return Number.isFinite(n) ? n : undefined;
 }

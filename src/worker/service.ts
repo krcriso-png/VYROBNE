@@ -281,30 +281,13 @@ export async function runUpdate(data: BaseJobData): Promise<void> {
   const payload = await buildPayload(data.listingId);
   const provider = getProvider(data.portalKey);
 
-  // For "repost" portals (Bazoš), an edit = delete the old ad + publish the
-  // updated one, so the change is reflected on the portal.
-  if (provider.refreshStrategy === "repost") {
-    await ctx.log("Aktualizujem inzerát na portáli (zmazať + nahrať znova)");
-    try {
-      await provider.delete(pub.remoteId, session, ctx);
-    } catch (err) {
-      await ctx.log("Mazanie pri úprave zlyhalo, pokračujem: " + String(err));
-    }
-    const reposted = await provider.publish(payload, session, ctx);
-    await persistSessionRefresh(data.publicationId, reposted.session);
-    await setStatus(data.publicationId, "PUBLISHED", {
-      remoteId: reposted.remoteId,
-      remoteUrl: reposted.remoteUrl,
-      publishedAt: new Date(),
-      lastSyncedAt: new Date(),
-      lastError: null,
-    });
-    return;
-  }
-
+  // Edit the ad IN PLACE (provider.update). For Bazoš this uses the
+  // "Editovať inzerát" flow, so it does not re-post or trigger a new SMS
+  // verification, and keeps the same remote id + accumulated views.
   const result = await provider.update(pub.remoteId, payload, session, ctx);
   await persistSessionRefresh(data.publicationId, result.session);
   await setStatus(data.publicationId, "PUBLISHED", {
+    remoteId: result.remoteId ?? pub.remoteId,
     remoteUrl: result.remoteUrl,
     lastSyncedAt: new Date(),
     lastError: null,
@@ -371,6 +354,10 @@ export async function runRefresh(data: BaseJobData): Promise<void> {
         lastRefreshedAt: new Date(),
         lastError: null,
         nextRefreshAt: await computeNextRefresh(data.listingId, true),
+        // The old ad's views are now gone; fold them into the cumulative base
+        // so the total reach survives the re-post.
+        viewsBase: { increment: pub.viewsCurrent },
+        viewsCurrent: 0,
       },
     });
     await spendCredits(data.userId, 1, "topovat", data.listingId).catch(
@@ -425,6 +412,9 @@ export async function runCheckStatus(data: BaseJobData): Promise<void> {
       status: status.live ? "PUBLISHED" : "REMOVED",
       remoteUrl: status.remoteUrl ?? pub.remoteUrl,
       lastSyncedAt: new Date(),
+      ...(status.views != null
+        ? { viewsCurrent: status.views, viewsCheckedAt: new Date() }
+        : {}),
     },
   });
 }

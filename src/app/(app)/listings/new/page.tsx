@@ -237,7 +237,7 @@ export default function NewListingPage() {
                 <Label htmlFor="phone">Telefón</Label>
                 <Input
                   id="phone"
-                  placeholder="0900 000 000"
+                  placeholder="+421 900 000 000"
                   value={form.phone}
                   onChange={(e) => set("phone", e.target.value)}
                 />

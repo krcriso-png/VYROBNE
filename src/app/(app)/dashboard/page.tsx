@@ -7,6 +7,8 @@ import {
   ArrowRight,
   ExternalLink,
   Coins,
+  Eye,
+  CalendarClock,
 } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
@@ -18,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { LISTING_STATUS, PUBLICATION_STATUS } from "@/lib/status";
 import { formatPrice } from "@/lib/utils";
 import { AutoTopToggle } from "@/components/AutoTopToggle";
+import { AutoRefresh } from "@/components/AutoRefresh";
 
 const RENEW_LABEL: Record<number, string> = {
   24: "každých 24 h",
@@ -74,6 +77,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      <AutoRefresh intervalMs={45_000} />
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Prehľad</h1>
@@ -132,6 +136,16 @@ export default async function DashboardPage() {
               const publishedPub = l.publications.find(
                 (p) => p.status === "PUBLISHED" && p.remoteUrl,
               );
+              const totalViews = l.publications.reduce(
+                (sum, p) => sum + p.viewsBase + p.viewsCurrent,
+                0,
+              );
+              const liveDates = l.publications
+                .filter((p) => p.status === "PUBLISHED" && p.publishedAt)
+                .map((p) => p.publishedAt!.getTime());
+              const adDate = liveDates.length
+                ? new Date(Math.max(...liveDates))
+                : null;
               return (
                 <Card key={l.id} className="flex items-center gap-4 p-3">
                   <Link
@@ -163,7 +177,7 @@ export default async function DashboardPage() {
                         : ""}
                     </p>
                     {/* Per-portal status chips */}
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                       {l.publications.map((p) => {
                         const ps = PUBLICATION_STATUS[p.status];
                         return (
@@ -178,6 +192,25 @@ export default async function DashboardPage() {
                         </span>
                       )}
                     </div>
+                    {/* Live metrics: cumulative reach + current ad date */}
+                    {(publishedPub || totalViews > 0) && (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                        <span className="inline-flex items-center gap-1">
+                          <Eye className="size-3.5" />
+                          {totalViews} zhliadnutí spolu
+                        </span>
+                        {adDate && (
+                          <span className="inline-flex items-center gap-1">
+                            <CalendarClock className="size-3.5" />
+                            na portáli od {adDate.toLocaleDateString("sk-SK")}{" "}
+                            {adDate.toLocaleTimeString("sk-SK", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="hidden items-center gap-2 sm:flex">
                     <AutoTopToggle

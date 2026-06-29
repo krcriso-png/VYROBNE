@@ -14,4 +14,12 @@ export class BazosCzProvider extends BazosSkProvider {
   readonly country = "CZ";
 
   protected baseUrl = "https://www.bazos.cz";
+  // Keep the whole flow on bazos.cz (section subdomains, ad links) instead of
+  // leaking back to bazos.sk.
+  protected domain = "bazos.cz";
+  // Bazoš CZ accepts international numbers; Slovak sellers use +421.
+  protected phonePrefix = "+421";
+  // Bazoš CZ rejects a Slovak ad without a 5-digit Czech PSČ, so provide one
+  // when the listing has no valid Czech postcode.
+  protected fallbackZip = "10000";
 }

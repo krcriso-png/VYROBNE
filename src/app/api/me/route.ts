@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { route, json, requireUser, HttpError } from "@/lib/api";
 import { profileUpdateSchema } from "@/lib/validation";
+import { normalizePhone } from "@/lib/phone";
 
 // GET /api/me — the current user's profile, used to pre-fill contact fields
 // (name/email) when creating a listing and on the profile page.
@@ -32,7 +33,7 @@ export const PATCH = route(async (req: Request) => {
   } = {};
 
   if (data.name !== undefined) update.name = data.name || null;
-  if (data.phone !== undefined) update.phone = data.phone || null;
+  if (data.phone !== undefined) update.phone = normalizePhone(data.phone);
 
   if (data.email !== undefined) {
     const email = data.email.toLowerCase().trim();

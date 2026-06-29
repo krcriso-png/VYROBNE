@@ -68,6 +68,8 @@ export interface StatusResult {
   /** Whether the listing is still live on the portal. */
   live: boolean;
   remoteUrl?: string;
+  /** Current view count scraped from the ad page, if available. */
+  views?: number;
   /** Free-form details surfaced in the UI. */
   detail?: string;
 }

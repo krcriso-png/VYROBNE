@@ -111,7 +111,7 @@ export default function ProfilePage() {
                 id="phone"
                 value={form.phone}
                 onChange={(e) => set("phone", e.target.value)}
-                placeholder="0900 000 000"
+                placeholder="+421 900 000 000"
               />
             </div>
           </CardContent>

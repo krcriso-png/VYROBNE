@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { route, json, requireUser, HttpError } from "@/lib/api";
 import { listingUpdateSchema } from "@/lib/validation";
 import { syncListing, unpublishListing } from "@/lib/publishing";
+import { normalizePhone } from "@/lib/phone";
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -41,6 +42,7 @@ export const PATCH = route(async (req: Request, { params }: Params) => {
     where: { id },
     data: {
       ...data,
+      phone: data.phone === undefined ? undefined : normalizePhone(data.phone),
       parameters:
         data.parameters === undefined
           ? undefined
@@ -48,8 +50,51 @@ export const PATCH = route(async (req: Request, { params }: Params) => {
     },
   });
 
-  // Fire-and-forget propagation to live portals.
-  await syncListing(user.id, id);
+  // When the auto-topovať interval changes, schedule the next bump relative to
+  // when each ad was actually published (so enabling it right after publishing
+  // does NOT immediately re-post a minutes-old ad). Disabling clears it.
+  if (data.renewIntervalHours !== undefined) {
+    const pubs = await prisma.publication.findMany({
+      where: { listingId: id, status: "PUBLISHED" },
+      select: { id: true, publishedAt: true },
+    });
+    const hours = data.renewIntervalHours;
+    for (const pub of pubs) {
+      const base = pub.publishedAt ?? new Date();
+      const next =
+        hours && hours > 0
+          ? new Date(base.getTime() + hours * 60 * 60 * 1000)
+          : null;
+      await prisma.publication.update({
+        where: { id: pub.id },
+        data: { nextRefreshAt: next },
+      });
+    }
+  }
+
+  // Only propagate to live portals when actual content changed — a renew-only
+  // toggle must not trigger a re-post.
+  const CONTENT_FIELDS = [
+    "title",
+    "description",
+    "price",
+    "currency",
+    "category",
+    "parameters",
+    "tags",
+    "location",
+    "zip",
+    "contactName",
+    "phone",
+    "contactEmail",
+    "web",
+  ] as const;
+  const contentChanged = CONTENT_FIELDS.some(
+    (k) => (data as Record<string, unknown>)[k] !== undefined,
+  );
+  if (contentChanged) {
+    await syncListing(user.id, id);
+  }
 
   return json({ listing });
 });
