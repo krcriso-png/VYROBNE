@@ -835,37 +835,88 @@ export class BazosSkProvider extends BrowserProvider {
   ): Promise<StatusResult> {
     return this.withContext(session, ctx, async (context) => {
       const page = await context.newPage();
-      const url = remoteId.startsWith("http")
-        ? remoteId
-        : `${this.baseUrl}/inzerat/${remoteId}`;
-      const resp = await page.goto(url, { waitUntil: "domcontentloaded" });
-      const httpStatus = resp?.status() ?? 0;
-      const body = await page
-        .locator("body")
-        .innerText()
-        .catch(() => "");
 
-      // Only treat the ad as gone when we POSITIVELY confirm it: an HTTP error,
-      // or an explicit "removed / expired / not found" message. Anything else
-      // (incl. a momentary glitch) keeps it PUBLISHED so we never falsely tell
-      // the user it was deleted while it's actually still online.
-      const removed =
-        httpStatus >= 400 ||
-        /inzer\w*\s+(bol|bola)?\s*(vymazan|zmazan|odstr[aá]n|deaktivov|expirov)/i.test(
-          body,
-        ) ||
-        /(inzer\w*\s+(už\s+)?neexistuje|nebol\s+n[aá]jden|str[aá]nka\s+nebola\s+n[aá]jden|404\s+not\s+found)/i.test(
-          body,
+      // Step 1 — if we have a real ad URL, check it directly.
+      const isAdRef = /\/inzerat\/\d+/.test(remoteId) || /^\d+$/.test(remoteId);
+      if (isAdRef) {
+        const url = remoteId.startsWith("http")
+          ? remoteId
+          : `${this.baseUrl}/inzerat/${remoteId}`;
+        const resp = await page.goto(url, { waitUntil: "domcontentloaded" });
+        const httpStatus = resp?.status() ?? 0;
+        const body = await page
+          .locator("body")
+          .innerText()
+          .catch(() => "");
+        const removed =
+          httpStatus >= 400 ||
+          /inzer\w*\s+(bol|bola|byl|byla)?\s*(vymazan|zmazan|smazán|odstr[aá]n|deaktivov|expirov)/i.test(
+            body,
+          ) ||
+          /(inzer\w*\s+(už\s+)?ne(existuje|existuj)|neb(ol|yl)\s+n[aá]jden|str[aá]nka\s+nebola?\s+n[aá]jden|404\s+not\s+found)/i.test(
+            body,
+          );
+        if (!removed) {
+          const views = parseViews(body);
+          await ctx.log("Kontrola stavu inzerátu (priamy odkaz)", {
+            remoteId,
+            live: true,
+            views,
+          });
+          return { live: true, verified: true, remoteUrl: url, views };
+        }
+        // Direct URL says gone — but the ad may have been re-posted to a new
+        // id, so fall through and confirm against "Moje inzeráty" by title.
+      }
+
+      // Step 2 — verify against the account's "Moje inzeráty" by title. This is
+      // the source of truth and survives re-posts (new id each time).
+      if (ctx.listingTitle) {
+        const own = await this.resolveOwnAdUrl(page, ctx, ctx.listingTitle);
+        if (own) {
+          // Open the ad page itself to read its current view count.
+          let views: number | undefined;
+          try {
+            await page.goto(own.url, { waitUntil: "domcontentloaded" });
+            const adBody = await page
+              .locator("body")
+              .innerText()
+              .catch(() => "");
+            views = parseViews(adBody);
+          } catch {
+            /* views are best-effort */
+          }
+          await ctx.log("Inzerát potvrdený cez Moje inzeráty", {
+            remoteId: own.id,
+            views,
+          });
+          return {
+            live: true,
+            verified: true,
+            remoteId: own.id,
+            remoteUrl: own.url,
+            views,
+          };
+        }
+        // Logged in (we could load the list) but the ad is not there → gone.
+        const listBody = await page
+          .locator("body")
+          .innerText()
+          .catch(() => "");
+        const loggedIn = /moje inzer|odhlás|odhlas|môj účet|můj účet/i.test(
+          listBody,
         );
-      const live = !removed;
-      const views = live ? parseViews(body) : undefined;
-      await ctx.log("Kontrola stavu inzerátu", {
-        remoteId,
-        live,
-        httpStatus,
-        views,
-      });
-      return { live, remoteUrl: url, views };
+        if (loggedIn) {
+          await ctx.log("Inzerát sa v Moje inzeráty nenašiel — považujem za odstránený");
+          return { live: false, verified: true };
+        }
+      }
+
+      // Couldn't determine (not logged in / no title) — do NOT change status.
+      await ctx.log(
+        "Stav inzerátu sa nepodarilo overiť — nechávam ho bez zmeny.",
+      );
+      return { live: false, verified: false };
     });
   }
 }

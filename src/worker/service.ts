@@ -445,24 +445,43 @@ export async function runCheckStatus(data: BaseJobData): Promise<void> {
   const pub = await prisma.publication.findUniqueOrThrow({
     where: { id: data.publicationId },
   });
-  if (!pub.remoteId) return;
-  // Only check when the remote id is a real ad reference (a /inzerat/ URL or a
-  // numeric id). A generic page like ".../insert.php" or "moje-inzeraty.php"
-  // isn't an ad, so verifying it would wrongly flip the ad to REMOVED.
-  const isAdRef = /\/inzerat\/\d+/.test(pub.remoteId) || /^\d+$/.test(pub.remoteId);
-  if (!isAdRef) {
-    await ctx.log(
-      "Preskakujem kontrolu stavu — uložený odkaz nie je priama adresa inzerátu.",
-    );
-    return;
-  }
+  // Proceed even with an empty (un-pinned) remote id — the provider can still
+  // confirm the ad by title in "Moje inzeráty" and fill the real id in.
+  if (pub.remoteId == null) return;
+
+  // Give the provider the listing title so it can confirm the ad in the
+  // account's "Moje inzeráty" list (the source of truth) when the stored URL is
+  // missing or stale.
+  const listing = await prisma.listing.findUnique({
+    where: { id: data.listingId },
+    select: { title: true },
+  });
+  ctx.listingTitle = listing?.title;
+
   const { session } = await ensureSession(data.publicationId, data, ctx);
   const provider = getProvider(data.portalKey);
   const status = await provider.checkStatus(pub.remoteId, session, ctx);
+
+  // Only a CONFIDENT result may change the status. When unverified, just record
+  // any views/URL we learned and leave the published/removed state untouched.
+  if (status.verified === false) {
+    await prisma.publication.update({
+      where: { id: data.publicationId },
+      data: {
+        lastSyncedAt: new Date(),
+        ...(status.views != null
+          ? { viewsCurrent: status.views, viewsCheckedAt: new Date() }
+          : {}),
+      },
+    });
+    return;
+  }
+
   await prisma.publication.update({
     where: { id: data.publicationId },
     data: {
       status: status.live ? "PUBLISHED" : "REMOVED",
+      remoteId: status.remoteId ?? pub.remoteId,
       remoteUrl: status.remoteUrl ?? pub.remoteUrl,
       lastSyncedAt: new Date(),
       ...(status.views != null

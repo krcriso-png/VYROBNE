@@ -67,6 +67,15 @@ export interface PublishResult {
 export interface StatusResult {
   /** Whether the listing is still live on the portal. */
   live: boolean;
+  /**
+   * Whether the provider could actually determine liveness. When false (e.g.
+   * not logged in, couldn't load the ad list), the caller must NOT change the
+   * stored status — only a confident result may flip a listing to REMOVED.
+   * Treated as true when omitted.
+   */
+  verified?: boolean;
+  /** The real ad id, if the provider re-resolved it (e.g. after a re-post). */
+  remoteId?: string;
   remoteUrl?: string;
   /** Current view count scraped from the ad page, if available. */
   views?: number;
@@ -85,6 +94,9 @@ export interface ProviderContext {
    * submits it, or null on timeout. Undefined when not running under a worker.
    */
   requestUserInput?: (prompt: string) => Promise<string | null>;
+  /** The listing's title — lets status checks find the ad by name in the
+   * account's "my ads" list when the stored URL is missing/stale. */
+  listingTitle?: string;
   /** Decrypted portal credentials (e.g. the per-ad password) for form fields. */
   secrets?: {
     login: string | null;
