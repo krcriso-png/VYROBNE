@@ -140,6 +140,7 @@ async function ensureSession(
   session: ProviderSession;
   accountId: string;
   credentials: ProviderCredentials;
+  verifyPhone: string | null;
 }> {
   const publication = await prisma.publication.findUniqueOrThrow({
     where: { id: publicationId },
@@ -164,7 +165,12 @@ async function ensureSession(
     !account.needsReauth;
 
   if (stillValid) {
-    return { session: { state: stored }, accountId: account.id, credentials };
+    return {
+      session: { state: stored },
+      accountId: account.id,
+      credentials,
+      verifyPhone: account.verifyPhone,
+    };
   }
 
   const session = await provider.login(credentials, ctx);
@@ -177,7 +183,12 @@ async function ensureSession(
       needsReauth: false,
     },
   });
-  return { session, accountId: account.id, credentials };
+  return {
+    session,
+    accountId: account.id,
+    credentials,
+    verifyPhone: account.verifyPhone,
+  };
 }
 
 async function setStatus(
@@ -196,12 +207,16 @@ async function setStatus(
 export async function runPublish(data: BaseJobData): Promise<void> {
   const ctx = buildContext(data);
   await setStatus(data.publicationId, "PUBLISHING");
-  const { session, credentials, accountId } = await ensureSession(
+  const { session, credentials, accountId, verifyPhone } = await ensureSession(
     data.publicationId,
     data,
     ctx,
   );
-  ctx.secrets = { login: credentials.login, password: credentials.password };
+  ctx.secrets = {
+    login: credentials.login,
+    password: credentials.password,
+    verifyPhone,
+  };
   // Allow the provider to persist a freshly-verified session mid-flow.
   ctx.saveSession = async (s) => {
     await prisma.portalAccount.update({
@@ -243,12 +258,16 @@ export async function runUpdate(data: BaseJobData): Promise<void> {
   });
   if (!pub.remoteId) return runPublish(data); // nothing remote yet
   await setStatus(data.publicationId, "UPDATING");
-  const { session, credentials } = await ensureSession(
+  const { session, credentials, verifyPhone } = await ensureSession(
     data.publicationId,
     data,
     ctx,
   );
-  ctx.secrets = { login: credentials.login, password: credentials.password };
+  ctx.secrets = {
+    login: credentials.login,
+    password: credentials.password,
+    verifyPhone,
+  };
   const payload = await buildPayload(data.listingId);
   const provider = getProvider(data.portalKey);
   const result = await provider.update(pub.remoteId, payload, session, ctx);

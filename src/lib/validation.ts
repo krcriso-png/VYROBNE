@@ -46,6 +46,7 @@ export const portalAccountSchema = z.object({
   label: z.string().max(120).optional(),
   login: z.string().max(200).optional(),
   password: z.string().max(400).optional(),
+  verifyPhone: z.string().max(40).optional(),
 });
 
 export const checkoutSchema = z.object({

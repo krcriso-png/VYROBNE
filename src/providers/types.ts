@@ -84,7 +84,12 @@ export interface ProviderContext {
    */
   requestUserInput?: (prompt: string) => Promise<string | null>;
   /** Decrypted portal credentials (e.g. the per-ad password) for form fields. */
-  secrets?: { login: string | null; password: string | null };
+  secrets?: {
+    login: string | null;
+    password: string | null;
+    /** Phone for SMS verification (overrides the listing phone). */
+    verifyPhone?: string | null;
+  };
   /**
    * Persist the current session immediately (e.g. right after a phone
    * verification) so it survives even if a later step fails and future runs

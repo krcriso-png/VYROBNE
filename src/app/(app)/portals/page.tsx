@@ -23,6 +23,7 @@ export default function PortalsPage() {
   const [active, setActive] = useState<string | null>(null);
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
+  const [verifyPhone, setVerifyPhone] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -41,7 +42,7 @@ export default function PortalsPage() {
     const res = await fetch("/api/portal-accounts", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ portalKey, login, password }),
+      body: JSON.stringify({ portalKey, login, password, verifyPhone }),
     });
     setBusy(false);
     if (res.ok) {
@@ -49,6 +50,7 @@ export default function PortalsPage() {
       setActive(null);
       setLogin("");
       setPassword("");
+      setVerifyPhone("");
       load();
     } else {
       setMessage("Uloženie zlyhalo.");
@@ -121,7 +123,7 @@ export default function PortalsPage() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor={`pass-${p.key}`}>Heslo</Label>
+                  <Label htmlFor={`pass-${p.key}`}>Heslo k inzerátu</Label>
                   <Input
                     id={`pass-${p.key}`}
                     type="password"
@@ -129,6 +131,21 @@ export default function PortalsPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                   />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor={`vphone-${p.key}`}>
+                    Telefón na SMS overenie
+                  </Label>
+                  <Input
+                    id={`vphone-${p.key}`}
+                    placeholder="napr. 0911 123 456 (tvoj telefón pre SMS kód)"
+                    value={verifyPhone}
+                    onChange={(e) => setVerifyPhone(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Sem chodí overovací SMS kód. Nemusí sa zhodovať s číslom
+                    v inzeráte. Ak necháš prázdne, použije sa telefón z inzerátu.
+                  </p>
                 </div>
                 <Button onClick={() => save(p.key)} disabled={busy} size="sm">
                   {busy ? "Ukladám…" : "Uložiť"}

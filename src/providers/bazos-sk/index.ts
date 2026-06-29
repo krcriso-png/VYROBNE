@@ -279,10 +279,14 @@ export class BazosSkProvider extends BrowserProvider {
     ctx: ProviderContext,
     listing: ListingPayload,
   ): Promise<void> {
-    const phone = (listing.phone ?? "").replace(/[^\d+]/g, "");
+    // Prefer the account's dedicated verification phone (your phone that gets
+    // the SMS), falling back to the listing's contact phone.
+    const rawPhone = ctx.secrets?.verifyPhone || listing.phone || "";
+    const phone = rawPhone.replace(/[^\d+]/g, "");
     if (!phone) {
       throw new Error(
-        "Bazoš vyžaduje overenie telefónu, ale inzerát nemá telefónne číslo.",
+        "Bazoš vyžaduje overenie telefónu, ale nie je zadané žiadne číslo " +
+          "(zadaj 'Telefón na SMS overenie' pri Bazoš účte alebo telefón v inzeráte).",
       );
     }
     await ctx.log("Spúšťam overenie telefónu na Bazoši");

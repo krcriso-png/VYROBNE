@@ -8,6 +8,7 @@ import {
   Send,
   Globe,
   MessageSquareLock,
+  AlertTriangle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ interface PublicationState {
   status: keyof typeof PUBLICATION_STATUS;
   remoteUrl: string | null;
   smsPrompt: string | null;
+  lastError: string | null;
 }
 
 const LIVE_STATUSES = new Set(["PENDING", "PUBLISHING", "WAITING_SMS", "UPDATING"]);
@@ -140,8 +142,8 @@ export function PublishPanel({
             const st = pub ? PUBLICATION_STATUS[pub.status] : null;
             const checked = selected.has(p.key);
             return (
+              <div key={p.key}>
               <label
-                key={p.key}
                 className={
                   "flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-colors " +
                   (checked ? "border-primary/40 bg-primary/5" : "hover:bg-muted/50") +
@@ -185,6 +187,13 @@ export function PublishPanel({
                   </a>
                 )}
               </label>
+              {pub?.status === "ERROR" && pub.lastError && (
+                <p className="mt-1 flex items-start gap-1.5 px-1 text-xs text-destructive">
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                  <span>{pub.lastError}</span>
+                </p>
+              )}
+              </div>
             );
           })}
 

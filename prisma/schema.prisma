@@ -245,6 +245,10 @@ model PortalAccount {
 
   label    String? // user-friendly name, e.g. "My personal Bazoš"
   login    String? // username / email on the portal
+  // Phone used for portal SMS verification (your phone, receives the code).
+  // May differ from the contact phone shown in the ad. Falls back to the
+  // listing's phone when empty.
+  verifyPhone String?
 
   // Encrypted blobs (AES-256-GCM, base64). Never returned to the client.
   passwordEnc String? @db.Text

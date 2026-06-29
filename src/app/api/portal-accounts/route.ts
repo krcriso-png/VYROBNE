@@ -19,6 +19,7 @@ export const GET = route(async () => {
       portalName: a.portal.name,
       label: a.label,
       login: a.login,
+      verifyPhone: a.verifyPhone,
       hasPassword: !!a.passwordEnc,
       needsReauth: a.needsReauth,
       lastLoginAt: a.lastLoginAt,
@@ -44,6 +45,7 @@ export const POST = route(async (req: Request) => {
       portalId: portal.id,
       label: input.label,
       login: input.login,
+      verifyPhone: input.verifyPhone,
       passwordEnc: encrypt(input.password),
       // Force a fresh login on next use since credentials changed.
       needsReauth: true,
@@ -51,6 +53,7 @@ export const POST = route(async (req: Request) => {
     update: {
       label: input.label,
       login: input.login,
+      verifyPhone: input.verifyPhone,
       ...(input.password ? { passwordEnc: encrypt(input.password) } : {}),
       needsReauth: true,
       sessionEnc: null,
