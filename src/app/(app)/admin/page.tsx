@@ -11,7 +11,7 @@ export default async function AdminPage() {
   const session = await auth();
   if (session?.user.role !== "ADMIN") redirect("/dashboard");
 
-  const [users, errorCount, pendingCount, portals, recentErrors] =
+  const [users, errorCount, pendingCount, portals, recentErrors, reports] =
     await Promise.all([
       prisma.user.findMany({
         orderBy: { createdAt: "desc" },
@@ -27,6 +27,12 @@ export default async function AdminPage() {
         where: { level: "ERROR" },
         orderBy: { createdAt: "desc" },
         take: 10,
+      }),
+      // Error reports submitted by users ("Nahlásiť adminovi").
+      prisma.notification.findMany({
+        where: { userId: session.user.id, type: "SYSTEM" },
+        orderBy: { createdAt: "desc" },
+        take: 15,
       }),
     ]);
 
@@ -117,6 +123,27 @@ export default async function AdminPage() {
                     {e.portalKey ?? "—"} · {formatDate(e.createdAt)}
                   </p>
                 </div>
+              </div>
+            ))}
+          </Card>
+        )}
+      </section>
+
+      <section>
+        <h2 className="mb-3 font-semibold">Nahlásené chyby od používateľov</h2>
+        {reports.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Žiadne nahlásenia.</p>
+        ) : (
+          <Card className="divide-y">
+            {reports.map((r) => (
+              <div key={r.id} className="p-3 text-sm">
+                <p className="font-medium">{r.title}</p>
+                <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
+                  {r.body}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {formatDate(r.createdAt)}
+                </p>
               </div>
             ))}
           </Card>

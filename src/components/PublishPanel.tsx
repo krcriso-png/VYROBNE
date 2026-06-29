@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge, Dot } from "@/components/ui/badge";
 import { PUBLICATION_STATUS } from "@/lib/status";
+import { classifyError } from "@/lib/errors";
 
 interface PortalOption {
   key: string;
@@ -187,11 +188,8 @@ export function PublishPanel({
                   </a>
                 )}
               </label>
-              {pub?.status === "ERROR" && pub.lastError && (
-                <p className="mt-1 flex items-start gap-1.5 px-1 text-xs text-destructive">
-                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-                  <span>{pub.lastError}</span>
-                </p>
+              {pub?.status === "ERROR" && (
+                <PortalError publicationId={pub.id} error={pub.lastError} />
               )}
               </div>
             );
@@ -269,5 +267,59 @@ function SmsPrompt({
         {error && <p className="text-sm text-destructive">{error}</p>}
       </CardContent>
     </Card>
+  );
+}
+
+/** Simplified error message + (for our-side errors) a "report to admin" button. */
+function PortalError({
+  publicationId,
+  error,
+}: {
+  publicationId: string;
+  error: string | null;
+}) {
+  const { kind, message } = classifyError(error);
+  const [state, setState] = useState<"idle" | "sending" | "done" | "fail">(
+    "idle",
+  );
+
+  async function report() {
+    setState("sending");
+    const res = await fetch(`/api/publications/${publicationId}/report`, {
+      method: "POST",
+    });
+    setState(res.ok ? "done" : "fail");
+  }
+
+  return (
+    <div className="mt-1 rounded-md bg-destructive/5 px-3 py-2">
+      <p className="flex items-start gap-1.5 text-xs text-destructive">
+        <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+        <span>{message}</span>
+      </p>
+      {kind === "system" && (
+        <div className="mt-2">
+          {state === "done" ? (
+            <span className="text-xs text-success">
+              ✓ Nahlásené adminovi. Ďakujeme!
+            </span>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={report}
+              disabled={state === "sending"}
+            >
+              {state === "sending" ? "Odosielam…" : "Nahlásiť adminovi"}
+            </Button>
+          )}
+          {state === "fail" && (
+            <span className="ml-2 text-xs text-destructive">
+              Nahlásenie zlyhalo.
+            </span>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
