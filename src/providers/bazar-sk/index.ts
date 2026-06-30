@@ -497,11 +497,14 @@ export class BazarSkProvider extends BrowserProvider {
       )
       .catch(() => [] as { text: string; href: string }[]);
 
+    // A wizard tile links into the add flow (".../pridanie…" or ".../pridat…")
+    // on ANY bazar.sk (sub)domain — that's what separates the real category
+    // tiles from the site-wide browse megamenu (whose links have no "pridani").
     const isWizard = (href: string) => {
       try {
         const u = new URL(href);
         return (
-          u.hostname === "www.bazar.sk" &&
+          /(^|\.)bazar\.sk$/i.test(u.hostname) &&
           /pridani|pridat/i.test(u.pathname + u.search)
         );
       } catch {
@@ -515,8 +518,9 @@ export class BazarSkProvider extends BrowserProvider {
       return wordOverlap(t, w) * 10 - Math.abs(t.length - w.length) * 0.1;
     };
 
-    // 1) Prefer real wizard links.
-    const wiz = links.filter((l) => isWizard(l.href));
+    // 1) Prefer real wizard tiles.
+    const wiz = links.filter((l) => isWizard(l.href) && l.text);
+    await ctx.log(`Kategórie sprievodcu: ${wiz.length} kandidátov`);
     if (wiz.length) {
       let best = wiz[0];
       let bs = -Infinity;
@@ -527,12 +531,21 @@ export class BazarSkProvider extends BrowserProvider {
           best = l;
         }
       }
-      await ctx.log(`Kategória (wizard) → ${best.text}`);
-      await page
-        .locator(`a[href="${best.href}"]`)
-        .first()
-        .click({ timeout: 6000 })
-        .catch(() => {});
+      await ctx.log(`Kategória (wizard) → ${best.text} (${best.href})`);
+      // Click the tile by its exact name so we hit the right one even when
+      // several tiles share the same href.
+      const byName = page
+        .getByRole("link", { name: best.text, exact: true })
+        .first();
+      if (await byName.count().catch(() => 0)) {
+        await byName.click({ timeout: 6000 }).catch(() => {});
+      } else {
+        await page
+          .locator(`a[href="${best.href}"]`)
+          .first()
+          .click({ timeout: 6000 })
+          .catch(() => {});
+      }
       return true;
     }
 
