@@ -449,16 +449,25 @@ export async function runCheckStatus(data: BaseJobData): Promise<void> {
   // confirm the ad by title in "Moje inzeráty" and fill the real id in.
   if (pub.remoteId == null) return;
 
-  // Give the provider the listing title so it can confirm the ad in the
-  // account's "Moje inzeráty" list (the source of truth) when the stored URL is
-  // missing or stale.
+  // Give the provider the listing title + e-mail so it can open the portal's
+  // "Moje inzeráty" (e-mail + per-ad password) and confirm the ad by name.
   const listing = await prisma.listing.findUnique({
     where: { id: data.listingId },
-    select: { title: true },
+    select: { title: true, contactEmail: true },
   });
   ctx.listingTitle = listing?.title;
+  ctx.listingEmail = listing?.contactEmail ?? undefined;
 
-  const { session } = await ensureSession(data.publicationId, data, ctx);
+  const { session, credentials, verifyPhone } = await ensureSession(
+    data.publicationId,
+    data,
+    ctx,
+  );
+  ctx.secrets = {
+    login: credentials.login,
+    password: credentials.password,
+    verifyPhone,
+  };
   const provider = getProvider(data.portalKey);
   const status = await provider.checkStatus(pub.remoteId, session, ctx);
 

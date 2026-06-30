@@ -95,8 +95,11 @@ export interface ProviderContext {
    */
   requestUserInput?: (prompt: string) => Promise<string | null>;
   /** The listing's title — lets status checks find the ad by name in the
-   * account's "my ads" list when the stored URL is missing/stale. */
+   * portal's "my ads" list. */
   listingTitle?: string;
+  /** The listing's contact e-mail — Bazoš "Moje inzeráty" is opened with the
+   * ad's e-mail + per-ad password (no account needed). */
+  listingEmail?: string;
   /** Decrypted portal credentials (e.g. the per-ad password) for form fields. */
   secrets?: {
     login: string | null;

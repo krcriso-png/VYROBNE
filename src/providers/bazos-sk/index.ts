@@ -494,6 +494,8 @@ export class BazosSkProvider extends BrowserProvider {
       let remoteId = urlIdMatch ? urlIdMatch[1] : "";
       let remoteUrl = urlIdMatch ? url : "";
       if (!remoteId) {
+        // Make the ad e-mail available for the "Moje inzeráty" lookup.
+        if (!ctx.listingEmail) ctx.listingEmail = listing.email ?? undefined;
         const own = await this.resolveOwnAdUrl(page, ctx, listing.title);
         if (own) {
           remoteId = own.id;
@@ -529,6 +531,42 @@ export class BazosSkProvider extends BrowserProvider {
         .catch(() => {});
       await this.acceptCookies(page, ctx);
       await this.debugShot(page, ctx, "moje-inzeraty");
+      await this.logStructure(page, ctx);
+
+      // Bazoš opens "Moje inzeráty" with the ad's e-mail + per-ad password (no
+      // account login). If the list shows that form, fill it and submit.
+      const email = ctx.listingEmail;
+      const adPassword = ctx.secrets?.password || "Klikado1234";
+      const pwdField = page
+        .locator('input[name="heslobazar"], input[name="heslo"], input[type="password"]')
+        .first();
+      if (email && (await pwdField.count()) > 0) {
+        await ctx.log("Otváram Moje inzeráty (e-mail + heslo inzerátu)");
+        await fillFirst(
+          page,
+          [
+            'input[name="maili"]',
+            'input[name="email"]',
+            'input[name="meil"]',
+            'input[name="login"]',
+            'input[type="email"]',
+          ],
+          email,
+        );
+        await pwdField.fill(adPassword).catch(() => {});
+        await this.debugShot(page, ctx, "moje-login-filled");
+        await page
+          .locator(
+            'form:has(input[name="heslobazar"]) input[type="submit"], form:has(input[name="heslo"]) input[type="submit"], input[type="submit"]',
+          )
+          .first()
+          .click({ timeout: 8000 })
+          .catch(() => {});
+        await page.waitForLoadState("domcontentloaded").catch(() => {});
+        await page.waitForTimeout(1500);
+        await this.debugShot(page, ctx, "moje-after-login");
+        await this.logStructure(page, ctx);
+      }
 
       const links = await page.$$eval('a[href*="/inzerat/"]', (as) =>
         as.map((a) => ({
@@ -898,30 +936,23 @@ export class BazosSkProvider extends BrowserProvider {
             views,
           };
         }
-        // Decide if we're really logged in. "Moje inzeráty" is in the top nav on
-        // EVERY page, so it can't be the signal — require a logout link AND the
-        // absence of a login form. Only then does "ad not in the list" mean it
-        // was removed; otherwise we genuinely can't tell.
-        const listBody = await page
-          .locator("body")
-          .innerText()
-          .catch(() => "");
-        const hasLoginForm =
+        // We submitted the e-mail + ad password. If the list now opened (no
+        // password field left), we genuinely see the user's ads and ours isn't
+        // among them → removed. If a password field is still there, the e-mail
+        // + password didn't open the list → we can't be sure.
+        const stillHasPasswordForm =
           (await page
-            .locator('input[type="password"], input[name="heslo"]')
+            .locator('input[name="heslobazar"], input[name="heslo"], input[type="password"]')
             .count()
-            .catch(() => 0)) > 0 ||
-          /přihlášení|prihlásenie|přihlásit\s+se|prihlásiť\s+sa/i.test(listBody);
-        const definitelyLoggedIn =
-          !hasLoginForm && /odhl[aá]si|logout/i.test(listBody);
-        if (definitelyLoggedIn) {
+            .catch(() => 0)) > 0;
+        if (!stillHasPasswordForm) {
           await ctx.log(
-            "Inzerát sa v Moje inzeráty nenašiel (prihlásený účet) — považujem za odstránený",
+            "Inzerát sa v Moje inzeráty nenašiel — považujem za odstránený",
           );
           return { live: false, verified: true };
         }
         await ctx.log(
-          "Nedá sa overiť (nie som prihlásený do Bazoš účtu) — stav nechávam bez zmeny.",
+          "Moje inzeráty sa nepodarilo otvoriť (e-mail/heslo) — stav nechávam bez zmeny.",
         );
       }
 
