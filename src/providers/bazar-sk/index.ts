@@ -326,31 +326,40 @@ export class BazarSkProvider extends BrowserProvider {
       /pokra[čc]ova[ťt].*nevyhnutn/i,
       /s[úu]hlas[ií]m?/i,
       /rozumiem/i,
+      /accept all/i,
     ];
-    for (const name of targets) {
-      try {
-        const btn = page.getByRole("button", { name }).first();
-        if (await btn.isVisible({ timeout: 1200 })) {
-          await btn.click({ timeout: 2000 });
-          await page.waitForTimeout(400);
-          await ctx.log(`Cookie lišta zavretá (${name})`);
-          return;
+    // The consent dialog is a CMP that often loads async and INSIDE AN IFRAME,
+    // so search every frame, and retry once after a short wait.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await page.waitForTimeout(attempt === 0 ? 800 : 700);
+      for (const frame of page.frames()) {
+        for (const name of targets) {
+          try {
+            const btn = frame.getByRole("button", { name }).first();
+            if (await btn.isVisible({ timeout: 500 })) {
+              await btn.click({ timeout: 2000 });
+              await page.waitForTimeout(500);
+              await ctx.log(`Cookie lišta zavretá (${name})`);
+              return;
+            }
+          } catch {
+            /* try next */
+          }
+          try {
+            const lnk = frame.getByText(name).first();
+            if (await lnk.isVisible({ timeout: 300 })) {
+              await lnk.click({ timeout: 2000 });
+              await page.waitForTimeout(500);
+              await ctx.log(`Cookie lišta zavretá odkazom (${name})`);
+              return;
+            }
+          } catch {
+            /* try next */
+          }
         }
-      } catch {
-        /* try next */
-      }
-      try {
-        const lnk = page.getByText(name).first();
-        if (await lnk.isVisible({ timeout: 600 })) {
-          await lnk.click({ timeout: 2000 });
-          await page.waitForTimeout(400);
-          await ctx.log(`Cookie lišta zavretá odkazom (${name})`);
-          return;
-        }
-      } catch {
-        /* try next */
       }
     }
+    await ctx.log("Cookie lišta sa nenašla/nezavrela — pokračujem.");
   }
 
   /** Open the "Pridať inzerát" wizard by clicking the site's own link. */
