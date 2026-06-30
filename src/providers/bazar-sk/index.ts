@@ -117,12 +117,14 @@ export class BazarSkProvider extends BrowserProvider {
       // ("Použité"), else the first real option so the field is satisfied.
       await this.selectLabeled(page, "Stav", /použit|pouzit|nové|nove|zachoval/i);
 
-      // Location: bazar.sk accepts a PSČ or a town. Use the listing's PSČ/town.
+      // Location: bazar.sk's "Lokalita" is an AUTOCOMPLETE — typing a value
+      // isn't enough, a suggestion must be chosen or it counts as empty.
       const loc =
-        normalizeZip(listing.zip).length === 5
+        listing.location ||
+        (normalizeZip(listing.zip).length === 5
           ? normalizeZip(listing.zip)
-          : listing.location || listing.zip || "";
-      if (loc) await this.fillLabeled(page, "Lokalita", loc);
+          : listing.zip || "");
+      if (loc) await this.fillLocation(page, ctx, loc);
 
       // Any remaining required <select> in the category Špecifikácia block —
       // pick its first real option so a category with extra fields still submits.
@@ -158,6 +160,28 @@ export class BazarSkProvider extends BrowserProvider {
 
       // Agree to the listing terms (required checkbox before "podmienkami inzercie").
       await this.checkTerms(page, ctx);
+
+      // Read back the labelled fields so a rejected submit shows which required
+      // field is still empty in the logs.
+      const readback: Record<string, string> = {};
+      for (const lbl of [
+        "Nadpis",
+        "Text",
+        "Cena",
+        "Stav",
+        "Lokalita",
+        "Meno",
+        "Telefón",
+        "Heslo",
+      ]) {
+        readback[lbl] = await this.readLabeled(page, lbl);
+      }
+      const fileCount = await page
+        .locator('input[type="file"]')
+        .first()
+        .evaluate((el) => (el as HTMLInputElement).files?.length ?? 0)
+        .catch(() => -1);
+      await ctx.log("Hodnoty formulára pred odoslaním", { ...readback, fileCount });
 
       await this.debugShot(page, ctx, "form-filled");
 
@@ -414,6 +438,53 @@ export class BazarSkProvider extends BrowserProvider {
     const loc = page.locator(labelXpath(label, tag)).first();
     if ((await loc.count().catch(() => 0)) === 0) return;
     await loc.fill(value).catch(() => {});
+  }
+
+  /** Read back the current value of the input/textarea following a label. */
+  private async readLabeled(
+    page: import("playwright").Page,
+    label: string,
+  ): Promise<string> {
+    for (const tag of ["input", "textarea", "select"] as const) {
+      const loc = page.locator(labelXpath(label, tag)).first();
+      if ((await loc.count().catch(() => 0)) > 0) {
+        return (await loc.inputValue().catch(() => "")) || "∅";
+      }
+    }
+    return "∅";
+  }
+
+  /**
+   * Fill the "Lokalita" autocomplete and CHOOSE a suggestion — typing alone
+   * leaves the field unrecognised by bazar.sk, which then rejects the ad.
+   */
+  private async fillLocation(
+    page: import("playwright").Page,
+    ctx: ProviderContext,
+    value: string,
+  ): Promise<void> {
+    const loc = page.locator(labelXpath("Lokalita", "input")).first();
+    if ((await loc.count().catch(() => 0)) === 0) return;
+    await loc.click().catch(() => {});
+    await loc.fill("").catch(() => {});
+    await loc.type(value, { delay: 60 }).catch(() => {});
+    await page.waitForTimeout(1300);
+    const item = page
+      .locator(
+        '.ui-menu-item, .ui-autocomplete li, .autocomplete-suggestion, [class*="suggestion"] li, [class*="suggestion-item"], ul[role="listbox"] li, li[role="option"], .pac-item',
+      )
+      .first();
+    if (await item.count().catch(() => 0)) {
+      await item.click({ timeout: 3000 }).catch(() => {});
+    } else {
+      await loc.press("ArrowDown").catch(() => {});
+      await loc.press("Enter").catch(() => {});
+    }
+    await page.waitForTimeout(400);
+    await ctx.log("Lokalita vyplnená", {
+      value,
+      readback: await loc.inputValue().catch(() => "∅"),
+    });
   }
 
   /** Select an option (preferring a regex match) in the dropdown after a label. */
