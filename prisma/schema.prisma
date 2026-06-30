@@ -337,6 +337,11 @@ model Publication {
   lastError String? @db.Text
   attempts  Int     @default(0)
 
+  // Soft note about the last status check when it could NOT be confirmed (e.g.
+  // not logged in to the portal account, so "Moje inzeráty" isn't visible).
+  // Surfaced in the UI as a "neoverené" hint; cleared on a confident check.
+  statusNote String? @db.Text
+
   // Human-in-the-loop verification (e.g. Bazoš SMS code). When the worker
   // pauses for input it sets status=WAITING_SMS + smsPrompt; the user submits
   // the code into smsCode and the worker resumes.

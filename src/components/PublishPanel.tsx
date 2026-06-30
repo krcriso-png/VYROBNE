@@ -32,6 +32,7 @@ interface PublicationState {
   remoteUrl: string | null;
   smsPrompt: string | null;
   lastError: string | null;
+  statusNote: string | null;
 }
 
 const LIVE_STATUSES = new Set(["PENDING", "PUBLISHING", "WAITING_SMS", "UPDATING"]);
@@ -209,6 +210,12 @@ export function PublishPanel({
               </label>
               {pub?.status === "ERROR" && (
                 <PortalError publicationId={pub.id} error={pub.lastError} />
+              )}
+              {pub?.statusNote && pub.status !== "ERROR" && (
+                <p className="mt-1 flex items-start gap-1.5 rounded-md bg-warning/10 px-3 py-2 text-xs text-warning">
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                  <span>{pub.statusNote}</span>
+                </p>
               )}
               </div>
             );

@@ -123,6 +123,7 @@ export default async function ListingDetailPage({
               remoteUrl: pub.remoteUrl,
               smsPrompt: pub.smsPrompt,
               lastError: pub.lastError,
+              statusNote: pub.statusNote,
             }))}
           />
         </div>

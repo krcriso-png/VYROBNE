@@ -462,13 +462,16 @@ export async function runCheckStatus(data: BaseJobData): Promise<void> {
   const provider = getProvider(data.portalKey);
   const status = await provider.checkStatus(pub.remoteId, session, ctx);
 
-  // Only a CONFIDENT result may change the status. When unverified, just record
-  // any views/URL we learned and leave the published/removed state untouched.
+  // Only a CONFIDENT result may change the status. When unverified, leave the
+  // published/removed state untouched BUT record a visible note so the user
+  // knows it couldn't be confirmed (usually: not logged in to the portal).
   if (status.verified === false) {
     await prisma.publication.update({
       where: { id: data.publicationId },
       data: {
         lastSyncedAt: new Date(),
+        statusNote:
+          "Stav sa nepodarilo overiť — Klikado nevidí „Moje inzeráty“. Skontroluj prihlasovacie údaje k Bazoš účtu v sekcii Portály.",
         ...(status.views != null
           ? { viewsCurrent: status.views, viewsCheckedAt: new Date() }
           : {}),
@@ -484,6 +487,7 @@ export async function runCheckStatus(data: BaseJobData): Promise<void> {
       remoteId: status.remoteId ?? pub.remoteId,
       remoteUrl: status.remoteUrl ?? pub.remoteUrl,
       lastSyncedAt: new Date(),
+      statusNote: null, // confident result — clear any stale "unverified" note
       ...(status.views != null
         ? { viewsCurrent: status.views, viewsCheckedAt: new Date() }
         : {}),

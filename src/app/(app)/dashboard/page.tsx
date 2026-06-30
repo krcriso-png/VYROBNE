@@ -9,6 +9,7 @@ import {
   Coins,
   Eye,
   CalendarClock,
+  AlertTriangle,
 } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
@@ -181,8 +182,14 @@ export default async function DashboardPage() {
                       {l.publications.map((p) => {
                         const ps = PUBLICATION_STATUS[p.status];
                         return (
-                          <Badge key={p.id} tone={ps.tone}>
-                            <Dot tone={ps.tone} /> {p.portal.name}
+                          <Badge
+                            key={p.id}
+                            tone={p.statusNote ? "warning" : ps.tone}
+                            title={p.statusNote ?? undefined}
+                          >
+                            <Dot tone={p.statusNote ? "warning" : ps.tone} />{" "}
+                            {p.portal.name}
+                            {p.statusNote ? " · neoverené" : ""}
                           </Badge>
                         );
                       })}
@@ -192,6 +199,13 @@ export default async function DashboardPage() {
                         </span>
                       )}
                     </div>
+                    {l.publications.some((p) => p.statusNote) && (
+                      <p className="mt-1 flex items-start gap-1 text-xs text-warning">
+                        <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                        Stav inzerátu sa nepodarilo overiť — skontroluj
+                        prihlásenie k Bazoš účtu v sekcii Portály.
+                      </p>
+                    )}
                     {/* Live metrics: cumulative reach + current ad date */}
                     {(publishedPub || totalViews > 0) && (
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
