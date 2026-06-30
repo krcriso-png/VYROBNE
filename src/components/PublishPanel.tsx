@@ -120,6 +120,27 @@ export function PublishPanel({
     router.refresh();
   }
 
+  async function checkStatus() {
+    setBusy(true);
+    setMessage(null);
+    const res = await fetch(`/api/listings/${listingId}/check-status`, {
+      method: "POST",
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    setMessage(
+      res.ok
+        ? `Overujem stav na portáloch (${data.queued ?? 0})… o chvíľu sa to aktualizuje.`
+        : (data.error ?? "Overenie zlyhalo."),
+    );
+    // Poll a few times so the refreshed status shows up without a manual reload.
+    let n = 0;
+    const t = setInterval(() => {
+      router.refresh();
+      if (++n >= 8) clearInterval(t);
+    }, 4000);
+  }
+
   const hasPublished = publications.some((p) => p.status === "PUBLISHED");
 
   const waiting = publications.filter((p) => p.status === "WAITING_SMS");
@@ -238,6 +259,16 @@ export function PublishPanel({
                 title="Zmaže inzerát a nahrá ho znova (čerstvý dátum)"
               >
                 <RefreshCw className="size-4" /> Topovať
+              </Button>
+            )}
+            {publications.length > 0 && (
+              <Button
+                variant="outline"
+                onClick={checkStatus}
+                disabled={busy}
+                title="Overí na portáli, či je inzerát stále zverejnený"
+              >
+                <RefreshCw className="size-4" /> Skontrolovať stav
               </Button>
             )}
           </div>

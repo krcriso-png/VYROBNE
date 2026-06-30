@@ -157,6 +157,40 @@ export async function refreshListing(
 }
 
 /**
+ * Manually enqueue a status check for every publication of a listing (except
+ * ones already removed). Used by the "Skontrolovať stav" button so the user
+ * doesn't have to wait for the periodic scheduler.
+ */
+export async function recheckListing(
+  userId: string,
+  listingId: string,
+): Promise<number> {
+  const pubs = await prisma.publication.findMany({
+    where: {
+      listingId,
+      listing: { userId },
+      status: { notIn: ["REMOVED", "REMOVING"] },
+    },
+    include: { portal: true },
+  });
+  let i = 0;
+  for (const pub of pubs) {
+    await enqueueTask(
+      "check_status",
+      {
+        publicationId: pub.id,
+        userId,
+        listingId,
+        portalKey: pub.portal.key,
+      },
+      { delayMs: i * 4000 },
+    );
+    i++;
+  }
+  return pubs.length;
+}
+
+/**
  * Enqueue a status check for every live publication that hasn't been checked
  * recently. Keeps the view count + "is it still live" + current date fresh so
  * the dashboard reflects reality without the user doing anything. Staggered to
