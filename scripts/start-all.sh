@@ -13,6 +13,15 @@ set -e
 
 export REDIS_URL="${REDIS_URL:-redis://127.0.0.1:6379}"
 
+# Behind Railway's proxy the app only sees the internal host (localhost:8080),
+# so Auth.js builds OAuth redirect URIs against localhost. Tell it the public
+# URL via AUTH_URL, derived from Railway's domain when not set explicitly.
+if [ -z "$AUTH_URL" ] && [ -n "$RAILWAY_PUBLIC_DOMAIN" ]; then
+  export AUTH_URL="https://$RAILWAY_PUBLIC_DOMAIN"
+fi
+export AUTH_TRUST_HOST="${AUTH_TRUST_HOST:-true}"
+echo "→ AUTH_URL=${AUTH_URL:-(not set)}"
+
 echo "→ Starting Redis…"
 redis-server --daemonize yes --save "" --appendonly no
 
