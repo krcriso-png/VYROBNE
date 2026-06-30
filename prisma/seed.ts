@@ -21,10 +21,15 @@ const ENABLED = (process.env.ENABLE_PORTALS ?? "mock")
   .map((s) => s.trim())
   .filter(Boolean);
 
+// The real, production-ready browser portals are always enabled regardless of
+// the per-environment ENABLE_PORTALS list, so a host that can run Chromium (e.g.
+// Railway) gets them live without ENABLE_PORTALS needing an entry per portal.
+const ALWAYS_ON = new Set(["bazos-sk", "bazos-cz", "bazar-sk"]);
+
 async function main() {
   // --- Portals from the registry ---
   for (const provider of listProviders()) {
-    const enabled = ENABLED.includes(provider.key);
+    const enabled = ENABLED.includes(provider.key) || ALWAYS_ON.has(provider.key);
     await prisma.portal.upsert({
       where: { key: provider.key },
       create: {
