@@ -114,11 +114,18 @@ export class BazarSkProvider extends BrowserProvider {
       await ctx.log("Vypĺňam formulár inzerátu na Bazar.sk");
       await this.logStructure(page, ctx);
 
-      // Type = Predaj is the default selected radio; nothing to do.
-      await this.fillLabeled(page, "Nadpis", listing.title);
+      // Title + description — fill by the real United Classifieds field names
+      // (data[title] / data[content]); fall back to the label if markup changes.
+      await this.fillByNameOrLabel(page, 'data[title]', "Nadpis", listing.title);
       // Bazar.sk requires at least 20 characters of body text.
       const body = ensureMinLength(listing.description, listing.title, 20);
-      await this.fillLabeled(page, "Text", body, "textarea");
+      await this.fillByNameOrLabel(
+        page,
+        'data[content]',
+        "Text",
+        body,
+        "textarea",
+      );
 
       if (listing.price != null) {
         await this.fillLabeled(page, "Cena", String(listing.price));
@@ -460,6 +467,22 @@ export class BazarSkProvider extends BrowserProvider {
     await loc.fill(value).catch(() => {});
   }
 
+  /** Fill a field by its exact name attribute; fall back to the label caption. */
+  private async fillByNameOrLabel(
+    page: import("playwright").Page,
+    name: string,
+    label: string,
+    value: string,
+    tag: "input" | "textarea" = "input",
+  ): Promise<void> {
+    const byName = page.locator(`${tag}[name="${name}"]`).first();
+    if ((await byName.count().catch(() => 0)) > 0) {
+      await byName.fill(value).catch(() => {});
+      return;
+    }
+    await this.fillLabeled(page, label, value, tag);
+  }
+
   /** Read back the current value of the input/textarea following a label. */
   private async readLabeled(
     page: import("playwright").Page,
@@ -498,75 +521,110 @@ export class BazarSkProvider extends BrowserProvider {
       .catch(() => [] as string[]);
     await ctx.log("Lokalita – vstupné polia", { inputDump });
 
-    // Find the field STRICTLY by its placeholder ("Zadajte lokalitu alebo PSČ").
-    // No label/xpath fallback — an imprecise match previously hit the price
-    // field and typed the PSČ into "Cena". Verify the placeholder before typing.
-    const loc = page.locator('input[placeholder*="lokalit" i]').first();
-    if ((await loc.count().catch(() => 0)) === 0) {
-      await ctx.log("Lokalita: pole sa nenašlo (podľa placeholderu).");
+    // The location field has NO name/placeholder — it's the visible text input
+    // right after the "Lokalita" label that drives a JS autocomplete which fills
+    // hidden geo fields (data[idCity], data[locationName]…). Tag it so we can
+    // target it precisely.
+    const tagged = await page
+      .evaluate(() => {
+        const els = Array.from(document.querySelectorAll<HTMLElement>("*"));
+        const label = els
+          .filter((e) => {
+            const own = Array.from(e.childNodes)
+              .filter((n) => n.nodeType === 3)
+              .map((n) => n.textContent ?? "")
+              .join("")
+              .trim();
+            return /^Lokalita/i.test(own);
+          })
+          .pop();
+        if (!label) return false;
+        for (const inp of Array.from(
+          document.querySelectorAll<HTMLInputElement>("input"),
+        )) {
+          const after =
+            label.compareDocumentPosition(inp) &
+            Node.DOCUMENT_POSITION_FOLLOWING;
+          if (!after) continue;
+          const type = (inp.type || "text").toLowerCase();
+          if (["text", "search", "tel"].includes(type) && inp.offsetParent) {
+            inp.setAttribute("data-klikado-loc", "1");
+            return true;
+          }
+        }
+        return false;
+      })
+      .catch(() => false);
+    if (!tagged) {
+      await ctx.log("Lokalita: viditeľné pole sa nenašlo.");
       return;
     }
-    const ph = (await loc.getAttribute("placeholder").catch(() => "")) || "";
-    if (!/lokalit/i.test(ph)) {
-      await ctx.log("Lokalita: nečakané pole — preskakujem.", { ph });
-      return;
-    }
+    const loc = page.locator('[data-klikado-loc="1"]').first();
+    const locName = page.locator('input[name="data[locationName]"]').first();
 
     for (const value of candidates.filter(Boolean)) {
       await loc.click().catch(() => {});
       await loc.fill("").catch(() => {});
-      await loc.pressSequentially(value, { delay: 110 }).catch(() => {});
+      await loc.pressSequentially(value, { delay: 120 }).catch(() => {});
       await page.waitForTimeout(2500); // let the AJAX autocomplete load
 
-      // Dump any dropdown-looking container so we can target it precisely.
+      // Dump the dropdown markup so it can be targeted precisely.
       const dropdown = await page
         .evaluate(() => {
           const out: string[] = [];
-          for (const el of Array.from(
-            document.querySelectorAll("ul,div,table"),
-          )) {
+          for (const el of Array.from(document.querySelectorAll("ul,div,table"))) {
             const r = el.getBoundingClientRect();
             if (r.width < 60 || r.height < 14 || r.height > 500) continue;
             const cls = (el.className || "").toString();
             const id = el.id || "";
+            const txt = (el.textContent || "").trim();
             if (
-              /autocomplete|menu|suggest|result|dropdown|tt-|pac-|locali|ponuk|naseptav|whisper/i.test(
+              /autocomplete|menu|suggest|result|dropdown|tt-|pac-|locali|ponuk|naseptav|whisper|town|mesto|obec/i.test(
                 cls + " " + id,
-              )
+              ) &&
+              txt.length > 0
             ) {
-              out.push(`<${el.tagName} class="${cls}" id="${id}"> ${(el.textContent || "").trim().slice(0, 80)}`);
+              out.push(`<${el.tagName} class="${cls}" id="${id}"> ${txt.slice(0, 90)}`);
             }
           }
-          return out.slice(0, 6);
+          return out.slice(0, 8);
         })
         .catch(() => [] as string[]);
       await ctx.log("Lokalita – rozbaľovačka", { value, dropdown });
 
-      // Typing the PSČ is enough on bazar.sk — no suggestion click is required.
-      // If a dropdown suggestion is visible we click it (it locks in the town),
-      // but we NEVER press Enter (that could submit the form) and we keep the
-      // typed value.
+      // MUST pick a suggestion (that's what fills the hidden geo fields). Try
+      // many markups + any visible list item that appeared just below the field.
+      let clicked = false;
       const item = page
         .locator(
-          '.ui-menu-item, .ui-autocomplete li, .autocomplete-suggestion, [class*="suggest"] li, [class*="autocomplete"] li, [class*="result"] li, [class*="whisper"] li, [class*="naseptav"] li, ul[role="listbox"] li, li[role="option"], .pac-item, .dropdown-menu li, .tt-suggestion',
+          '.ui-menu-item, .ui-autocomplete li, .autocomplete-suggestion, [class*="suggest"] li, [class*="autocomplete"] li, [class*="result"] li, [class*="whisper"] li, [class*="naseptav"] li, [class*="locali"] li, ul[role="listbox"] li, li[role="option"], .pac-item, .dropdown-menu li, .tt-suggestion, ul li a',
         )
         .filter({ visible: true })
         .first();
       if (await item.count().catch(() => 0)) {
         await item.click({ timeout: 3000 }).catch(() => {});
+        clicked = true;
+      } else {
+        // Fallback: keyboard-select the first suggestion.
+        await loc.press("ArrowDown").catch(() => {});
+        await page.waitForTimeout(400);
+        await loc.press("Enter").catch(() => {});
       }
-      await page.waitForTimeout(400);
+      await page.waitForTimeout(700);
 
-      let readback = await loc.inputValue().catch(() => "");
-      if (!readback || readback.trim().length < 2) {
-        // Plain-set the value as a last resort (keeps it in the field).
-        await loc.fill(value).catch(() => {});
-        readback = await loc.inputValue().catch(() => "");
-      }
-      await ctx.log("Lokalita pokus", { value, readback: readback || "∅" });
+      const nameVal = await locName.inputValue().catch(() => "");
+      const visVal = await loc.inputValue().catch(() => "");
+      await ctx.log("Lokalita pokus", {
+        value,
+        clicked,
+        locationName: nameVal || "∅",
+        visible: visVal || "∅",
+      });
       await this.debugShot(page, ctx, "lokalita");
-      if (readback && readback.trim().length > 1) return; // success
+      // Success only when the hidden locationName/city got populated.
+      if (nameVal && nameVal.trim().length > 1) return;
     }
+    await ctx.log("Lokalita: nepodarilo sa vybrať z ponuky.");
   }
 
   /** Select an option (preferring a regex match) in the dropdown after a label. */
