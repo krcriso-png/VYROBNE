@@ -490,6 +490,12 @@ model SupportThread {
   subject String
   status  SupportStatus @default(OPEN)
 
+  // Optional link to the listing/portal a ticket is about (set for publishing
+  // error reports), so the admin can re-publish / re-check for that customer
+  // straight from the ticket after deploying a fix.
+  listingId String?
+  portalKey String?
+
   // Unread flags drive the "Podpora" nav badge until the side opens the page.
   userUnread  Boolean @default(false)
   adminUnread Boolean @default(true)

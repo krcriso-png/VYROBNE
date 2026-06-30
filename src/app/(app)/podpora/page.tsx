@@ -31,11 +31,43 @@ export default async function SupportPage() {
     data: isAdmin ? { adminUnread: false } : { userUnread: false },
   });
 
+  // For admin tickets linked to a listing, look up the current portal status so
+  // the admin can verify a fix worked right inside the ticket.
+  const statusByThread = new Map<string, string>();
+  const titleByListing = new Map<string, string>();
+  if (isAdmin) {
+    const linked = threads.filter((t) => t.listingId);
+    const listingIds = [...new Set(linked.map((t) => t.listingId!))];
+    if (listingIds.length) {
+      const [listings, pubs] = await Promise.all([
+        prisma.listing.findMany({
+          where: { id: { in: listingIds } },
+          select: { id: true, title: true },
+        }),
+        prisma.publication.findMany({
+          where: { listingId: { in: listingIds } },
+          select: { listingId: true, status: true, portal: { select: { key: true } } },
+        }),
+      ]);
+      for (const l of listings) titleByListing.set(l.id, l.title);
+      for (const t of linked) {
+        const p = pubs.find(
+          (p) => p.listingId === t.listingId && p.portal.key === t.portalKey,
+        );
+        if (p) statusByThread.set(t.id, p.status);
+      }
+    }
+  }
+
   const dto: SupportThreadDTO[] = threads.map((t) => ({
     id: t.id,
     subject: t.subject,
     status: t.status,
     userEmail: t.user.email,
+    listingId: t.listingId ?? undefined,
+    portalKey: t.portalKey ?? undefined,
+    listingTitle: t.listingId ? titleByListing.get(t.listingId) : undefined,
+    portalStatus: statusByThread.get(t.id),
     createdAt: t.createdAt.toISOString(),
     messages: t.messages.map((m) => ({
       id: m.id,

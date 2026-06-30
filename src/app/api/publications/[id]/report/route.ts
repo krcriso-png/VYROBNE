@@ -48,11 +48,15 @@ export const POST = route(
 
     const subject = `Chyba pri publikovaní (${pub.portal.name})`;
 
-    // Create a support thread so the admin can reply and the user sees it.
+    // Create a support thread so the admin can reply and the user sees it. The
+    // listing/portal link lets the admin re-publish / re-check for this customer
+    // straight from the ticket after a fix.
     await prisma.supportThread.create({
       data: {
         userId: user.id,
         subject,
+        listingId: pub.listing.id,
+        portalKey: pub.portal.key,
         adminUnread: true,
         userUnread: false,
         messages: { create: { author: "USER", body } },

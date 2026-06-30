@@ -2,12 +2,21 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Send, Plus, CheckCircle2, Circle, MessageSquare } from "lucide-react";
+import {
+  Send,
+  Plus,
+  CheckCircle2,
+  Circle,
+  MessageSquare,
+  UploadCloud,
+  RefreshCw,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { Badge, Dot } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
+import { PUBLICATION_STATUS } from "@/lib/status";
 
 export interface SupportMessageDTO {
   id: string;
@@ -21,6 +30,10 @@ export interface SupportThreadDTO {
   subject: string;
   status: "OPEN" | "CLOSED";
   userEmail?: string;
+  listingId?: string;
+  portalKey?: string;
+  listingTitle?: string;
+  portalStatus?: string;
   createdAt: string;
   messages: SupportMessageDTO[];
 }
@@ -174,7 +187,21 @@ function Thread({
     router.refresh();
   }
 
+  async function adminAction(action: "republish" | "recheck") {
+    setBusy(true);
+    await fetch(`/api/admin/support/${thread.id}/action`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    setBusy(false);
+    router.refresh();
+  }
+
   const closed = thread.status === "CLOSED";
+  const ps = thread.portalStatus
+    ? PUBLICATION_STATUS[thread.portalStatus as keyof typeof PUBLICATION_STATUS]
+    : null;
 
   return (
     <Card>
@@ -209,6 +236,41 @@ function Thread({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {isAdmin && thread.listingId && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 p-3">
+            <div className="mr-auto min-w-0">
+              <p className="truncate text-sm font-medium">
+                {thread.listingTitle ?? "Inzerát zákazníka"}
+              </p>
+              <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                Portál: {thread.portalKey ?? "—"}
+                {ps && (
+                  <Badge tone={ps.tone}>
+                    <Dot tone={ps.tone} /> {ps.label}
+                  </Badge>
+                )}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => adminAction("republish")}
+              disabled={busy || !thread.portalKey}
+              title="Spustiť publikovanie znova za zákazníka"
+            >
+              <UploadCloud className="size-4" /> Publikovať znova
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => adminAction("recheck")}
+              disabled={busy}
+              title="Overiť aktuálny stav na portáli"
+            >
+              <RefreshCw className="size-4" /> Skontrolovať stav
+            </Button>
+          </div>
+        )}
+
         <div className="space-y-3">
           {thread.messages.map((m) => {
             const mine = isAdmin ? m.author === "ADMIN" : m.author === "USER";
