@@ -26,16 +26,6 @@ import type {
 
 const BASE_URL = "https://www.bazar.sk";
 
-// Cookie-consent labels seen on bazar.sk (plus the generic ones from the base).
-const COOKIE_LABELS = [
-  "Prijať všetko",
-  "Pokračovať s nevyhnutnými cookies",
-  "Pokračovať s nevyhnutnými",
-  "Súhlasím",
-  "Rozumiem",
-  "Accept all",
-];
-
 export class BazarSkProvider extends BrowserProvider {
   readonly key = "bazar-sk";
   readonly name = "Bazar.sk";
@@ -75,11 +65,8 @@ export class BazarSkProvider extends BrowserProvider {
   ): Promise<PublishResult> {
     return this.withContext(session, ctx, async (context) => {
       const page = await context.newPage();
-      // Reach the add wizard by CLICKING "Pridať inzerát" from the homepage —
-      // the direct URL is unreliable (it 404s as "Neexistujúca stránka").
-      await page.goto(`${this.baseUrl}/`, { waitUntil: "domcontentloaded" });
-      await this.dismissCookies(page, ctx);
-      await this.debugShot(page, ctx, "home");
+      // Go straight to the guest add wizard (/pridanie-neprihlaseny/) and clear
+      // the Sourcepoint consent overlay so the wizard is clickable.
       await this.openAddFlow(page, ctx);
       await this.dismissCookies(page, ctx);
       await this.debugShot(page, ctx, "add-step1");
@@ -242,7 +229,7 @@ export class BazarSkProvider extends BrowserProvider {
         : `${this.baseUrl}/inzerat/${remoteId}`;
       await ctx.log("Mažem inzerát z Bazar.sk", { remoteId });
       await page.goto(url, { waitUntil: "domcontentloaded" }).catch(() => {});
-      await this.acceptCookies(page, ctx, COOKIE_LABELS);
+      await this.dismissCookies(page, ctx);
       await this.debugShot(page, ctx, "delete-open");
 
       const delLink = page
@@ -323,63 +310,76 @@ export class BazarSkProvider extends BrowserProvider {
   ): Promise<void> {
     const targets: RegExp[] = [
       /prija[ťt]\s+v[šs]etko/i,
-      /pokra[čc]ova[ťt].*nevyhnutn/i,
       /s[úu]hlas[ií]m?/i,
-      /rozumiem/i,
       /accept all/i,
+      /rozumiem/i,
     ];
-    // The consent dialog is a CMP that often loads async and INSIDE AN IFRAME,
-    // so search every frame, and retry once after a short wait.
-    for (let attempt = 0; attempt < 2; attempt++) {
-      await page.waitForTimeout(attempt === 0 ? 800 : 700);
-      for (const frame of page.frames()) {
-        for (const name of targets) {
-          try {
-            const btn = frame.getByRole("button", { name }).first();
-            if (await btn.isVisible({ timeout: 500 })) {
-              await btn.click({ timeout: 2000 });
-              await page.waitForTimeout(500);
-              await ctx.log(`Cookie lišta zavretá (${name})`);
+    // bazar.sk uses Sourcepoint, rendered in an iframe (id^="sp_message_iframe",
+    // src on privacy.bazar.sk). Try clicking "Prijať všetko" inside it.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await page.waitForTimeout(attempt === 0 ? 900 : 700);
+      const hasOverlay =
+        (await page
+          .locator('[id^="sp_message_container"]')
+          .count()
+          .catch(() => 0)) > 0;
+      if (!hasOverlay) return;
+      const fl = page.frameLocator(
+        'iframe[id^="sp_message_iframe"], iframe[title*="Consent" i], iframe[src*="privacy.bazar.sk"]',
+      );
+      for (const name of targets) {
+        try {
+          const btn = fl.getByRole("button", { name }).first();
+          if (await btn.count()) {
+            await btn.click({ timeout: 2500 });
+            await page.waitForTimeout(700);
+            if (
+              (await page
+                .locator('[id^="sp_message_container"]')
+                .count()
+                .catch(() => 0)) === 0
+            ) {
+              await ctx.log(`Cookies prijaté (${name})`);
               return;
             }
-          } catch {
-            /* try next */
           }
-          try {
-            const lnk = frame.getByText(name).first();
-            if (await lnk.isVisible({ timeout: 300 })) {
-              await lnk.click({ timeout: 2000 });
-              await page.waitForTimeout(500);
-              await ctx.log(`Cookie lišta zavretá odkazom (${name})`);
-              return;
-            }
-          } catch {
-            /* try next */
-          }
+        } catch {
+          /* try next */
         }
       }
     }
-    await ctx.log("Cookie lišta sa nenašla/nezavrela — pokračujem.");
+    // Guaranteed fallback: remove the consent overlay so it stops intercepting
+    // pointer events (the form below stays fully usable).
+    await page
+      .evaluate(() => {
+        document
+          .querySelectorAll(
+            '[id^="sp_message_container"], [id^="sp_message_open"], [class*="sp_veil"], div[role="dialog"][aria-modal="true"]',
+          )
+          .forEach((e) => e.remove());
+        document.documentElement.style.overflow = "";
+        document.body.style.overflow = "";
+      })
+      .catch(() => {});
+    await ctx.log("Cookie prekrytie odstránené (fallback).");
   }
 
-  /** Open the "Pridať inzerát" wizard by clicking the site's own link. */
+  /**
+   * Open the guest add wizard. The "Pridať inzerát" link for a non-logged-in
+   * user points at /pridanie-neprihlaseny/, so navigate there directly (a click
+   * is blocked by the consent overlay anyway).
+   */
   private async openAddFlow(
     page: import("playwright").Page,
     ctx: ProviderContext,
   ): Promise<void> {
-    const re = /prida[ťt]\s+inzer/i;
-    const link = page.getByRole("link", { name: re }).first();
-    try {
-      if (await link.count()) {
-        await link.click({ timeout: 8000 });
-      } else {
-        await page.getByText(re).first().click({ timeout: 8000 });
-      }
-      await page.waitForLoadState("domcontentloaded").catch(() => {});
-      await page.waitForTimeout(1000);
-    } catch (e) {
-      await ctx.log("Nepodarilo sa kliknúť na 'Pridať inzerát': " + String(e));
-    }
+    await page
+      .goto(`${this.baseUrl}/pridanie-neprihlaseny/`, {
+        waitUntil: "domcontentloaded",
+      })
+      .catch(() => {});
+    await page.waitForTimeout(800);
+    void ctx;
   }
 
   /** True if an input/textarea associated with a label caption exists. */
@@ -473,7 +473,12 @@ export class BazarSkProvider extends BrowserProvider {
     void ctx;
   }
 
-  /** Click the best-matching category/sub-category link on the wizard. */
+  /**
+   * Click the best-matching category on the add wizard. The page also carries
+   * the site-wide browse megamenu (links to category SUBDOMAINS like
+   * auto.bazar.sk) — those are NOT the wizard, so only consider links that stay
+   * on the add flow (www.bazar.sk …pridanie/pridat…), preferring an exact name.
+   */
   private async clickCategory(
     page: import("playwright").Page,
     ctx: ProviderContext,
@@ -491,27 +496,56 @@ export class BazarSkProvider extends BrowserProvider {
           .filter((l) => l.text.length > 1 && l.text.length < 40),
       )
       .catch(() => [] as { text: string; href: string }[]);
-    // Only consider category-ish links (avoid nav/footer/help/login).
-    const exclude =
-      /prihl[aá]s|registr|moje\s+inzer|vyh[ľl]ad|sledovan|kontakt|reklama|blog|gdpr|cookies|podmienky|mobiln|ako\s+inzerovat|zvýhodni|napíšte|zmeni[ťt]\s+kateg/i;
-    const cands = links.filter((l) => !exclude.test(norm(l.text)));
-    if (cands.length === 0) return false;
-    let best = cands[0];
-    let bestScore = -1;
-    for (const l of cands) {
-      const score = wordOverlap(norm(l.text), w);
-      if (score > bestScore) {
-        bestScore = score;
-        best = l;
+
+    const isWizard = (href: string) => {
+      try {
+        const u = new URL(href);
+        return (
+          u.hostname === "www.bazar.sk" &&
+          /pridani|pridat/i.test(u.pathname + u.search)
+        );
+      } catch {
+        return false;
       }
+    };
+    const score = (text: string) => {
+      const t = norm(text);
+      if (t === w) return 1000; // exact match wins
+      // overlap, lightly penalising longer ("Ostatné oblečenie" vs "Ostatné")
+      return wordOverlap(t, w) * 10 - Math.abs(t.length - w.length) * 0.1;
+    };
+
+    // 1) Prefer real wizard links.
+    const wiz = links.filter((l) => isWizard(l.href));
+    if (wiz.length) {
+      let best = wiz[0];
+      let bs = -Infinity;
+      for (const l of wiz) {
+        const s = score(l.text);
+        if (s > bs) {
+          bs = s;
+          best = l;
+        }
+      }
+      await ctx.log(`Kategória (wizard) → ${best.text}`);
+      await page
+        .locator(`a[href="${best.href}"]`)
+        .first()
+        .click({ timeout: 6000 })
+        .catch(() => {});
+      return true;
     }
-    await ctx.log(`Kategória → ${best.text}`);
-    await page
-      .getByText(best.text, { exact: true })
-      .first()
-      .click({ timeout: 6000 })
-      .catch(() => {});
-    return true;
+
+    // 2) Fallback: click a tile whose visible text is EXACTLY the category.
+    const exact = page
+      .getByText(new RegExp(`^\\s*${escapeRe(wanted)}\\s*$`, "i"))
+      .first();
+    if (await exact.count().catch(() => 0)) {
+      await ctx.log(`Kategória (text) → ${wanted}`);
+      await exact.click({ timeout: 6000 }).catch(() => {});
+      return true;
+    }
+    return false;
   }
 
   /** Tick the "Súhlasím s podmienkami inzercie" checkbox. */
@@ -618,6 +652,11 @@ export class BazarSkProvider extends BrowserProvider {
 function labelXpath(label: string, tag: string): string {
   const l = JSON.stringify(label); // safe double-quoted string for XPath
   return `xpath=(//*[starts-with(normalize-space(.), ${l})])[last()]/following::${tag}[1]`;
+}
+
+/** Escape a string for safe use inside a RegExp. */
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** Normalise text for matching: lowercase, strip diacritics. */
