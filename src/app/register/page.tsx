@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { useEffect, useState } from "react";
+import { signIn, getProviders } from "next-auth/react";
 import Link from "next/link";
 import { Layers, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,13 @@ export default function RegisterPage() {
   const [phone, setPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [googleEnabled, setGoogleEnabled] = useState(false);
+
+  useEffect(() => {
+    getProviders()
+      .then((p) => setGoogleEnabled(!!p?.google))
+      .catch(() => setGoogleEnabled(false));
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -51,20 +58,24 @@ export default function RegisterPage() {
             7 dní zadarmo · bez záväzkov
           </p>
 
-          <Button
-            variant="outline"
-            className="mt-6 w-full"
-            onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
-          >
-            Registrovať cez Google
-          </Button>
+          {googleEnabled && (
+            <>
+              <Button
+                variant="outline"
+                className="mt-6 w-full"
+                onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
+              >
+                Registrovať cez Google
+              </Button>
 
-          <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
-            <div className="h-px flex-1 bg-border" /> alebo
-            <div className="h-px flex-1 bg-border" />
-          </div>
+              <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
+                <div className="h-px flex-1 bg-border" /> alebo
+                <div className="h-px flex-1 bg-border" />
+              </div>
+            </>
+          )}
 
-          <form onSubmit={onSubmit} className="space-y-4">
+          <form onSubmit={onSubmit} className={"space-y-4" + (googleEnabled ? "" : " mt-6")}>
             <div className="space-y-1.5">
               <Label htmlFor="name">Meno</Label>
               <Input

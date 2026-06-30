@@ -14,17 +14,25 @@ import Google from "next-auth/providers/google";
 // middleware.
 // ===========================================================================
 
+// Only enable Google sign-in when its credentials are actually configured, so
+// an unconfigured deployment doesn't show a button that errors out.
+const googleEnabled = !!(
+  process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+);
+
 export const authConfig = {
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
   trustHost: true,
-  providers: [
-    Google({
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      allowDangerousEmailAccountLinking: true,
-    }),
-  ],
+  providers: googleEnabled
+    ? [
+        Google({
+          clientId: process.env.GOOGLE_CLIENT_ID,
+          clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+          allowDangerousEmailAccountLinking: true,
+        }),
+      ]
+    : [],
   callbacks: {
     jwt: async ({ token, user }) => {
       if (user) {

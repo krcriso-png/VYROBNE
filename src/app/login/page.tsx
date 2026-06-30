@@ -1,7 +1,7 @@
 "use client";
 
-import { Suspense, useState } from "react";
-import { signIn } from "next-auth/react";
+import { Suspense, useEffect, useState } from "react";
+import { signIn, getProviders } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Layers } from "lucide-react";
@@ -16,6 +16,14 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [googleEnabled, setGoogleEnabled] = useState(false);
+
+  // Show the Google button only when the provider is actually configured.
+  useEffect(() => {
+    getProviders()
+      .then((p) => setGoogleEnabled(!!p?.google))
+      .catch(() => setGoogleEnabled(false));
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -57,20 +65,24 @@ function LoginForm() {
           Prihlás sa do svojho účtu
         </p>
 
-        <Button
-          variant="outline"
-          className="mt-6 w-full"
-          onClick={() => signIn("google", { callbackUrl })}
-        >
-          <GoogleIcon /> Pokračovať cez Google
-        </Button>
+        {googleEnabled && (
+          <>
+            <Button
+              variant="outline"
+              className="mt-6 w-full"
+              onClick={() => signIn("google", { callbackUrl })}
+            >
+              <GoogleIcon /> Pokračovať cez Google
+            </Button>
 
-        <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
-          <div className="h-px flex-1 bg-border" /> alebo
-          <div className="h-px flex-1 bg-border" />
-        </div>
+            <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
+              <div className="h-px flex-1 bg-border" /> alebo
+              <div className="h-px flex-1 bg-border" />
+            </div>
+          </>
+        )}
 
-        <form onSubmit={onSubmit} className="space-y-4">
+        <form onSubmit={onSubmit} className={"space-y-4" + (googleEnabled ? "" : " mt-6")}>
           <div className="space-y-1.5">
             <Label htmlFor="email">Email</Label>
             <Input
