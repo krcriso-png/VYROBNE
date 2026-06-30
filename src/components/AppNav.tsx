@@ -36,9 +36,11 @@ export function navItemsFor(isAdmin: boolean) {
 export function AppNav({
   isAdmin,
   supportUnread = 0,
+  adminAlert = 0,
 }: {
   isAdmin: boolean;
   supportUnread?: number;
+  adminAlert?: number;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -56,7 +58,13 @@ export function AppNav({
       {items.map((item) => {
         const active =
           pathname === item.href || pathname.startsWith(item.href + "/");
-        const badge = item.href === "/podpora" && supportUnread > 0;
+        const count =
+          item.href === "/podpora"
+            ? supportUnread
+            : item.href === "/admin"
+              ? adminAlert
+              : 0;
+        const badge = count > 0;
         return (
           <Link
             key={item.href}
@@ -74,7 +82,7 @@ export function AppNav({
             <span className="flex-1">{item.label}</span>
             {badge && (
               <span className="grid min-w-5 animate-pulse place-items-center rounded-full bg-destructive px-1.5 text-xs font-semibold text-destructive-foreground shadow-sm ring-2 ring-destructive/30">
-                {supportUnread}
+                {count}
               </span>
             )}
           </Link>

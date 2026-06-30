@@ -129,13 +129,16 @@ export class BazarSkProvider extends BrowserProvider {
       await this.selectLabeled(page, "Stav", /použit|pouzit|nové|nove|zachoval/i);
 
       // Location: bazar.sk's "Lokalita" is an AUTOCOMPLETE — typing a value
-      // isn't enough, a suggestion must be chosen or it counts as empty.
-      const loc =
-        listing.location ||
-        (normalizeZip(listing.zip).length === 5
-          ? normalizeZip(listing.zip)
-          : listing.zip || "");
-      if (loc) await this.fillLocation(page, ctx, loc);
+      // isn't enough, a suggestion must be chosen or it counts as empty. Try the
+      // town first, then the PSČ.
+      const zip = normalizeZip(listing.zip);
+      await this.fillLocation(
+        page,
+        ctx,
+        [listing.location ?? "", zip.length === 5 ? zip : (listing.zip ?? "")].filter(
+          Boolean,
+        ),
+      );
 
       // Any remaining required <select> in the category Špecifikácia block —
       // pick its first real option so a category with extra fields still submits.
@@ -467,35 +470,58 @@ export class BazarSkProvider extends BrowserProvider {
 
   /**
    * Fill the "Lokalita" autocomplete and CHOOSE a suggestion — typing alone
-   * leaves the field unrecognised by bazar.sk, which then rejects the ad.
+   * leaves the field unrecognised by bazar.sk, which then rejects the ad. Tries
+   * each candidate (town, then PSČ) until a suggestion is picked.
    */
   private async fillLocation(
     page: import("playwright").Page,
     ctx: ProviderContext,
-    value: string,
+    candidates: string[],
   ): Promise<void> {
-    const loc = page.locator(labelXpath("Lokalita", "input")).first();
-    if ((await loc.count().catch(() => 0)) === 0) return;
-    await loc.click().catch(() => {});
-    await loc.fill("").catch(() => {});
-    await loc.type(value, { delay: 60 }).catch(() => {});
-    await page.waitForTimeout(1300);
-    const item = page
+    // The field is most reliably found by its placeholder ("Zadajte lokalitu
+    // alebo PSČ"); fall back to the label caption.
+    let loc = page
       .locator(
-        '.ui-menu-item, .ui-autocomplete li, .autocomplete-suggestion, [class*="suggestion"] li, [class*="suggestion-item"], ul[role="listbox"] li, li[role="option"], .pac-item',
+        'input[placeholder*="lokalit" i], input[placeholder*="PSČ" i], input[placeholder*="PSC" i]',
       )
       .first();
-    if (await item.count().catch(() => 0)) {
-      await item.click({ timeout: 3000 }).catch(() => {});
-    } else {
-      await loc.press("ArrowDown").catch(() => {});
-      await loc.press("Enter").catch(() => {});
+    if ((await loc.count().catch(() => 0)) === 0) {
+      loc = page.locator(labelXpath("Lokalita", "input")).first();
     }
-    await page.waitForTimeout(400);
-    await ctx.log("Lokalita vyplnená", {
-      value,
-      readback: await loc.inputValue().catch(() => "∅"),
-    });
+    if ((await loc.count().catch(() => 0)) === 0) {
+      await ctx.log("Lokalita: pole sa nenašlo.");
+      return;
+    }
+
+    for (const value of candidates.filter(Boolean)) {
+      await loc.click().catch(() => {});
+      await loc.fill("").catch(() => {});
+      await loc.pressSequentially(value, { delay: 90 }).catch(() => {});
+      await page.waitForTimeout(1800); // let the autocomplete load
+      await this.logStructure(page, ctx);
+
+      // Click the first suggestion, trying many markups, else any visible list
+      // item that just appeared; finally keyboard-select it.
+      const item = page
+        .locator(
+          '.ui-menu-item, .ui-autocomplete li, .autocomplete-suggestion, [class*="suggest"] li, [class*="autocomplete"] li, [class*="result"] li, ul[role="listbox"] li, li[role="option"], .pac-item, .dropdown-menu li, .tt-suggestion',
+        )
+        .filter({ visible: true })
+        .first();
+      if (await item.count().catch(() => 0)) {
+        await item.click({ timeout: 3000 }).catch(() => {});
+      } else {
+        await loc.press("ArrowDown").catch(() => {});
+        await page.waitForTimeout(200);
+        await loc.press("Enter").catch(() => {});
+      }
+      await page.waitForTimeout(500);
+
+      const readback = await loc.inputValue().catch(() => "");
+      await ctx.log("Lokalita pokus", { value, readback: readback || "∅" });
+      await this.debugShot(page, ctx, "lokalita");
+      if (readback && readback.trim().length > 1) return; // success
+    }
   }
 
   /** Select an option (preferring a regex match) in the dropdown after a label. */

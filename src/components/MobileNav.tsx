@@ -12,12 +12,14 @@ import { navItemsFor } from "./AppNav";
 export function MobileNav({
   isAdmin,
   supportUnread = 0,
+  adminAlert = 0,
   credits,
   userName,
   userEmail,
 }: {
   isAdmin: boolean;
   supportUnread?: number;
+  adminAlert?: number;
   credits: string;
   userName: string;
   userEmail: string;
@@ -49,7 +51,7 @@ export function MobileNav({
             className="relative grid size-9 place-items-center rounded-lg border"
           >
             <Menu className="size-5" />
-            {supportUnread > 0 && (
+            {supportUnread + adminAlert > 0 && (
               <span className="absolute -right-1 -top-1 size-3 animate-pulse rounded-full bg-destructive ring-2 ring-card" />
             )}
           </button>
@@ -80,7 +82,13 @@ export function MobileNav({
                 const active =
                   pathname === item.href ||
                   pathname.startsWith(item.href + "/");
-                const badge = item.href === "/podpora" && supportUnread > 0;
+                const count =
+                  item.href === "/podpora"
+                    ? supportUnread
+                    : item.href === "/admin"
+                      ? adminAlert
+                      : 0;
+                const badge = count > 0;
                 return (
                   <Link
                     key={item.href}
@@ -99,7 +107,7 @@ export function MobileNav({
                     <span className="flex-1">{item.label}</span>
                     {badge && (
                       <span className="grid min-w-5 animate-pulse place-items-center rounded-full bg-destructive px-1.5 text-xs font-semibold text-destructive-foreground shadow-sm ring-2 ring-destructive/30">
-                        {supportUnread}
+                        {count}
                       </span>
                     )}
                   </Link>

@@ -25,11 +25,17 @@ export default async function AppLayout({
   // Unread support messages drive the "Podpora" nav badge: for the admin, any
   // thread with a new user message; for a user, their threads with a new reply.
   const isAdmin = session.user.role === "ADMIN";
-  const supportUnread = await prisma.supportThread.count({
-    where: isAdmin
-      ? { adminUnread: true }
-      : { userId: session.user.id, userUnread: true },
-  });
+  const [supportUnread, adminAlert] = await Promise.all([
+    prisma.supportThread.count({
+      where: isAdmin
+        ? { adminUnread: true }
+        : { userId: session.user.id, userUnread: true },
+    }),
+    // Failed publications light up the "Admin" item red (admin only).
+    isAdmin
+      ? prisma.publication.count({ where: { status: "ERROR" } })
+      : Promise.resolve(0),
+  ]);
 
   return (
     <div className="flex min-h-screen bg-muted/30">
@@ -53,7 +59,11 @@ export default async function AppLayout({
           </span>
         </Link>
 
-        <AppNav isAdmin={isAdmin} supportUnread={supportUnread} />
+        <AppNav
+          isAdmin={isAdmin}
+          supportUnread={supportUnread}
+          adminAlert={adminAlert}
+        />
 
         <div className="mt-auto border-t pt-4">
           <Link
@@ -93,6 +103,7 @@ export default async function AppLayout({
         <MobileNav
           isAdmin={isAdmin}
           supportUnread={supportUnread}
+          adminAlert={adminAlert}
           credits={credit.unlimited ? "∞" : String(credit.credits)}
           userName={session.user.name ?? "Používateľ"}
           userEmail={session.user.email ?? ""}
