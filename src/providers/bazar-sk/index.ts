@@ -73,21 +73,19 @@ export class BazarSkProvider extends BrowserProvider {
       await this.logStructure(page, ctx);
 
       // --- Step 1: Kategória --------------------------------------------
-      // The category tiles are JS-driven (they set a hidden data[idCategory],
-      // they are NOT links). Easiest reliable path: use the "Napíšte, čo chcete
-      // inzerovať" suggest box (input-category) — type the product, pick the
-      // first suggested category, which jumps straight to the ad form. Fall back
-      // to clicking a category tile by its visible text.
+      // The category tiles are JS-driven (clicking sets a hidden data[idCategory]
+      // and loads the form). Click the wanted category tile DIRECTLY by its
+      // visible text — NOT the suggest box, which picked a wrong category
+      // ("Zvieratá / Mačky" instead of "Ostatné") and dragged in cat-only
+      // required fields. "Ostatné" has no per-category specification fields.
       const wantedCat = bazarCategory(listing.category);
-      await ctx.log(`Hľadám kategóriu na Bazar.sk: "${wantedCat}"`);
-
-      await this.chooseCategoryViaSuggest(page, ctx, wantedCat, listing.title);
+      await ctx.log(`Vyberám kategóriu na Bazar.sk: "${wantedCat}"`);
 
       for (let step = 0; step < 5; step++) {
         if (await this.hasField(page, "Nadpis")) break;
         const clicked = await this.clickCategoryTile(page, ctx, wantedCat);
         await page.waitForLoadState("domcontentloaded").catch(() => {});
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(1100);
         await this.debugShot(page, ctx, `add-cat-${step}`);
         if (!clicked) break;
       }
@@ -550,95 +548,47 @@ export class BazarSkProvider extends BrowserProvider {
   }
 
   /**
-   * Pick the category via the "Napíšte, čo chcete inzerovať" suggest box
-   * (input#input-category). Typing a query shows an autocomplete dropdown of
-   * categories; choosing one jumps straight to the ad form. Best-effort.
-   */
-  private async chooseCategoryViaSuggest(
-    page: import("playwright").Page,
-    ctx: ProviderContext,
-    wanted: string,
-    title: string,
-  ): Promise<void> {
-    const box = page
-      .locator('#input-category, input[name="input-category"], input[name="data[category]"]')
-      .first();
-    if ((await box.count().catch(() => 0)) === 0) return;
-    // Type the category name first (most likely to surface a clean match);
-    // fall back to the product title if needed.
-    for (const query of [wanted, title]) {
-      try {
-        await box.click().catch(() => {});
-        await box.fill("").catch(() => {});
-        await box.type(query, { delay: 40 }).catch(() => {});
-        await page.waitForTimeout(1500);
-        await this.debugShot(page, ctx, "suggest");
-        // Click the first dropdown suggestion, else keyboard-select it.
-        const item = page
-          .locator(
-            '.ui-menu-item, .ui-autocomplete li, .autocomplete-suggestion, [class*="suggestion"] li, [class*="suggestion-item"], ul[role="listbox"] li, li[role="option"]',
-          )
-          .first();
-        if (await item.count().catch(() => 0)) {
-          await ctx.log("Kategória (našepkávač) → prvý návrh");
-          await item.click({ timeout: 4000 }).catch(() => {});
-        } else {
-          await box.press("ArrowDown").catch(() => {});
-          await box.press("Enter").catch(() => {});
-        }
-        await page.waitForLoadState("domcontentloaded").catch(() => {});
-        await page.waitForTimeout(1200);
-        if (await this.hasField(page, "Nadpis")) return;
-      } catch {
-        /* try the next query */
-      }
-    }
-  }
-
-  /**
-   * Click a category tile by its visible text (the tiles are JS elements, not
-   * links). Prefers an exact name match; on a sub-category step where names
-   * differ, clicks the closest match, else the first category-like tile.
+   * Click a category tile by its visible text. The tiles are JS elements (not
+   * links) inside the wizard body — explicitly EXCLUDE the header/nav/footer so
+   * we never hit the browse megamenu. Prefers an exact name; on a sub-category
+   * step where names differ, clicks the closest match, else the first tile.
    */
   private async clickCategoryTile(
     page: import("playwright").Page,
     ctx: ProviderContext,
     wanted: string,
   ): Promise<boolean> {
-    // 1) Exact visible-text tile.
-    const exact = page
-      .getByText(new RegExp(`^\\s*${escapeRe(wanted)}\\s*$`, "i"))
-      .filter({ visible: true })
-      .first();
-    if (await exact.count().catch(() => 0)) {
+    // 1) Exact tile whose own text equals the category, not in header/nav/footer.
+    if (await this.clickTileByText(page, wanted)) {
       await ctx.log(`Kategória (dlaždica) → ${wanted}`);
-      await exact.click({ timeout: 6000 }).catch(() => {});
       return true;
     }
 
-    // 2) Gather visible short "category-like" texts (excluding nav/footer) and
-    // click the best match, else the first.
+    // 2) Sub-category step: gather the wizard's category-like texts and click
+    // the closest match (else the first).
     const w = norm(wanted);
     const texts: string[] = await page
       .evaluate(() => {
         const bad =
-          /prihl|registr|moje inzer|vyh[ľl]ad|sledovan|kontakt|reklama|blog|gdpr|cookies|podmienky|mobiln|ako inzerovat|zvýhodni|napíšte|united|bazar\.sk|prida[ťt] inzer|zalo[žz]te|navrhneme/i;
+          /prihl|registr|moje inzer|vyh[ľl]ad|sledovan|kontakt|reklama|blog|gdpr|cookies|podmienky|mobiln|ako inzerovat|zvýhodni|napíšte|united|bazar\.sk|prida[ťt] inzer|zalo[žz]te|navrhneme|zmeni[ťt] kateg/i;
         const seen = new Set<string>();
         const out: string[] = [];
-        for (const e of Array.from(
-          document.querySelectorAll("a,li,div,span,button,p"),
-        )) {
+        for (const e of Array.from(document.querySelectorAll("a,li,div,span,p"))) {
           const el = e as HTMLElement;
-          const t = (el.textContent ?? "").trim();
-          if (t.length < 2 || t.length > 35) continue;
-          if (bad.test(t)) continue;
-          // leaf-ish + visible
-          if (el.children.length > 2) continue;
+          if (el.closest("header,nav,footer")) continue; // skip megamenu/footer
+          // own (direct) text only, so we target the leaf tile label
+          const own = Array.from(el.childNodes)
+            .filter((n) => n.nodeType === 3)
+            .map((n) => n.textContent ?? "")
+            .join("")
+            .trim();
+          if (own.length < 2 || own.length > 35) continue;
+          if (bad.test(own)) continue;
           const r = el.getBoundingClientRect();
           if (r.width < 20 || r.height < 8) continue;
-          if (seen.has(t)) continue;
-          seen.add(t);
-          out.push(t);
+          if (seen.has(own)) continue;
+          seen.add(own);
+          out.push(own);
         }
         return out;
       })
@@ -658,12 +608,21 @@ export class BazarSkProvider extends BrowserProvider {
       }
     }
     await ctx.log(`Kategória (text) → ${best}`);
-    await page
-      .getByText(best, { exact: true })
-      .filter({ visible: true })
-      .first()
-      .click({ timeout: 6000 })
-      .catch(() => {});
+    await this.clickTileByText(page, best);
+    return true;
+  }
+
+  /** Click an element whose OWN text equals `text`, outside header/nav/footer. */
+  private async clickTileByText(
+    page: import("playwright").Page,
+    text: string,
+  ): Promise<boolean> {
+    const xp =
+      "xpath=//*[not(ancestor::header) and not(ancestor::nav) and not(ancestor::footer)]" +
+      `[normalize-space(text())=${JSON.stringify(text)}]`;
+    const loc = page.locator(xp).filter({ visible: true }).first();
+    if ((await loc.count().catch(() => 0)) === 0) return false;
+    await loc.click({ timeout: 6000 }).catch(() => {});
     return true;
   }
 
@@ -677,15 +636,35 @@ export class BazarSkProvider extends BrowserProvider {
         'xpath=//*[contains(normalize-space(.),"podmienkami inzercie")]/preceding::input[@type="checkbox"][1]',
       )
       .first();
+    const ensureChecked = async (
+      box: import("playwright").Locator,
+    ): Promise<boolean> => {
+      // The real checkbox is often hidden behind a styled label, so a plain
+      // check() can fail — try normal, forced, then set it directly via JS.
+      await box.check().catch(() => {});
+      if (await box.isChecked().catch(() => false)) return true;
+      await box.check({ force: true }).catch(() => {});
+      if (await box.isChecked().catch(() => false)) return true;
+      await box
+        .evaluate((el) => {
+          const i = el as HTMLInputElement;
+          i.checked = true;
+          i.dispatchEvent(new Event("change", { bubbles: true }));
+          i.dispatchEvent(new Event("click", { bubbles: true }));
+        })
+        .catch(() => {});
+      return box.isChecked().catch(() => false);
+    };
+
     if (await cb.count().catch(() => 0)) {
-      await cb.check().catch(() => {});
-      return;
+      const ok = await ensureChecked(cb);
+      await ctx.log(`Súhlas s podmienkami: ${ok ? "zaškrtnutý" : "NEzaškrtnutý"}`);
+      if (ok) return;
     }
     // Fallback: the last checkbox on the form is usually the terms box.
     const all = page.locator('form input[type="checkbox"]');
     const n = await all.count().catch(() => 0);
-    if (n > 0) await all.nth(n - 1).check().catch(() => {});
-    void ctx;
+    if (n > 0) await ensureChecked(all.nth(n - 1));
   }
 
   /** Click a button/submit whose label matches a regex. */
