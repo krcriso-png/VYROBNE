@@ -190,60 +190,74 @@ export function PublishPanel({
             const st = pub ? PUBLICATION_STATUS[pub.status] : null;
             const checked = selected.has(p.key);
             return (
-              <div key={p.key}>
-              <label
+              <div
+                key={p.key}
                 className={
-                  "flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-colors " +
-                  (checked ? "border-primary/40 bg-primary/5" : "hover:bg-muted/50") +
-                  (!p.hasAccount ? " cursor-not-allowed opacity-60" : "")
+                  "rounded-lg border transition-colors " +
+                  (checked
+                    ? "border-primary/40 bg-primary/5"
+                    : "border-input") +
+                  (!p.hasAccount ? " opacity-60" : "")
                 }
               >
-                <input
-                  type="checkbox"
-                  className="size-4 accent-[hsl(var(--primary))]"
-                  checked={checked}
-                  onChange={() => toggle(p.key)}
-                  disabled={!p.hasAccount}
-                />
-                <div className="grid size-9 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
-                  <Globe className="size-4" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">{p.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {!p.hasAccount
-                      ? "Chýba účet — pridaj v sekcii Portály"
-                      : p.integration === "BROWSER"
-                        ? "Automatizácia prehliadača"
-                        : "API"}
-                  </p>
-                </div>
-                {st && (
-                  <Badge tone={st.tone}>
-                    <Dot tone={st.tone} /> {st.label}
-                  </Badge>
-                )}
+                <label
+                  className={
+                    "flex items-start gap-3 p-3 " +
+                    (p.hasAccount ? "cursor-pointer" : "cursor-not-allowed")
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 size-4 shrink-0 accent-[hsl(var(--primary))]"
+                    checked={checked}
+                    onChange={() => toggle(p.key)}
+                    disabled={!p.hasAccount}
+                  />
+                  <div className="grid size-9 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
+                    <Globe className="size-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-sm font-medium">{p.name}</p>
+                      {st && (
+                        <Badge tone={st.tone} className="shrink-0">
+                          <Dot tone={st.tone} /> {st.label}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {!p.hasAccount
+                        ? "Chýba účet — pridaj v sekcii Portály"
+                        : p.integration === "BROWSER"
+                          ? "Automatizácia prehliadača"
+                          : "API"}
+                    </p>
+                  </div>
+                </label>
                 {pub?.remoteUrl && pub.status === "PUBLISHED" && (
-                  <a
-                    href={pub.remoteUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/20"
-                  >
-                    Otvoriť inzerát <ExternalLink className="size-3.5" />
-                  </a>
+                  <div className="border-t border-primary/10 px-3 py-2">
+                    <a
+                      href={pub.remoteUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                    >
+                      <ExternalLink className="size-3.5" /> Otvoriť inzerát
+                    </a>
+                  </div>
                 )}
-              </label>
-              {pub?.status === "ERROR" && (
-                <PortalError publicationId={pub.id} error={pub.lastError} />
-              )}
-              {pub?.statusNote && pub.status !== "ERROR" && (
-                <p className="mt-1 flex items-start gap-1.5 rounded-md bg-warning/10 px-3 py-2 text-xs text-warning">
-                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-                  <span>{pub.statusNote}</span>
-                </p>
-              )}
+                {pub?.status === "ERROR" && (
+                  <div className="px-3 pb-3">
+                    <PortalError publicationId={pub.id} error={pub.lastError} />
+                  </div>
+                )}
+                {pub?.statusNote && pub.status !== "ERROR" && (
+                  <p className="mx-3 mb-3 flex items-start gap-1.5 rounded-md bg-warning/10 px-3 py-2 text-xs text-warning">
+                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                    <span>{pub.statusNote}</span>
+                  </p>
+                )}
               </div>
             );
           })}
