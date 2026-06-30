@@ -484,6 +484,20 @@ export class BazarSkProvider extends BrowserProvider {
     ctx: ProviderContext,
     candidates: string[],
   ): Promise<void> {
+    // Diagnostics: dump every input's name + placeholder so we can see exactly
+    // how the location field is identified if matching fails.
+    const inputDump = await page
+      .evaluate(() =>
+        Array.from(document.querySelectorAll("input"))
+          .map(
+            (i) =>
+              `${i.getAttribute("name") || i.id || "?"}|ph:${i.placeholder || ""}|t:${i.type}`,
+          )
+          .slice(0, 40),
+      )
+      .catch(() => [] as string[]);
+    await ctx.log("Lokalita – vstupné polia", { inputDump });
+
     // Find the field STRICTLY by its placeholder ("Zadajte lokalitu alebo PSČ").
     // No label/xpath fallback — an imprecise match previously hit the price
     // field and typed the PSČ into "Cena". Verify the placeholder before typing.
@@ -501,28 +515,54 @@ export class BazarSkProvider extends BrowserProvider {
     for (const value of candidates.filter(Boolean)) {
       await loc.click().catch(() => {});
       await loc.fill("").catch(() => {});
-      await loc.pressSequentially(value, { delay: 90 }).catch(() => {});
-      await page.waitForTimeout(1800); // let the autocomplete load
-      await this.logStructure(page, ctx);
+      await loc.pressSequentially(value, { delay: 110 }).catch(() => {});
+      await page.waitForTimeout(2500); // let the AJAX autocomplete load
 
-      // Click the first suggestion, trying many markups, else any visible list
-      // item that just appeared; finally keyboard-select it.
+      // Dump any dropdown-looking container so we can target it precisely.
+      const dropdown = await page
+        .evaluate(() => {
+          const out: string[] = [];
+          for (const el of Array.from(
+            document.querySelectorAll("ul,div,table"),
+          )) {
+            const r = el.getBoundingClientRect();
+            if (r.width < 60 || r.height < 14 || r.height > 500) continue;
+            const cls = (el.className || "").toString();
+            const id = el.id || "";
+            if (
+              /autocomplete|menu|suggest|result|dropdown|tt-|pac-|locali|ponuk|naseptav|whisper/i.test(
+                cls + " " + id,
+              )
+            ) {
+              out.push(`<${el.tagName} class="${cls}" id="${id}"> ${(el.textContent || "").trim().slice(0, 80)}`);
+            }
+          }
+          return out.slice(0, 6);
+        })
+        .catch(() => [] as string[]);
+      await ctx.log("Lokalita – rozbaľovačka", { value, dropdown });
+
+      // Typing the PSČ is enough on bazar.sk — no suggestion click is required.
+      // If a dropdown suggestion is visible we click it (it locks in the town),
+      // but we NEVER press Enter (that could submit the form) and we keep the
+      // typed value.
       const item = page
         .locator(
-          '.ui-menu-item, .ui-autocomplete li, .autocomplete-suggestion, [class*="suggest"] li, [class*="autocomplete"] li, [class*="result"] li, ul[role="listbox"] li, li[role="option"], .pac-item, .dropdown-menu li, .tt-suggestion',
+          '.ui-menu-item, .ui-autocomplete li, .autocomplete-suggestion, [class*="suggest"] li, [class*="autocomplete"] li, [class*="result"] li, [class*="whisper"] li, [class*="naseptav"] li, ul[role="listbox"] li, li[role="option"], .pac-item, .dropdown-menu li, .tt-suggestion',
         )
         .filter({ visible: true })
         .first();
       if (await item.count().catch(() => 0)) {
         await item.click({ timeout: 3000 }).catch(() => {});
-      } else {
-        await loc.press("ArrowDown").catch(() => {});
-        await page.waitForTimeout(200);
-        await loc.press("Enter").catch(() => {});
       }
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(400);
 
-      const readback = await loc.inputValue().catch(() => "");
+      let readback = await loc.inputValue().catch(() => "");
+      if (!readback || readback.trim().length < 2) {
+        // Plain-set the value as a last resort (keeps it in the field).
+        await loc.fill(value).catch(() => {});
+        readback = await loc.inputValue().catch(() => "");
+      }
       await ctx.log("Lokalita pokus", { value, readback: readback || "∅" });
       await this.debugShot(page, ctx, "lokalita");
       if (readback && readback.trim().length > 1) return; // success
@@ -588,7 +628,49 @@ export class BazarSkProvider extends BrowserProvider {
       );
       if (real) await s.selectOption(real.value).catch(() => {});
     }
-    void ctx;
+
+    // Required free-text / number inputs (category specifics like "Rok výroby",
+    // "Najazdené km" for cars). Fill any still-empty REQUIRED input with a
+    // sensible default so the ad submits regardless of category. Skip the fields
+    // we set explicitly elsewhere and the optional ones.
+    const filled = await page
+      .evaluate(() => {
+        const out: string[] = [];
+        const year = new Date().getFullYear();
+        const skip = /nadpis|popis|text|cena|psc|lokalit|mail|email|telef|meno|heslo|youtube|name|nazov|title/i;
+        for (const el of Array.from(
+          document.querySelectorAll<HTMLInputElement>("form input"),
+        )) {
+          const type = (el.type || "text").toLowerCase();
+          if (!["text", "number", "tel"].includes(type)) continue;
+          const required =
+            el.required || el.getAttribute("aria-required") === "true";
+          if (!required) continue;
+          if (el.value && el.value.trim()) continue; // already filled
+          const id = (el.getAttribute("name") || el.id || "").toLowerCase();
+          if (skip.test(id)) continue;
+          // Build a default from the field's label/name.
+          const labelText = (
+            el.closest("tr")?.textContent ||
+            el.getAttribute("placeholder") ||
+            id ||
+            ""
+          ).toLowerCase();
+          let val = "1";
+          if (/rok|year/.test(labelText)) val = String(year);
+          else if (/km|najazd|nájazd/.test(labelText)) val = "100000";
+          else if (/objem|ccm|kw|výkon|vykon/.test(labelText)) val = "1";
+          el.value = val;
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+          out.push(`${id || labelText.slice(0, 20)}=${val}`);
+        }
+        return out;
+      })
+      .catch(() => [] as string[]);
+    if (filled.length) {
+      await ctx.log("Doplnené povinné polia (genericky)", { filled });
+    }
   }
 
   /**
