@@ -37,6 +37,17 @@ interface PublicationState {
 
 const LIVE_STATUSES = new Set(["PENDING", "PUBLISHING", "WAITING_SMS", "UPDATING"]);
 
+// Statuses that mean a portal is already published or being processed — these
+// should NOT be pre-selected for (re)publishing. Only new / errored / removed
+// portals are checked by default, so "Publikovať" targets just what needs it.
+const ALREADY_HANDLED = new Set([
+  "PENDING",
+  "PUBLISHING",
+  "WAITING_SMS",
+  "UPDATING",
+  "PUBLISHED",
+]);
+
 export function PublishPanel({
   listingId,
   portals,
@@ -48,9 +59,16 @@ export function PublishPanel({
 }) {
   const router = useRouter();
   const pubByPortal = new Map(publications.map((p) => [p.portalKey, p]));
-  const [selected, setSelected] = useState<Set<string>>(
-    new Set(publications.map((p) => p.portalKey)),
-  );
+  const [selected, setSelected] = useState<Set<string>>(() => {
+    const next = new Set<string>();
+    for (const p of portals) {
+      const pub = pubByPortal.get(p.key);
+      if (p.hasAccount && !(pub && ALREADY_HANDLED.has(pub.status))) {
+        next.add(p.key);
+      }
+    }
+    return next;
+  });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
