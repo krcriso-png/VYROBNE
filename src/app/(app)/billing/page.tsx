@@ -5,7 +5,6 @@ import { PLANS } from "@/lib/plans";
 import { getCreditState, creditReasonLabel } from "@/lib/credits";
 import { UpgradeButtons } from "@/components/UpgradeButtons";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 
 function planFeatures(key: string): string[] {
   const p = PLANS[key as keyof typeof PLANS];
@@ -89,9 +88,9 @@ export default async function BillingPage() {
               className={"relative p-6 " + (current ? "ring-2 ring-primary" : "")}
             >
               {current && (
-                <Badge tone="primary" className="absolute -top-3 left-6">
+                <span className="absolute -top-3 left-6 rounded-full bg-primary px-2.5 py-0.5 text-xs font-medium text-primary-foreground shadow-sm">
                   Aktívny plán
-                </Badge>
+                </span>
               )}
               <h3 className="font-semibold">{p.name}</h3>
               <p className="mt-2">

@@ -246,7 +246,7 @@ export function PublishPanel({
             <p className="pt-1 text-sm text-muted-foreground">{message}</p>
           )}
 
-          <div className="flex gap-2 pt-2">
+          <div className="flex flex-wrap gap-2 pt-2">
             <Button onClick={publish} disabled={busy || selected.size === 0}>
               <Send className="size-4" />
               {busy ? "Pracujem…" : "Publikovať"}
