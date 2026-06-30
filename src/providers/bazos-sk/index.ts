@@ -933,7 +933,42 @@ export class BazosSkProvider extends BrowserProvider {
     return this.withContext(session, ctx, async (context) => {
       const page = await context.newPage();
 
-      // Step 1 — if we have a real ad URL, check it directly.
+      // PRIMARY — verify against "Moje inzeráty" by title. This is the source
+      // of truth: it confirms liveness, gives the real ad URL, AND the view
+      // count (from the "Zobrazenie" column), and survives re-posts.
+      if (ctx.listingTitle) {
+        const own = await this.resolveOwnAdUrl(page, ctx, ctx.listingTitle);
+        if (own) {
+          await ctx.log("Inzerát potvrdený cez Moje inzeráty", {
+            remoteId: own.id,
+            views: own.views,
+          });
+          return {
+            live: true,
+            verified: true,
+            remoteId: own.id,
+            remoteUrl: own.url,
+            views: own.views,
+          };
+        }
+        // The form stays on the page after listing, so detect the RESULTS
+        // header ("… inzeráty užívateľa (N)"). If present, we genuinely listed
+        // the user's ads and ours isn't among them → removed. If not, the
+        // lookup didn't open the list → fall through to the direct-URL check.
+        const listBody = await page
+          .locator("body")
+          .innerText()
+          .catch(() => "");
+        if (/inzer\w*\s+u[žz][ií]vate/i.test(listBody)) {
+          await ctx.log(
+            "Inzerát sa v Moje inzeráty nenašiel — považujem za odstránený",
+          );
+          return { live: false, verified: true };
+        }
+      }
+
+      // FALLBACK — if "Moje inzeráty" couldn't be opened (no e-mail/phone) but
+      // we have a real ad URL, check it directly.
       const isAdRef = /\/inzerat\/\d+/.test(remoteId) || /^\d+$/.test(remoteId);
       if (isAdRef) {
         const url = remoteId.startsWith("http")
@@ -962,64 +997,9 @@ export class BazosSkProvider extends BrowserProvider {
           });
           return { live: true, verified: true, remoteUrl: url, views };
         }
-        // Direct URL says gone — but the ad may have been re-posted to a new
-        // id, so fall through and confirm against "Moje inzeráty" by title.
       }
 
-      // Step 2 — verify against the account's "Moje inzeráty" by title. This is
-      // the source of truth and survives re-posts (new id each time).
-      if (ctx.listingTitle) {
-        const own = await this.resolveOwnAdUrl(page, ctx, ctx.listingTitle);
-        if (own) {
-          // Prefer the view count from the "Moje inzeráty" row; only open the
-          // ad page if the list didn't expose it.
-          let views: number | undefined = own.views;
-          if (views == null) {
-            try {
-              await page.goto(own.url, { waitUntil: "domcontentloaded" });
-              const adBody = await page
-                .locator("body")
-                .innerText()
-                .catch(() => "");
-              views = parseViews(adBody);
-            } catch {
-              /* views are best-effort */
-            }
-          }
-          await ctx.log("Inzerát potvrdený cez Moje inzeráty", {
-            remoteId: own.id,
-            views,
-          });
-          return {
-            live: true,
-            verified: true,
-            remoteId: own.id,
-            remoteUrl: own.url,
-            views,
-          };
-        }
-        // The form stays on the page after listing, so detect the RESULTS
-        // header ("Všetky inzeráty užívateľa (N)" / "Všechny inzeráty
-        // uživatele"). If it's there, we genuinely listed the user's ads and
-        // ours isn't among them → removed. If not, the lookup didn't open the
-        // list → we can't be sure.
-        const listBody = await page
-          .locator("body")
-          .innerText()
-          .catch(() => "");
-        const listedAds = /inzer\w*\s+u[žz][ií]vate/i.test(listBody);
-        if (listedAds) {
-          await ctx.log(
-            "Inzerát sa v Moje inzeráty nenašiel — považujem za odstránený",
-          );
-          return { live: false, verified: true };
-        }
-        await ctx.log(
-          "Moje inzeráty sa nepodarilo otvoriť (e-mail/telefón) — stav nechávam bez zmeny.",
-        );
-      }
-
-      // Couldn't determine (not logged in / no title) — do NOT change status.
+      // Couldn't determine — do NOT change status.
       await ctx.log(
         "Stav inzerátu sa nepodarilo overiť — nechávam ho bez zmeny.",
       );

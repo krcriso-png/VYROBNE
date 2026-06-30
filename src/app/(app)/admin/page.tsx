@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
 import { toPublicUrl } from "@/lib/url";
+import { AdminPlanSelect } from "@/components/AdminPlanSelect";
 
 // Admin panel: users, subscriptions, queue health, recent errors, portals.
 export default async function AdminPage() {
@@ -100,7 +101,10 @@ export default async function AdminPage() {
                 <tr key={u.id} className="border-b last:border-0">
                   <td className="px-4 py-2.5">{u.email}</td>
                   <td className="px-4 py-2.5">
-                    <Badge tone="neutral">{u.subscription?.plan ?? "FREE"}</Badge>
+                    <AdminPlanSelect
+                      userId={u.id}
+                      plan={u.subscription?.plan ?? "FREE"}
+                    />
                   </td>
                   <td className="px-4 py-2.5 tabular-nums">{u._count.listings}</td>
                   <td className="px-4 py-2.5">

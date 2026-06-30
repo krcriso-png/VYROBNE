@@ -127,18 +127,24 @@ export function PublishPanel({
       method: "POST",
     });
     const data = await res.json().catch(() => ({}));
-    setBusy(false);
-    setMessage(
-      res.ok
-        ? `Overujem stav na portáloch (${data.queued ?? 0})… o chvíľu sa to aktualizuje.`
-        : (data.error ?? "Overenie zlyhalo."),
-    );
-    // Poll a few times so the refreshed status shows up without a manual reload.
+    if (!res.ok) {
+      setBusy(false);
+      setMessage(data.error ?? "Overenie zlyhalo.");
+      return;
+    }
+    setMessage(`Overujem stav na ${data.queued ?? 0} portáloch…`);
+    // Poll a few times so the refreshed status/views show up, then confirm.
     let n = 0;
     const t = setInterval(() => {
       router.refresh();
-      if (++n >= 8) clearInterval(t);
-    }, 4000);
+      if (++n >= 6) {
+        clearInterval(t);
+        setBusy(false);
+        setMessage("✅ Hotovo — stav a počet zhliadnutí sú aktualizované.");
+        // Auto-clear the confirmation after a moment.
+        setTimeout(() => setMessage(null), 6000);
+      }
+    }, 3000);
   }
 
   const hasPublished = publications.some((p) => p.status === "PUBLISHED");
