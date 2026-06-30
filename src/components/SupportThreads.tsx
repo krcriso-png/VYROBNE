@@ -274,6 +274,9 @@ function Thread({
         <div className="space-y-3">
           {thread.messages.map((m) => {
             const mine = isAdmin ? m.author === "ADMIN" : m.author === "USER";
+            const shot = m.body.match(
+              /https?:\/\/\S+\/api\/blob\/\S+\.png/i,
+            )?.[0];
             return (
               <div
                 key={m.id}
@@ -291,6 +294,16 @@ function Thread({
                     {m.author === "ADMIN" ? "Podpora" : "Používateľ"}
                   </p>
                   <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                  {shot && (
+                    <a href={shot} target="_blank" rel="noreferrer">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={shot}
+                        alt="Screenshot chyby"
+                        className="mt-2 max-h-56 rounded-lg border border-white/20 object-contain"
+                      />
+                    </a>
+                  )}
                   <p className="mt-1 text-[10px] opacity-60">
                     {formatDate(m.createdAt)}
                   </p>

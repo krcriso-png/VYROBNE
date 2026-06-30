@@ -1,34 +1,19 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
-import {
-  Users,
-  Clock,
-  AlertTriangle,
-  ImageIcon,
-  ExternalLink,
-  LifeBuoy,
-  ArrowRight,
-} from "lucide-react";
+import { Users, Clock, AlertTriangle, LifeBuoy, ArrowRight } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
-import { toPublicUrl } from "@/lib/url";
 import { AdminPlanSelect } from "@/components/AdminPlanSelect";
 
 // Admin panel: users, subscriptions, queue health, recent errors, portals.
+// User-reported problems are NOT here — they live as tickets in "Podpora"
+// (summarised above with a link), so there's a single place to handle them.
 export default async function AdminPage() {
   const session = await auth();
   if (session?.user.role !== "ADMIN") redirect("/dashboard");
-
-  // Public origin of this request, to repair any internal/localhost links
-  // baked into older error reports.
-  const h = await headers();
-  const host = h.get("x-forwarded-host") || h.get("host") || "";
-  const proto = h.get("x-forwarded-proto") || "https";
-  const origin = host ? `${proto}://${host}` : "";
 
   const [
     users,
@@ -36,7 +21,6 @@ export default async function AdminPage() {
     pendingCount,
     portals,
     recentErrors,
-    reports,
     openTicketCount,
     openTickets,
   ] = await Promise.all([
@@ -54,12 +38,6 @@ export default async function AdminPage() {
       where: { level: "ERROR" },
       orderBy: { createdAt: "desc" },
       take: 10,
-    }),
-    // Error reports submitted by users ("Nahlásiť adminovi").
-    prisma.notification.findMany({
-      where: { userId: session.user.id, type: "SYSTEM" },
-      orderBy: { createdAt: "desc" },
-      take: 15,
     }),
     // Support tickets still open (unresolved).
     prisma.supportThread.count({ where: { status: "OPEN" } }),
@@ -215,71 +193,6 @@ export default async function AdminPage() {
         )}
       </section>
 
-      <section>
-        <h2 className="mb-3 font-semibold">Nahlásené chyby od používateľov</h2>
-        {reports.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Žiadne nahlásenia.</p>
-        ) : (
-          <Card className="divide-y">
-            {reports.map((r) => {
-              const body = r.body ?? "";
-              const shotRaw = body.match(
-                /https?:\/\/\S+\/api\/blob\/\S+\.png/i,
-              )?.[0];
-              const listingRaw = body.match(
-                /https?:\/\/\S+\/listings\/[A-Za-z0-9_-]+/i,
-              )?.[0];
-              const shot = shotRaw ? toPublicUrl(shotRaw, origin) : null;
-              const listing = listingRaw
-                ? toPublicUrl(listingRaw, origin)
-                : null;
-              return (
-                <div key={r.id} className="p-3 text-sm">
-                  <p className="font-medium">{r.title}</p>
-                  <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
-                    {body}
-                  </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    {shot && (
-                      <a
-                        href={shot}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90"
-                      >
-                        <ImageIcon className="size-3.5" /> Zobraziť screenshot
-                      </a>
-                    )}
-                    {listing && (
-                      <a
-                        href={listing}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium hover:bg-muted"
-                      >
-                        <ExternalLink className="size-3.5" /> Otvoriť inzerát
-                      </a>
-                    )}
-                  </div>
-                  {shot && (
-                    <a href={shot} target="_blank" rel="noreferrer">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={shot}
-                        alt="Screenshot chyby"
-                        className="mt-2 max-h-64 rounded-lg border object-contain"
-                      />
-                    </a>
-                  )}
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {formatDate(r.createdAt)}
-                  </p>
-                </div>
-              );
-            })}
-          </Card>
-        )}
-      </section>
     </div>
   );
 }
