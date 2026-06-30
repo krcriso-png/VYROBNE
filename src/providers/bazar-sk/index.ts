@@ -565,64 +565,75 @@ export class BazarSkProvider extends BrowserProvider {
     for (const value of candidates.filter(Boolean)) {
       await loc.click().catch(() => {});
       await loc.fill("").catch(() => {});
-      await loc.pressSequentially(value, { delay: 120 }).catch(() => {});
-      await page.waitForTimeout(2500); // let the AJAX autocomplete load
+      // Type char-by-char and explicitly fire the events the autocomplete
+      // listens to, in case pressSequentially alone doesn't trigger it.
+      await loc.pressSequentially(value, { delay: 140 }).catch(() => {});
+      await loc
+        .evaluate((el) => {
+          const i = el as HTMLInputElement;
+          i.dispatchEvent(new Event("input", { bubbles: true }));
+          i.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "1" }));
+          i.dispatchEvent(new Event("change", { bubbles: true }));
+        })
+        .catch(() => {});
+      await page.waitForTimeout(3000); // let the AJAX autocomplete load
 
-      // Dump the dropdown markup so it can be targeted precisely.
-      const dropdown = await page
+      // EXHAUSTIVE dump: every visible short-text element that appeared below
+      // the field (the dropdown items), and tag the first one so we can click
+      // it. Excludes header/nav/footer.
+      const dump = await page
         .evaluate(() => {
+          const loc = document.querySelector('[data-klikado-loc="1"]');
+          const lr = loc?.getBoundingClientRect();
           const out: string[] = [];
-          for (const el of Array.from(document.querySelectorAll("ul,div,table"))) {
+          let tagged = 0;
+          for (const el of Array.from(
+            document.querySelectorAll<HTMLElement>("li,a,div,td,span,p"),
+          )) {
+            if (el.closest("header,nav,footer")) continue;
             const r = el.getBoundingClientRect();
-            if (r.width < 60 || r.height < 14 || r.height > 500) continue;
-            const cls = (el.className || "").toString();
-            const id = el.id || "";
-            const txt = (el.textContent || "").trim();
-            if (
-              /autocomplete|menu|suggest|result|dropdown|tt-|pac-|locali|ponuk|naseptav|whisper|town|mesto|obec/i.test(
-                cls + " " + id,
-              ) &&
-              txt.length > 0
-            ) {
-              out.push(`<${el.tagName} class="${cls}" id="${id}"> ${txt.slice(0, 90)}`);
+            if (r.width < 25 || r.height < 9 || r.height > 70) continue;
+            if (lr && (r.top < lr.bottom - 4 || r.top > lr.bottom + 320)) continue;
+            if (lr && Math.abs(r.left - lr.left) > 450) continue;
+            const own = Array.from(el.childNodes)
+              .filter((n) => n.nodeType === 3)
+              .map((n) => n.textContent ?? "")
+              .join("")
+              .trim();
+            if (own.length < 2 || own.length > 45) continue;
+            out.push(`${el.tagName}.${(el.className || "").toString().slice(0, 25)}: ${own}`);
+            if (tagged === 0) {
+              el.setAttribute("data-klikado-sugg", "1");
+              tagged = 1;
             }
           }
-          return out.slice(0, 8);
+          return out.slice(0, 14);
         })
         .catch(() => [] as string[]);
-      await ctx.log("Lokalita – rozbaľovačka", { value, dropdown });
+      await ctx.log("Lokalita – rozbaľovačka", { value, dump });
 
-      // MUST pick a suggestion (that's what fills the hidden geo fields). Try
-      // many markups + any visible list item that appeared just below the field.
+      // Click the tagged first suggestion (fills the hidden geo fields).
       let clicked = false;
-      const item = page
-        .locator(
-          '.ui-menu-item, .ui-autocomplete li, .autocomplete-suggestion, [class*="suggest"] li, [class*="autocomplete"] li, [class*="result"] li, [class*="whisper"] li, [class*="naseptav"] li, [class*="locali"] li, ul[role="listbox"] li, li[role="option"], .pac-item, .dropdown-menu li, .tt-suggestion, ul li a',
-        )
-        .filter({ visible: true })
-        .first();
-      if (await item.count().catch(() => 0)) {
-        await item.click({ timeout: 3000 }).catch(() => {});
+      const sugg = page.locator('[data-klikado-sugg="1"]').first();
+      if (await sugg.count().catch(() => 0)) {
+        await sugg.click({ timeout: 3000 }).catch(() => {});
         clicked = true;
       } else {
-        // Fallback: keyboard-select the first suggestion.
         await loc.press("ArrowDown").catch(() => {});
         await page.waitForTimeout(400);
         await loc.press("Enter").catch(() => {});
       }
-      await page.waitForTimeout(700);
+      await page.waitForTimeout(800);
 
       const nameVal = await locName.inputValue().catch(() => "");
-      const visVal = await loc.inputValue().catch(() => "");
       await ctx.log("Lokalita pokus", {
         value,
         clicked,
         locationName: nameVal || "∅",
-        visible: visVal || "∅",
+        visible: (await loc.inputValue().catch(() => "")) || "∅",
       });
       await this.debugShot(page, ctx, "lokalita");
-      // Success only when the hidden locationName/city got populated.
-      if (nameVal && nameVal.trim().length > 1) return;
+      if (nameVal && nameVal.trim().length > 1) return; // hidden field populated
     }
     await ctx.log("Lokalita: nepodarilo sa vybrať z ponuky.");
   }
