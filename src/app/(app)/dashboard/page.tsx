@@ -10,6 +10,11 @@ import {
   Eye,
   CalendarClock,
   AlertTriangle,
+  LifeBuoy,
+  Users,
+  Clock,
+  ShieldCheck,
+  FlaskConical,
 } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
@@ -19,7 +24,7 @@ import { Card } from "@/components/ui/card";
 import { Badge, Dot } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LISTING_STATUS, PUBLICATION_STATUS } from "@/lib/status";
-import { formatPrice } from "@/lib/utils";
+import { formatPrice, formatDate } from "@/lib/utils";
 import { AutoTopToggle } from "@/components/AutoTopToggle";
 import { AutoRefresh } from "@/components/AutoRefresh";
 
@@ -34,6 +39,12 @@ const RENEW_LABEL: Record<number, string> = {
 export default async function DashboardPage() {
   const session = await auth();
   const userId = session!.user.id;
+
+  // The admin account gets an administration overview here instead of the
+  // customer widgets (they still have "Inzeráty" to test publishing).
+  if (session!.user.role === "ADMIN") {
+    return <AdminHome name={session!.user.name ?? null} />;
+  }
 
   const [listings, published, sub, credit] = await Promise.all([
     prisma.listing.findMany({
@@ -246,6 +257,140 @@ export default async function DashboardPage() {
               );
             })}
           </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+// Admin-focused home: the administration overview (tickets, users, queue,
+// errors) + quick links — not customer metrics. Listings stay reachable for
+// testing via the quick link and the sidebar.
+async function AdminHome({ name }: { name: string | null }) {
+  const [openTicketCount, userCount, pendingCount, errorCount, openTickets] =
+    await Promise.all([
+      prisma.supportThread.count({ where: { status: "OPEN" } }),
+      prisma.user.count(),
+      prisma.publication.count({
+        where: { status: { in: ["PENDING", "PUBLISHING", "UPDATING"] } },
+      }),
+      prisma.publication.count({ where: { status: "ERROR" } }),
+      prisma.supportThread.findMany({
+        where: { status: "OPEN" },
+        orderBy: { updatedAt: "desc" },
+        take: 6,
+        include: {
+          user: { select: { email: true } },
+          _count: { select: { messages: true } },
+        },
+      }),
+    ]);
+
+  const stats = [
+    {
+      label: "Nevyriešené tickety",
+      value: openTicketCount,
+      icon: LifeBuoy,
+      tone:
+        openTicketCount > 0
+          ? "bg-warning/15 text-warning"
+          : "bg-success/15 text-success",
+    },
+    { label: "Používatelia", value: userCount, icon: Users, tone: "bg-primary/10 text-primary" },
+    { label: "Fronta (čaká)", value: pendingCount, icon: Clock, tone: "bg-warning/15 text-warning" },
+    { label: "Chyby publikácií", value: errorCount, icon: AlertTriangle, tone: "bg-destructive/10 text-destructive" },
+  ];
+
+  const links = [
+    { href: "/admin", label: "Admin panel", desc: "Používatelia, plány, portály, chyby", icon: ShieldCheck },
+    { href: "/podpora", label: "Tickety podpory", desc: "Odpovedaj a rieš podnety zákazníkov", icon: LifeBuoy },
+    { href: "/listings", label: "Testovacie inzeráty", desc: "Vytvor a otestuj publikovanie", icon: FlaskConical },
+  ];
+
+  return (
+    <div className="space-y-8">
+      <AutoRefresh intervalMs={45_000} />
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Admin prehľad</h1>
+          <p className="text-sm text-muted-foreground">
+            Vitaj späť{name ? `, ${name}` : ""}. Tu je stav celej platformy.
+          </p>
+        </div>
+        <Badge tone="primary">Administrátor</Badge>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {stats.map((s) => (
+          <Card key={s.label} className="p-5">
+            <div className={`grid size-10 place-items-center rounded-lg ${s.tone}`}>
+              <s.icon className="size-5" />
+            </div>
+            <p className="mt-3 text-3xl font-bold tabular-nums">{s.value}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{s.label}</p>
+          </Card>
+        ))}
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        {links.map((l) => (
+          <Link key={l.href} href={l.href}>
+            <Card className="flex h-full items-start gap-3 p-4 transition-colors hover:bg-muted/50">
+              <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                <l.icon className="size-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="flex items-center gap-1 font-medium">
+                  {l.label} <ArrowRight className="size-3.5" />
+                </p>
+                <p className="text-xs text-muted-foreground">{l.desc}</p>
+              </div>
+            </Card>
+          </Link>
+        ))}
+      </div>
+
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-semibold">
+            Otvorené tickety
+            {openTicketCount > 0 && (
+              <span className="ml-2 rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">
+                {openTicketCount}
+              </span>
+            )}
+          </h2>
+          <Link
+            href="/podpora"
+            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+          >
+            Všetky <ArrowRight className="size-3.5" />
+          </Link>
+        </div>
+        {openTickets.length === 0 ? (
+          <Card className="p-6 text-center text-sm text-muted-foreground">
+            Žiadne otvorené tickety. 🎉
+          </Card>
+        ) : (
+          <Card className="divide-y">
+            {openTickets.map((t) => (
+              <Link
+                key={t.id}
+                href="/podpora"
+                className="flex items-center gap-3 p-3 text-sm transition-colors hover:bg-muted/50"
+              >
+                <LifeBuoy className="size-4 shrink-0 text-warning" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">{t.subject}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {t.user.email} · {t._count.messages} správ ·{" "}
+                    {formatDate(t.updatedAt)}
+                  </p>
+                </div>
+                <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
+              </Link>
+            ))}
+          </Card>
         )}
       </section>
     </div>
