@@ -898,18 +898,31 @@ export class BazosSkProvider extends BrowserProvider {
             views,
           };
         }
-        // Logged in (we could load the list) but the ad is not there → gone.
+        // Decide if we're really logged in. "Moje inzeráty" is in the top nav on
+        // EVERY page, so it can't be the signal — require a logout link AND the
+        // absence of a login form. Only then does "ad not in the list" mean it
+        // was removed; otherwise we genuinely can't tell.
         const listBody = await page
           .locator("body")
           .innerText()
           .catch(() => "");
-        const loggedIn = /moje inzer|odhlás|odhlas|môj účet|můj účet/i.test(
-          listBody,
-        );
-        if (loggedIn) {
-          await ctx.log("Inzerát sa v Moje inzeráty nenašiel — považujem za odstránený");
+        const hasLoginForm =
+          (await page
+            .locator('input[type="password"], input[name="heslo"]')
+            .count()
+            .catch(() => 0)) > 0 ||
+          /přihlášení|prihlásenie|přihlásit\s+se|prihlásiť\s+sa/i.test(listBody);
+        const definitelyLoggedIn =
+          !hasLoginForm && /odhl[aá]si|logout/i.test(listBody);
+        if (definitelyLoggedIn) {
+          await ctx.log(
+            "Inzerát sa v Moje inzeráty nenašiel (prihlásený účet) — považujem za odstránený",
+          );
           return { live: false, verified: true };
         }
+        await ctx.log(
+          "Nedá sa overiť (nie som prihlásený do Bazoš účtu) — stav nechávam bez zmeny.",
+        );
       }
 
       // Couldn't determine (not logged in / no title) — do NOT change status.

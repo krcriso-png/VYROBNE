@@ -168,8 +168,12 @@ export async function enqueueDueStatusChecks(
   const cutoff = new Date(Date.now() - maxAgeMs);
   const due = await prisma.publication.findMany({
     where: {
-      status: "PUBLISHED",
+      // Re-verify PUBLISHED ads (views/liveness) and REMOVED ones too, so a
+      // listing that was wrongly marked removed can heal back to PUBLISHED when
+      // it's found again in the account's "Moje inzeráty".
+      status: { in: ["PUBLISHED", "REMOVED"] },
       remoteId: { not: null },
+      listing: { status: { not: "ARCHIVED" } },
       OR: [{ lastSyncedAt: null }, { lastSyncedAt: { lte: cutoff } }],
     },
     include: { portal: true, listing: { select: { userId: true } } },
