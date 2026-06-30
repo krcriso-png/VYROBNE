@@ -655,14 +655,51 @@ export class BazarSkProvider extends BrowserProvider {
     page: import("playwright").Page,
     ctx: ProviderContext,
   ): Promise<void> {
+    // CRITICAL: if the ad form is still on the page, the submit did NOT go
+    // through (e.g. a missing required field). The contact section literally
+    // says "...slúži ako kontakt a pre zaslanie overovacieho kódu", so the word
+    // "overovacieho kódu" is present even on the form — never ask for an SMS in
+    // that case; surface the real problem instead.
+    if (await this.hasField(page, "Nadpis")) {
+      await this.debugShot(page, ctx, "submit-not-advanced");
+      await this.logStructure(page, ctx);
+      const t = (
+        await page
+          .locator("body")
+          .innerText()
+          .catch(() => "")
+      ).replace(/\s+/g, " ");
+      const hint =
+        t.match(
+          /(povinn[ée][^.]{0,90}|vypl[ňn][^.]{0,90}|chýb[^.]{0,90}|chyba[^.]{0,90}|nahra[ďj][^.]{0,60}fotograf[^.]{0,40}|minim[aá]ln[^.]{0,60})/i,
+        )?.[0] ?? "formulár sa neodoslal (pravdepodobne chýba povinné pole alebo fotka)";
+      throw new Error(
+        `Bazar.sk neodoslal inzerát: ${hint}. Pozri screenshot 'submit-not-advanced'.`,
+      );
+    }
+
     const text = await page
       .locator("body")
       .innerText()
       .catch(() => "");
+    // A genuine verification page has STRONG wording asking to type a code,
+    // not just the contact hint. Require that explicit phrasing.
     const wantsCode =
-      /overovac[ií]|overen|SMS|zadajte\s+k[óo]d|k[óo]d\s+z\s+SMS/i.test(text) &&
-      !/inzer[aá]t\s+(bol|je)\s+(prida|zverejnen)/i.test(text);
+      /(zadajte|opí[šs]te|prepí[šs]te|vlož|vpí[šs]te)[^.]{0,30}k[óo]d|overovac[íi]\s+k[óo]d|SMS\s+k[óo]d|k[óo]d\s+z\s+SMS/i.test(
+        text,
+      ) && !/inzer[aá]t\s+(bol|je)\s+(prida|zverejnen)/i.test(text);
     if (!wantsCode) return;
+
+    // The page may need a "Poslať/odoslať overovací kód" button pressed to
+    // actually send the SMS before showing the code box.
+    const sendBtn = page
+      .getByRole("button", { name: /(odosla|posla|zasla)[ťt][^.]{0,20}k[óo]d/i })
+      .first();
+    if (await sendBtn.count().catch(() => 0)) {
+      await ctx.log("Spúšťam odoslanie overovacieho SMS kódu");
+      await sendBtn.click({ timeout: 6000 }).catch(() => {});
+      await page.waitForTimeout(1500);
+    }
 
     await this.debugShot(page, ctx, "sms-code-page");
     if (!ctx.requestUserInput) {
