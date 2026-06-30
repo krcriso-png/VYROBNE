@@ -57,7 +57,7 @@ export class BazarSkProvider extends BrowserProvider {
       const page = await context.newPage();
       await ctx.log(`Otváram ${this.name}…`);
       await page.goto(`${this.baseUrl}/`, { waitUntil: "domcontentloaded" });
-      await this.acceptCookies(page, ctx, COOKIE_LABELS);
+      await this.dismissCookies(page, ctx);
       await this.debugShot(page, ctx, "home");
       const session = await this.snapshot(context);
       return {
@@ -75,10 +75,13 @@ export class BazarSkProvider extends BrowserProvider {
   ): Promise<PublishResult> {
     return this.withContext(session, ctx, async (context) => {
       const page = await context.newPage();
-      await page.goto(`${this.baseUrl}/pridat-inzerat/`, {
-        waitUntil: "domcontentloaded",
-      });
-      await this.acceptCookies(page, ctx, COOKIE_LABELS);
+      // Reach the add wizard by CLICKING "Pridať inzerát" from the homepage —
+      // the direct URL is unreliable (it 404s as "Neexistujúca stránka").
+      await page.goto(`${this.baseUrl}/`, { waitUntil: "domcontentloaded" });
+      await this.dismissCookies(page, ctx);
+      await this.debugShot(page, ctx, "home");
+      await this.openAddFlow(page, ctx);
+      await this.dismissCookies(page, ctx);
       await this.debugShot(page, ctx, "add-step1");
       await this.logStructure(page, ctx);
 
@@ -308,6 +311,67 @@ export class BazarSkProvider extends BrowserProvider {
   }
 
   // ---- helpers (instance) ------------------------------------------------
+
+  /**
+   * Dismiss the bazar.sk cookie-consent dialog. It's a CMP modal, so click the
+   * real button by role ("Prijať všetko") or the "Pokračovať s nevyhnutnými
+   * cookies" link — getByText alone sometimes misses it.
+   */
+  private async dismissCookies(
+    page: import("playwright").Page,
+    ctx: ProviderContext,
+  ): Promise<void> {
+    const targets: RegExp[] = [
+      /prija[ťt]\s+v[šs]etko/i,
+      /pokra[čc]ova[ťt].*nevyhnutn/i,
+      /s[úu]hlas[ií]m?/i,
+      /rozumiem/i,
+    ];
+    for (const name of targets) {
+      try {
+        const btn = page.getByRole("button", { name }).first();
+        if (await btn.isVisible({ timeout: 1200 })) {
+          await btn.click({ timeout: 2000 });
+          await page.waitForTimeout(400);
+          await ctx.log(`Cookie lišta zavretá (${name})`);
+          return;
+        }
+      } catch {
+        /* try next */
+      }
+      try {
+        const lnk = page.getByText(name).first();
+        if (await lnk.isVisible({ timeout: 600 })) {
+          await lnk.click({ timeout: 2000 });
+          await page.waitForTimeout(400);
+          await ctx.log(`Cookie lišta zavretá odkazom (${name})`);
+          return;
+        }
+      } catch {
+        /* try next */
+      }
+    }
+  }
+
+  /** Open the "Pridať inzerát" wizard by clicking the site's own link. */
+  private async openAddFlow(
+    page: import("playwright").Page,
+    ctx: ProviderContext,
+  ): Promise<void> {
+    const re = /prida[ťt]\s+inzer/i;
+    const link = page.getByRole("link", { name: re }).first();
+    try {
+      if (await link.count()) {
+        await link.click({ timeout: 8000 });
+      } else {
+        await page.getByText(re).first().click({ timeout: 8000 });
+      }
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      await page.waitForTimeout(1000);
+    } catch (e) {
+      await ctx.log("Nepodarilo sa kliknúť na 'Pridať inzerát': " + String(e));
+    }
+  }
 
   /** True if an input/textarea associated with a label caption exists. */
   private async hasField(
