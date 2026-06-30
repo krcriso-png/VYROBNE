@@ -169,7 +169,9 @@ export async function recheckListing(
     where: {
       listingId,
       listing: { userId },
-      status: { notIn: ["REMOVED", "REMOVING"] },
+      // Include REMOVED too — those are exactly the ones the user wants to
+      // re-verify. Skip only the in-flight ones.
+      status: { in: ["PUBLISHED", "REMOVED", "ERROR"] },
     },
     include: { portal: true },
   });

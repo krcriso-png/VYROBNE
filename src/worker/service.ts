@@ -445,9 +445,9 @@ export async function runCheckStatus(data: BaseJobData): Promise<void> {
   const pub = await prisma.publication.findUniqueOrThrow({
     where: { id: data.publicationId },
   });
-  // Proceed even with an empty (un-pinned) remote id — the provider can still
-  // confirm the ad by title in "Moje inzeráty" and fill the real id in.
-  if (pub.remoteId == null) return;
+  // No early return on a missing remote id — even a REMOVED ad with no id can
+  // be confirmed by title via "Moje inzeráty" (and healed if it's there).
+  const remoteId = pub.remoteId ?? "";
 
   // Give the provider the listing title + e-mail so it can open the portal's
   // "Moje inzeráty" (e-mail + per-ad password) and confirm the ad by name.
@@ -470,7 +470,7 @@ export async function runCheckStatus(data: BaseJobData): Promise<void> {
     verifyPhone,
   };
   const provider = getProvider(data.portalKey);
-  const status = await provider.checkStatus(pub.remoteId, session, ctx);
+  const status = await provider.checkStatus(remoteId, session, ctx);
 
   const views =
     status.views != null
