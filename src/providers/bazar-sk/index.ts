@@ -563,65 +563,56 @@ export class BazarSkProvider extends BrowserProvider {
     const locName = page.locator('input[name="data[locationName]"]').first();
 
     for (const value of candidates.filter(Boolean)) {
+      // Step 1: CLICK the field to open the dropdown panel (search box + list).
       await loc.click().catch(() => {});
-      await loc.fill("").catch(() => {});
-      // Type char-by-char and explicitly fire the events the autocomplete
-      // listens to, in case pressSequentially alone doesn't trigger it.
-      await loc.pressSequentially(value, { delay: 140 }).catch(() => {});
-      await loc
-        .evaluate((el) => {
-          const i = el as HTMLInputElement;
-          i.dispatchEvent(new Event("input", { bubbles: true }));
-          i.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "1" }));
-          i.dispatchEvent(new Event("change", { bubbles: true }));
-        })
-        .catch(() => {});
-      await page.waitForTimeout(3000); // let the AJAX autocomplete load
+      await page.waitForTimeout(900);
 
-      // EXHAUSTIVE dump: every visible short-text element that appeared below
-      // the field (the dropdown items), and tag the first one so we can click
-      // it. Excludes header/nav/footer.
+      // Step 2: type the PSČ into whatever input the panel focused (the panel's
+      // own search box), so the list filters to "01001 - Žilina …".
+      await page.keyboard.type(value, { delay: 140 }).catch(() => {});
+      await page.waitForTimeout(2500);
+
+      // Tag the first dropdown item that contains the typed value (e.g. the
+      // "01001 - Žilina" row) and dump the visible options for debugging.
       const dump = await page
-        .evaluate(() => {
-          const loc = document.querySelector('[data-klikado-loc="1"]');
-          const lr = loc?.getBoundingClientRect();
+        .evaluate((val: string) => {
           const out: string[] = [];
-          let tagged = 0;
+          let taggedMatch = false;
+          let taggedFirst = false;
           for (const el of Array.from(
             document.querySelectorAll<HTMLElement>("li,a,div,td,span,p"),
           )) {
             if (el.closest("header,nav,footer")) continue;
+            // leaf-ish: avoid big containers
+            if (el.querySelector("li,table,form,textarea")) continue;
             const r = el.getBoundingClientRect();
             if (r.width < 25 || r.height < 9 || r.height > 70) continue;
-            if (lr && (r.top < lr.bottom - 4 || r.top > lr.bottom + 320)) continue;
-            if (lr && Math.abs(r.left - lr.left) > 450) continue;
-            const own = Array.from(el.childNodes)
-              .filter((n) => n.nodeType === 3)
-              .map((n) => n.textContent ?? "")
-              .join("")
-              .trim();
-            if (own.length < 2 || own.length > 45) continue;
-            out.push(`${el.tagName}.${(el.className || "").toString().slice(0, 25)}: ${own}`);
-            if (tagged === 0) {
+            const txt = (el.textContent || "").replace(/\s+/g, " ").trim();
+            if (txt.length < 3 || txt.length > 60) continue;
+            out.push(`${el.tagName}: ${txt}`);
+            // Prefer an item that actually contains the typed value.
+            if (!taggedMatch && txt.includes(val)) {
               el.setAttribute("data-klikado-sugg", "1");
-              tagged = 1;
+              taggedMatch = true;
+            } else if (!taggedFirst && !taggedMatch) {
+              el.setAttribute("data-klikado-sugg2", "1");
+              taggedFirst = true;
             }
           }
-          return out.slice(0, 14);
-        })
+          return out.slice(0, 16);
+        }, value)
         .catch(() => [] as string[]);
       await ctx.log("Lokalita – rozbaľovačka", { value, dump });
 
-      // Click the tagged first suggestion (fills the hidden geo fields).
+      // Step 3: click the matching item (fills the hidden geo fields).
       let clicked = false;
-      const sugg = page.locator('[data-klikado-sugg="1"]').first();
-      if (await sugg.count().catch(() => 0)) {
-        await sugg.click({ timeout: 3000 }).catch(() => {});
-        clicked = true;
-      } else {
-        await loc.press("ArrowDown").catch(() => {});
-        await page.waitForTimeout(400);
-        await loc.press("Enter").catch(() => {});
+      for (const sel of ['[data-klikado-sugg="1"]', '[data-klikado-sugg2="1"]']) {
+        const s = page.locator(sel).first();
+        if (await s.count().catch(() => 0)) {
+          await s.click({ timeout: 3000 }).catch(() => {});
+          clicked = true;
+          break;
+        }
       }
       await page.waitForTimeout(800);
 
