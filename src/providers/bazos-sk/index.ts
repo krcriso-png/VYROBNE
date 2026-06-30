@@ -595,25 +595,44 @@ export class BazosSkProvider extends BrowserProvider {
         }
       }
 
-      const links = await page.$$eval('a[href*="/inzerat/"]', (as) =>
-        as.map((a) => ({
-          text: (a.textContent ?? "").trim(),
-          href: (a as HTMLAnchorElement).href,
-        })),
+      // Capture ALL anchors so we can see exactly what the page returned, then
+      // pick the ad links among them and match by title.
+      const anchors = await page.$$eval("a", (as) =>
+        as
+          .map((a) => ({
+            text: (a.textContent ?? "").trim(),
+            href: (a as HTMLAnchorElement).href,
+          }))
+          .filter((l) => l.text.length > 0),
       );
+      const links = anchors.filter((l) => /\/inzerat\//i.test(l.href));
+      await ctx.log("Moje inzeráty – nájdené odkazy", {
+        anchors: anchors.length,
+        adLinks: links.length,
+        sample: links
+          .slice(0, 6)
+          .map((l) => `${l.text.slice(0, 45)} => ${l.href}`),
+      });
       if (!links.length) return null;
 
       const w = norm(title);
       let best: { text: string; href: string } | null = null;
       let bestScore = 0;
       for (const l of links) {
-        if (!/\/inzerat\/\d+/.test(l.href)) continue;
-        const score = wordOverlap(norm(l.text), w);
+        const a = norm(l.text);
+        // Word overlap, plus a strong bonus if either title contains the other.
+        let score = wordOverlap(a, w);
+        if (a && (a.includes(w) || w.includes(a))) score += 3;
         if (score > bestScore) {
           bestScore = score;
           best = l;
         }
       }
+      await ctx.log("Moje inzeráty – najlepšia zhoda", {
+        bestScore,
+        text: best?.text?.slice(0, 50),
+        href: best?.href,
+      });
       if (best && bestScore > 0) {
         const m = best.href.match(/\/inzerat\/(\d+)/);
         if (m) {
