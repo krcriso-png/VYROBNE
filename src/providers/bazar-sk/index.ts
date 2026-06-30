@@ -130,15 +130,21 @@ export class BazarSkProvider extends BrowserProvider {
 
       // Location: bazar.sk's "Lokalita" is an AUTOCOMPLETE — typing a value
       // isn't enough, a suggestion must be chosen or it counts as empty. Try the
-      // town first, then the PSČ.
+      // PSČ first (most deterministic), then the town.
       const zip = normalizeZip(listing.zip);
       await this.fillLocation(
         page,
         ctx,
-        [listing.location ?? "", zip.length === 5 ? zip : (listing.zip ?? "")].filter(
+        [zip.length === 5 ? zip : (listing.zip ?? ""), listing.location ?? ""].filter(
           Boolean,
         ),
       );
+
+      // Re-affirm the price after the location step (defensive: a previous bug
+      // could append the PSČ into "Cena").
+      if (listing.price != null) {
+        await this.fillLabeled(page, "Cena", String(listing.price));
+      }
 
       // Any remaining required <select> in the category Špecifikácia block —
       // pick its first real option so a category with extra fields still submits.
@@ -478,18 +484,17 @@ export class BazarSkProvider extends BrowserProvider {
     ctx: ProviderContext,
     candidates: string[],
   ): Promise<void> {
-    // The field is most reliably found by its placeholder ("Zadajte lokalitu
-    // alebo PSČ"); fall back to the label caption.
-    let loc = page
-      .locator(
-        'input[placeholder*="lokalit" i], input[placeholder*="PSČ" i], input[placeholder*="PSC" i]',
-      )
-      .first();
+    // Find the field STRICTLY by its placeholder ("Zadajte lokalitu alebo PSČ").
+    // No label/xpath fallback — an imprecise match previously hit the price
+    // field and typed the PSČ into "Cena". Verify the placeholder before typing.
+    const loc = page.locator('input[placeholder*="lokalit" i]').first();
     if ((await loc.count().catch(() => 0)) === 0) {
-      loc = page.locator(labelXpath("Lokalita", "input")).first();
+      await ctx.log("Lokalita: pole sa nenašlo (podľa placeholderu).");
+      return;
     }
-    if ((await loc.count().catch(() => 0)) === 0) {
-      await ctx.log("Lokalita: pole sa nenašlo.");
+    const ph = (await loc.getAttribute("placeholder").catch(() => "")) || "";
+    if (!/lokalit/i.test(ph)) {
+      await ctx.log("Lokalita: nečakané pole — preskakujem.", { ph });
       return;
     }
 
