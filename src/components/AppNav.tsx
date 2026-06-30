@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   ListChecks,
@@ -40,7 +41,15 @@ export function AppNav({
   supportUnread?: number;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const items = navItemsFor(isAdmin);
+
+  // Keep the support alert live without a manual reload: periodically re-fetch
+  // the server layout so a new ticket lights up the menu on its own.
+  useEffect(() => {
+    const t = setInterval(() => router.refresh(), 30_000);
+    return () => clearInterval(t);
+  }, [router]);
 
   return (
     <nav className="flex flex-1 flex-col gap-1">
@@ -56,13 +65,15 @@ export function AppNav({
               "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
               active
                 ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                : badge
+                  ? "text-destructive hover:bg-destructive/10"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
           >
             <item.icon className="size-4" />
             <span className="flex-1">{item.label}</span>
             {badge && (
-              <span className="grid min-w-5 place-items-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground">
+              <span className="grid min-w-5 animate-pulse place-items-center rounded-full bg-destructive px-1.5 text-xs font-semibold text-destructive-foreground shadow-sm ring-2 ring-destructive/30">
                 {supportUnread}
               </span>
             )}

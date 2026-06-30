@@ -46,9 +46,12 @@ export function MobileNav({
             type="button"
             onClick={() => setOpen(true)}
             aria-label="Otvoriť menu"
-            className="grid size-9 place-items-center rounded-lg border"
+            className="relative grid size-9 place-items-center rounded-lg border"
           >
             <Menu className="size-5" />
+            {supportUnread > 0 && (
+              <span className="absolute -right-1 -top-1 size-3 animate-pulse rounded-full bg-destructive ring-2 ring-card" />
+            )}
           </button>
         </div>
       </header>
@@ -87,13 +90,15 @@ export function MobileNav({
                       "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                       active
                         ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                        : badge
+                          ? "text-destructive hover:bg-destructive/10"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground",
                     )}
                   >
                     <item.icon className="size-4" />
                     <span className="flex-1">{item.label}</span>
                     {badge && (
-                      <span className="grid min-w-5 place-items-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground">
+                      <span className="grid min-w-5 animate-pulse place-items-center rounded-full bg-destructive px-1.5 text-xs font-semibold text-destructive-foreground shadow-sm ring-2 ring-destructive/30">
                         {supportUnread}
                       </span>
                     )}
