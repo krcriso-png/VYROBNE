@@ -939,16 +939,36 @@ export class BazosSkProvider extends BrowserProvider {
       if (ctx.listingTitle) {
         const own = await this.resolveOwnAdUrl(page, ctx, ctx.listingTitle);
         if (own) {
+          // The list row's "N x" column is unreliable across layouts. Open the
+          // ad's detail page (which always prints the view count in a fixed
+          // format) to get an accurate number; fall back to the list value.
+          let views = own.views;
+          try {
+            const resp = await page.goto(own.url, {
+              waitUntil: "domcontentloaded",
+            });
+            if ((resp?.status() ?? 0) < 400) {
+              const body = await page
+                .locator("body")
+                .innerText()
+                .catch(() => "");
+              const detailViews = parseViews(body);
+              if (detailViews != null) views = detailViews;
+            }
+          } catch {
+            /* keep list value */
+          }
           await ctx.log("Inzerát potvrdený cez Moje inzeráty", {
             remoteId: own.id,
-            views: own.views,
+            listViews: own.views,
+            views,
           });
           return {
             live: true,
             verified: true,
             remoteId: own.id,
             remoteUrl: own.url,
-            views: own.views,
+            views,
           };
         }
         // The form stays on the page after listing, so detect the RESULTS
@@ -1233,8 +1253,10 @@ function normalizeZip(zip: string | null | undefined): string {
  * "Počet zobrazení: 1 234" / "Videné: 1234". Returns undefined when not found.
  */
 function parseViews(body: string): number | undefined {
+  // SK: "Videné: 12x" / "Počet zobrazení: 1 234"
+  // CZ: "Vidělo: 12 lidí" / "Shlédnuto" / "Zobrazeno"
   const m = body.match(
-    /(?:po[čc]et\s+zobrazen[ií]|viden[ée]|zhliadnut[ií])[:\s]*([\d\s.]+)/i,
+    /(?:po[čc]et\s+zobrazen[ií]|zobrazeno|vid[ěeé][lnt]\w*|shl[ée]dnut\w*|zhliadnut[ií])[:\s]*([\d][\d\s.]*)/i,
   );
   if (!m) return undefined;
   const n = parseInt(m[1].replace(/[^\d]/g, ""), 10);
