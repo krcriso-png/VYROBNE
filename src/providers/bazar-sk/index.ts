@@ -73,17 +73,30 @@ export class BazarSkProvider extends BrowserProvider {
       await this.logStructure(page, ctx);
 
       // --- Step 1: Kategória --------------------------------------------
-      // The category tiles are JS-driven (clicking sets a hidden data[idCategory]
-      // and loads the form). Click the wanted category tile DIRECTLY by its
-      // visible text — NOT the suggest box, which picked a wrong category
-      // ("Zvieratá / Mačky" instead of "Ostatné") and dragged in cat-only
-      // required fields. "Ostatné" has no per-category specification fields.
-      const wantedCat = bazarCategory(listing.category);
-      await ctx.log(`Vyberám kategóriu na Bazar.sk: "${wantedCat}"`);
+      // Map the listing to a real Bazar.sk category + sub-category (so the ad
+      // lands where it belongs and isn't removed for mis-categorisation), with
+      // "Ostatné" only as a safe fallback. The tiles are JS elements (they set a
+      // hidden data[idCategory]); at each wizard step click the sub-category if
+      // it's shown, otherwise the main category, by exact tile text.
+      const cat = bazarCategoryPath(listing.category, listing.title);
+      const targets = [cat.sub, cat.main].filter(Boolean) as string[];
+      await ctx.log(
+        `Kategória na Bazar.sk: ${cat.main}${cat.sub ? " / " + cat.sub : ""}`,
+      );
 
       for (let step = 0; step < 5; step++) {
         if (await this.hasField(page, "Nadpis")) break;
-        const clicked = await this.clickCategoryTile(page, ctx, wantedCat);
+        let clicked = false;
+        for (const t of targets) {
+          if (await this.clickTileByText(page, t)) {
+            await ctx.log(`Kategória → ${t}`);
+            clicked = true;
+            break;
+          }
+        }
+        // Fall back to a fuzzy match on the MAIN category only (never fuzzy the
+        // sub-category — that could land on a wrong main tile).
+        if (!clicked) clicked = await this.clickCategoryTile(page, ctx, cat.main);
         await page.waitForLoadState("domcontentloaded").catch(() => {});
         await page.waitForTimeout(1100);
         await this.debugShot(page, ctx, `add-cat-${step}`);
@@ -812,45 +825,43 @@ function wordOverlap(a: string, b: string): number {
   return n;
 }
 
-// Bazar.sk top-level categories. A free-text listing category is matched to the
-// closest one; anything unclear lands in "Ostatné" (which has no required
-// per-category specification fields, so it always submits cleanly).
-const BAZAR_CATEGORIES = [
-  "Autá",
-  "Detské potreby",
-  "Elektro",
-  "Hudba",
-  "Knihy",
-  "Mobily",
-  "Motorky",
-  "Nábytok a bývanie",
-  "Oblečenie a obuv",
-  "Počítače",
-  "Práca",
-  "Reality",
-  "Služby",
-  "Stavba a záhrada",
-  "Stroje a náradie",
-  "Športové potreby",
-  "Zdravie a krása",
-  "Zvieratá",
-  "Starožitnosti a zberateľstvo",
-  "Ostatné",
+// Map a listing (its category text + title) to the right Bazar.sk category and
+// sub-category. Ordered keyword rules — the first match wins; anything that
+// doesn't match a real category falls back to "Ostatné" (a legitimate catch-all
+// with no required specification fields). This keeps ads correctly categorised
+// so the portal doesn't remove them for being in the wrong place.
+const CATEGORY_RULES: { re: RegExp; main: string; sub?: string }[] = [
+  { re: /hra[čc]k|pl[yi][šs]ov|stavebnic|\blego\b|puzzle|spolo[čc]ensk[ée]\s*hr|toy/i, main: "Detské potreby", sub: "Hračky" },
+  { re: /ko[čc][ií]k|autosedač|dupač|kojeneck|bábät|babat|pl[ie]nk|detsk[ée]|pre\s*deti|detský\s*bazár/i, main: "Detské potreby" },
+  { re: /tri[čc]k|nohavic|mikin|bund|\bšaty\b|sukn|kabát|obuv|topán|tenisk|oble[čc]eni|móda|moda/i, main: "Oblečenie a obuv" },
+  { re: /mobil|telef[óo]n|iphone|samsung|smartf[óo]n|huawei|xiaomi/i, main: "Mobily" },
+  { re: /notebook|po[čc][ií]ta[čc]|laptop|monitor|kláves|my[šs]\b|gpu|gra[fF]ick[áa]\s*kart|ssd|procesor/i, main: "Počítače" },
+  { re: /n[áa]bytok|stoli[čc]k|sedač|posteľ|skriň|komod|\bst[ôo]l\b|matrac|reg[áa]l/i, main: "Nábytok a bývanie" },
+  { re: /náradi|vŕta|vrta[čc]|\bp[íi]l|brús|zvára|kompresor|stroj/i, main: "Stroje a náradie" },
+  { re: /knih|u[čc]ebnic|rom[áa]n|encyklop/i, main: "Knihy" },
+  { re: /bicyk|\bloptа\b|lopt|šport|fitnes|posilň|kor[čc]ul|\blyž|brusl/i, main: "Športové potreby" },
+  { re: /zviera|\bpes\b|psík|ma[čc]k|akvár|terár|škrečk|králi|hlodáč|fretk/i, main: "Zvieratá" },
+  { re: /\bbyt\b|\bdom\b|pozemok|reality|chat[au]?|chalup|gar[áa][žz]|prenáj|nehnuteľn/i, main: "Reality" },
+  { re: /\bauto\b|automobil|\bškoda\b|volkswagen|\bbmw\b|\baudi\b|osobné\s*aut|náhradné\s*diel/i, main: "Autá" },
+  { re: /motork|skúter|skuter|moped|štvorkolk|\bmoto\b/i, main: "Motorky" },
+  { re: /chladnič|prá[čc]k|televíz|\btv\b|elektro|\brúr|mikrovln|\bfén|žehlič|vysávač/i, main: "Elektro" },
+  { re: /gitar|klav[ií]r|\bhusl|\bbubn|hudobn|reproduktor|zosilň|klávesy/i, main: "Hudba" },
+  { re: /záhrad|zahrad|stavb|tehl|dlažb|náter|\bplot\b/i, main: "Stavba a záhrada" },
+  { re: /zberateľ|starožitn|\bminc|známk|pohľadnic|\bmedail/i, main: "Starožitnosti a zberateľstvo" },
+  { re: /kozmetik|krás|parfum|zdravi|vitamín|drogéri/i, main: "Zdravie a krása" },
+  { re: /služb|oprav|montáž|doprav|sťahovan/i, main: "Služby" },
+  { re: /\bpráca\b|brigád|zamestnan|ponuka\s*prác/i, main: "Práca" },
 ];
 
-function bazarCategory(category: string | null | undefined): string {
-  const w = norm(category ?? "");
-  if (!w) return "Ostatné";
-  let best = "Ostatné";
-  let bestScore = 0;
-  for (const c of BAZAR_CATEGORIES) {
-    const score = wordOverlap(norm(c), w);
-    if (score > bestScore) {
-      bestScore = score;
-      best = c;
-    }
+function bazarCategoryPath(
+  category: string | null | undefined,
+  title: string | null | undefined,
+): { main: string; sub?: string } {
+  const hay = `${category ?? ""} ${title ?? ""}`.toLowerCase();
+  for (const r of CATEGORY_RULES) {
+    if (r.re.test(hay)) return { main: r.main, sub: r.sub };
   }
-  return best;
+  return { main: "Ostatné" };
 }
 
 /** Bazar.sk requires ≥ N chars of body text; pad with the title if too short. */
