@@ -73,16 +73,21 @@ export class BazarSkProvider extends BrowserProvider {
       await this.logStructure(page, ctx);
 
       // --- Step 1: Kategória --------------------------------------------
-      // Reach the actual ad form (the "Nadpis" field) by clicking the best
-      // matching category / sub-category. Bazar.sk expands sub-categories after
-      // the main one, so loop a few times until the form appears.
+      // The category tiles are JS-driven (they set a hidden data[idCategory],
+      // they are NOT links). Easiest reliable path: use the "Napíšte, čo chcete
+      // inzerovať" suggest box (input-category) — type the product, pick the
+      // first suggested category, which jumps straight to the ad form. Fall back
+      // to clicking a category tile by its visible text.
       const wantedCat = bazarCategory(listing.category);
       await ctx.log(`Hľadám kategóriu na Bazar.sk: "${wantedCat}"`);
-      for (let step = 0; step < 4; step++) {
+
+      await this.chooseCategoryViaSuggest(page, ctx, wantedCat, listing.title);
+
+      for (let step = 0; step < 5; step++) {
         if (await this.hasField(page, "Nadpis")) break;
-        const clicked = await this.clickCategory(page, ctx, wantedCat);
+        const clicked = await this.clickCategoryTile(page, ctx, wantedCat);
         await page.waitForLoadState("domcontentloaded").catch(() => {});
-        await page.waitForTimeout(900);
+        await page.waitForTimeout(1000);
         await this.debugShot(page, ctx, `add-cat-${step}`);
         if (!clicked) break;
       }
@@ -474,91 +479,121 @@ export class BazarSkProvider extends BrowserProvider {
   }
 
   /**
-   * Click the best-matching category on the add wizard. The page also carries
-   * the site-wide browse megamenu (links to category SUBDOMAINS like
-   * auto.bazar.sk) — those are NOT the wizard, so only consider links that stay
-   * on the add flow (www.bazar.sk …pridanie/pridat…), preferring an exact name.
+   * Pick the category via the "Napíšte, čo chcete inzerovať" suggest box
+   * (input#input-category). Typing a query shows an autocomplete dropdown of
+   * categories; choosing one jumps straight to the ad form. Best-effort.
    */
-  private async clickCategory(
+  private async chooseCategoryViaSuggest(
+    page: import("playwright").Page,
+    ctx: ProviderContext,
+    wanted: string,
+    title: string,
+  ): Promise<void> {
+    const box = page
+      .locator('#input-category, input[name="input-category"], input[name="data[category]"]')
+      .first();
+    if ((await box.count().catch(() => 0)) === 0) return;
+    // Type the category name first (most likely to surface a clean match);
+    // fall back to the product title if needed.
+    for (const query of [wanted, title]) {
+      try {
+        await box.click().catch(() => {});
+        await box.fill("").catch(() => {});
+        await box.type(query, { delay: 40 }).catch(() => {});
+        await page.waitForTimeout(1500);
+        await this.debugShot(page, ctx, "suggest");
+        // Click the first dropdown suggestion, else keyboard-select it.
+        const item = page
+          .locator(
+            '.ui-menu-item, .ui-autocomplete li, .autocomplete-suggestion, [class*="suggestion"] li, [class*="suggestion-item"], ul[role="listbox"] li, li[role="option"]',
+          )
+          .first();
+        if (await item.count().catch(() => 0)) {
+          await ctx.log("Kategória (našepkávač) → prvý návrh");
+          await item.click({ timeout: 4000 }).catch(() => {});
+        } else {
+          await box.press("ArrowDown").catch(() => {});
+          await box.press("Enter").catch(() => {});
+        }
+        await page.waitForLoadState("domcontentloaded").catch(() => {});
+        await page.waitForTimeout(1200);
+        if (await this.hasField(page, "Nadpis")) return;
+      } catch {
+        /* try the next query */
+      }
+    }
+  }
+
+  /**
+   * Click a category tile by its visible text (the tiles are JS elements, not
+   * links). Prefers an exact name match; on a sub-category step where names
+   * differ, clicks the closest match, else the first category-like tile.
+   */
+  private async clickCategoryTile(
     page: import("playwright").Page,
     ctx: ProviderContext,
     wanted: string,
   ): Promise<boolean> {
-    const w = norm(wanted);
-    const links = await page
-      .locator("a")
-      .evaluateAll((as) =>
-        as
-          .map((a) => ({
-            text: (a.textContent ?? "").trim(),
-            href: (a as HTMLAnchorElement).href,
-          }))
-          .filter((l) => l.text.length > 1 && l.text.length < 40),
-      )
-      .catch(() => [] as { text: string; href: string }[]);
-
-    // A wizard tile links into the add flow (".../pridanie…" or ".../pridat…")
-    // on ANY bazar.sk (sub)domain — that's what separates the real category
-    // tiles from the site-wide browse megamenu (whose links have no "pridani").
-    const isWizard = (href: string) => {
-      try {
-        const u = new URL(href);
-        return (
-          /(^|\.)bazar\.sk$/i.test(u.hostname) &&
-          /pridani|pridat/i.test(u.pathname + u.search)
-        );
-      } catch {
-        return false;
-      }
-    };
-    const score = (text: string) => {
-      const t = norm(text);
-      if (t === w) return 1000; // exact match wins
-      // overlap, lightly penalising longer ("Ostatné oblečenie" vs "Ostatné")
-      return wordOverlap(t, w) * 10 - Math.abs(t.length - w.length) * 0.1;
-    };
-
-    // 1) Prefer real wizard tiles.
-    const wiz = links.filter((l) => isWizard(l.href) && l.text);
-    await ctx.log(`Kategórie sprievodcu: ${wiz.length} kandidátov`);
-    if (wiz.length) {
-      let best = wiz[0];
-      let bs = -Infinity;
-      for (const l of wiz) {
-        const s = score(l.text);
-        if (s > bs) {
-          bs = s;
-          best = l;
-        }
-      }
-      await ctx.log(`Kategória (wizard) → ${best.text} (${best.href})`);
-      // Click the tile by its exact name so we hit the right one even when
-      // several tiles share the same href.
-      const byName = page
-        .getByRole("link", { name: best.text, exact: true })
-        .first();
-      if (await byName.count().catch(() => 0)) {
-        await byName.click({ timeout: 6000 }).catch(() => {});
-      } else {
-        await page
-          .locator(`a[href="${best.href}"]`)
-          .first()
-          .click({ timeout: 6000 })
-          .catch(() => {});
-      }
-      return true;
-    }
-
-    // 2) Fallback: click a tile whose visible text is EXACTLY the category.
+    // 1) Exact visible-text tile.
     const exact = page
       .getByText(new RegExp(`^\\s*${escapeRe(wanted)}\\s*$`, "i"))
+      .filter({ visible: true })
       .first();
     if (await exact.count().catch(() => 0)) {
-      await ctx.log(`Kategória (text) → ${wanted}`);
+      await ctx.log(`Kategória (dlaždica) → ${wanted}`);
       await exact.click({ timeout: 6000 }).catch(() => {});
       return true;
     }
-    return false;
+
+    // 2) Gather visible short "category-like" texts (excluding nav/footer) and
+    // click the best match, else the first.
+    const w = norm(wanted);
+    const texts: string[] = await page
+      .evaluate(() => {
+        const bad =
+          /prihl|registr|moje inzer|vyh[ľl]ad|sledovan|kontakt|reklama|blog|gdpr|cookies|podmienky|mobiln|ako inzerovat|zvýhodni|napíšte|united|bazar\.sk|prida[ťt] inzer|zalo[žz]te|navrhneme/i;
+        const seen = new Set<string>();
+        const out: string[] = [];
+        for (const e of Array.from(
+          document.querySelectorAll("a,li,div,span,button,p"),
+        )) {
+          const el = e as HTMLElement;
+          const t = (el.textContent ?? "").trim();
+          if (t.length < 2 || t.length > 35) continue;
+          if (bad.test(t)) continue;
+          // leaf-ish + visible
+          if (el.children.length > 2) continue;
+          const r = el.getBoundingClientRect();
+          if (r.width < 20 || r.height < 8) continue;
+          if (seen.has(t)) continue;
+          seen.add(t);
+          out.push(t);
+        }
+        return out;
+      })
+      .catch(() => [] as string[]);
+
+    if (!texts.length) {
+      await ctx.log("Kategórie: žiadne dlaždice na kliknutie.");
+      return false;
+    }
+    let best = texts[0];
+    let bs = -1;
+    for (const t of texts) {
+      const s = wordOverlap(norm(t), w);
+      if (s > bs) {
+        bs = s;
+        best = t;
+      }
+    }
+    await ctx.log(`Kategória (text) → ${best}`);
+    await page
+      .getByText(best, { exact: true })
+      .filter({ visible: true })
+      .first()
+      .click({ timeout: 6000 })
+      .catch(() => {});
+    return true;
   }
 
   /** Tick the "Súhlasím s podmienkami inzercie" checkbox. */
