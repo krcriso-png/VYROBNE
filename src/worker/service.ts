@@ -453,10 +453,11 @@ export async function runCheckStatus(data: BaseJobData): Promise<void> {
   // "Moje inzeráty" (e-mail + per-ad password) and confirm the ad by name.
   const listing = await prisma.listing.findUnique({
     where: { id: data.listingId },
-    select: { title: true, contactEmail: true },
+    select: { title: true, contactEmail: true, phone: true },
   });
   ctx.listingTitle = listing?.title;
   ctx.listingEmail = listing?.contactEmail ?? undefined;
+  ctx.listingPhone = listing?.phone ?? undefined;
 
   const { session, credentials, verifyPhone } = await ensureSession(
     data.publicationId,

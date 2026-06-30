@@ -97,9 +97,10 @@ export interface ProviderContext {
   /** The listing's title — lets status checks find the ad by name in the
    * portal's "my ads" list. */
   listingTitle?: string;
-  /** The listing's contact e-mail — Bazoš "Moje inzeráty" is opened with the
-   * ad's e-mail + per-ad password (no account needed). */
+  /** The listing's contact e-mail + phone — Bazoš "Moje inzeráty" is opened
+   * with the ad's e-mail + phone number (no account needed). */
   listingEmail?: string;
+  listingPhone?: string;
   /** Decrypted portal credentials (e.g. the per-ad password) for form fields. */
   secrets?: {
     login: string | null;

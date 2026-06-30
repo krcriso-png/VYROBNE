@@ -494,8 +494,9 @@ export class BazosSkProvider extends BrowserProvider {
       let remoteId = urlIdMatch ? urlIdMatch[1] : "";
       let remoteUrl = urlIdMatch ? url : "";
       if (!remoteId) {
-        // Make the ad e-mail available for the "Moje inzeráty" lookup.
+        // Make the ad e-mail + phone available for the "Moje inzeráty" lookup.
         if (!ctx.listingEmail) ctx.listingEmail = listing.email ?? undefined;
+        if (!ctx.listingPhone) ctx.listingPhone = listing.phone ?? undefined;
         const own = await this.resolveOwnAdUrl(page, ctx, listing.title);
         if (own) {
           remoteId = own.id;
@@ -533,39 +534,47 @@ export class BazosSkProvider extends BrowserProvider {
       await this.debugShot(page, ctx, "moje-inzeraty");
       await this.logStructure(page, ctx);
 
-      // Bazoš opens "Moje inzeráty" with the ad's e-mail + per-ad password (no
-      // account login). If the list shows that form, fill it and submit.
+      // Bazoš opens "Moje inzeráty" with the ad's e-mail + phone number (no
+      // account login). Fill that form and submit to reveal the user's ads.
       const email = ctx.listingEmail;
-      const adPassword = ctx.secrets?.password || "Klikado1234";
-      const pwdField = page
-        .locator('input[name="heslobazar"], input[name="heslo"], input[type="password"]')
-        .first();
-      if (email && (await pwdField.count()) > 0) {
-        await ctx.log("Otváram Moje inzeráty (e-mail + heslo inzerátu)");
-        await fillFirst(
+      const phone = formatPhone(ctx.listingPhone, this.phonePrefix);
+      if (email && phone) {
+        const phoneFilled = await fillFirst(
+          page,
+          [
+            'input[name="telefon"]',
+            'input[name="telefoni"]',
+            'input[name="telefoncislo"]',
+            'input[name="tel"]',
+            'input[name="cislo"]',
+          ],
+          phone,
+        );
+        const emailFilled = await fillFirst(
           page,
           [
             'input[name="maili"]',
             'input[name="email"]',
             'input[name="meil"]',
-            'input[name="login"]',
             'input[type="email"]',
           ],
           email,
         );
-        await pwdField.fill(adPassword).catch(() => {});
-        await this.debugShot(page, ctx, "moje-login-filled");
-        await page
-          .locator(
-            'form:has(input[name="heslobazar"]) input[type="submit"], form:has(input[name="heslo"]) input[type="submit"], input[type="submit"]',
-          )
-          .first()
-          .click({ timeout: 8000 })
-          .catch(() => {});
-        await page.waitForLoadState("domcontentloaded").catch(() => {});
-        await page.waitForTimeout(1500);
-        await this.debugShot(page, ctx, "moje-after-login");
-        await this.logStructure(page, ctx);
+        if (phoneFilled || emailFilled) {
+          await ctx.log("Otváram Moje inzeráty (e-mail + telefón inzerátu)");
+          await this.debugShot(page, ctx, "moje-login-filled");
+          await page
+            .locator(
+              'form:has(input[name="telefon"]) input[type="submit"], form:has(input[name="telefoni"]) input[type="submit"], input[type="submit"][value*="Zobraz"], input[type="submit"]',
+            )
+            .first()
+            .click({ timeout: 8000 })
+            .catch(() => {});
+          await page.waitForLoadState("domcontentloaded").catch(() => {});
+          await page.waitForTimeout(1500);
+          await this.debugShot(page, ctx, "moje-after-login");
+          await this.logStructure(page, ctx);
+        }
       }
 
       const links = await page.$$eval('a[href*="/inzerat/"]', (as) =>
@@ -936,23 +945,24 @@ export class BazosSkProvider extends BrowserProvider {
             views,
           };
         }
-        // We submitted the e-mail + ad password. If the list now opened (no
-        // password field left), we genuinely see the user's ads and ours isn't
-        // among them → removed. If a password field is still there, the e-mail
-        // + password didn't open the list → we can't be sure.
-        const stillHasPasswordForm =
+        // We submitted the e-mail + phone. If the entry form is gone, the list
+        // opened and our ad genuinely isn't among them → removed. If the form is
+        // still there, e-mail/phone didn't open the list → we can't be sure.
+        const stillHasEntryForm =
           (await page
-            .locator('input[name="heslobazar"], input[name="heslo"], input[type="password"]')
+            .locator(
+              'input[name="telefon"], input[name="telefoni"], input[name="telefoncislo"]',
+            )
             .count()
             .catch(() => 0)) > 0;
-        if (!stillHasPasswordForm) {
+        if (!stillHasEntryForm) {
           await ctx.log(
             "Inzerát sa v Moje inzeráty nenašiel — považujem za odstránený",
           );
           return { live: false, verified: true };
         }
         await ctx.log(
-          "Moje inzeráty sa nepodarilo otvoriť (e-mail/heslo) — stav nechávam bez zmeny.",
+          "Moje inzeráty sa nepodarilo otvoriť (e-mail/telefón) — stav nechávam bez zmeny.",
         );
       }
 
@@ -967,18 +977,20 @@ export class BazosSkProvider extends BrowserProvider {
 
 // --- helpers ---------------------------------------------------------------
 
-/** Fill the first of several candidate selectors that exists on the page. */
+/** Fill the first of several candidate selectors that exists on the page.
+ * Returns true if a field was found and filled. */
 async function fillFirst(
   page: import("playwright").Page,
   selectors: string[],
   value: string,
-): Promise<void> {
+): Promise<boolean> {
   for (const sel of selectors) {
     if ((await page.locator(sel).count()) > 0) {
       await page.fill(sel, value).catch(() => {});
-      return;
+      return true;
     }
   }
+  return false;
 }
 
 /** Normalise text for matching: lowercase, strip diacritics. */
