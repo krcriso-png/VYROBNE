@@ -416,21 +416,27 @@ function PortalError({
         <div className="mt-2">
           {state === "done" ? (
             <span className="text-xs text-success">
-              ✓ Nahlásené adminovi. Ďakujeme!
+              ✓ Napísané podpore. Ozveme sa ti — sleduj sekciu Podpora.
             </span>
           ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={report}
-              disabled={state === "sending"}
-            >
-              {state === "sending" ? "Odosielam…" : "Nahlásiť adminovi"}
-            </Button>
+            <>
+              <p className="mb-1.5 text-xs text-muted-foreground">
+                Túto chybu sme automaticky zaznamenali a pozrieme sa na ňu. Ak
+                chceš, napíš nám k tomu.
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={report}
+                disabled={state === "sending"}
+              >
+                {state === "sending" ? "Odosielam…" : "Napísať podpore"}
+              </Button>
+            </>
           )}
           {state === "fail" && (
             <span className="ml-2 text-xs text-destructive">
-              Nahlásenie zlyhalo.
+              Odoslanie zlyhalo.
             </span>
           )}
         </div>

@@ -6,7 +6,9 @@ import { auth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
+import { classifyError } from "@/lib/errors";
 import { AdminPlanSelect } from "@/components/AdminPlanSelect";
+import { AdminIncidents, type IncidentDTO } from "@/components/AdminIncidents";
 
 // Admin panel: users, subscriptions, queue health, recent errors, portals.
 // User-reported problems are NOT here — they live as tickets in "Podpora"
@@ -20,7 +22,7 @@ export default async function AdminPage() {
     errorCount,
     pendingCount,
     portals,
-    recentErrors,
+    errorPubs,
     openTicketCount,
     openTickets,
   ] = await Promise.all([
@@ -34,10 +36,18 @@ export default async function AdminPage() {
       where: { status: { in: ["PENDING", "PUBLISHING", "UPDATING"] } },
     }),
     prisma.portal.findMany({ orderBy: { name: "asc" } }),
-    prisma.activityLog.findMany({
-      where: { level: "ERROR" },
-      orderBy: { createdAt: "desc" },
-      take: 10,
+    // Failed publications — automatically surfaced to the admin (no user report
+    // needed), with the customer + listing + portal so they're actionable.
+    prisma.publication.findMany({
+      where: { status: "ERROR" },
+      orderBy: { updatedAt: "desc" },
+      take: 30,
+      include: {
+        portal: { select: { name: true, key: true } },
+        listing: {
+          select: { id: true, title: true, user: { select: { email: true } } },
+        },
+      },
     }),
     // Support tickets still open (unresolved).
     prisma.supportThread.count({ where: { status: "OPEN" } }),
@@ -51,6 +61,42 @@ export default async function AdminPage() {
       },
     }),
   ]);
+
+  // Attach the latest failure screenshot (logged with meta.debugScreenshot) to
+  // each incident.
+  const listingIds = [...new Set(errorPubs.map((p) => p.listing.id))];
+  const shotLogs = listingIds.length
+    ? await prisma.activityLog.findMany({
+        where: { listingId: { in: listingIds } },
+        orderBy: { createdAt: "desc" },
+        take: 300,
+      })
+    : [];
+  const screenshotFor = (listingId: string, portalKey: string) => {
+    const log = shotLogs.find((l) => {
+      const m = l.meta as Record<string, unknown> | null;
+      return (
+        l.listingId === listingId &&
+        l.portalKey === portalKey &&
+        m &&
+        typeof m === "object" &&
+        m.debugScreenshot
+      );
+    });
+    return log
+      ? String((log.meta as Record<string, unknown>).debugScreenshot)
+      : undefined;
+  };
+
+  const incidents: IncidentDTO[] = errorPubs.map((p) => ({
+    id: p.id,
+    listingTitle: p.listing.title,
+    userEmail: p.listing.user.email,
+    portalName: p.portal.name,
+    error: classifyError(p.lastError).message,
+    screenshot: screenshotFor(p.listing.id, p.portal.key),
+    createdAt: p.updatedAt.toISOString(),
+  }));
 
   const stats = [
     { label: "Nevyriešené tickety", value: openTicketCount, icon: LifeBuoy, tone: openTicketCount > 0 ? "bg-warning/15 text-warning" : "bg-success/15 text-success" },
@@ -173,24 +219,13 @@ export default async function AdminPage() {
       </section>
 
       <section>
-        <h2 className="mb-3 font-semibold">Posledné chyby</h2>
-        {recentErrors.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Žiadne chyby.</p>
-        ) : (
-          <Card className="divide-y">
-            {recentErrors.map((e) => (
-              <div key={e.id} className="flex items-start gap-3 p-3 text-sm">
-                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
-                <div>
-                  <p>{e.message}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {e.portalKey ?? "—"} · {formatDate(e.createdAt)}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </Card>
-        )}
+        <h2 className="mb-1 font-semibold">Chyby publikovania</h2>
+        <p className="mb-3 text-sm text-muted-foreground">
+          Automaticky zachytené zlyhania — zákazník ich nemusí nahlasovať. Po
+          oprave spusti „Publikovať znova" a over stav, prípadne napíš
+          zákazníkovi.
+        </p>
+        <AdminIncidents incidents={incidents} />
       </section>
 
     </div>
