@@ -536,7 +536,7 @@ export class BazosSkProvider extends BrowserProvider {
     page: import("playwright").Page,
     ctx: ProviderContext,
     title: string,
-  ): Promise<{ id: string; url: string } | null> {
+  ): Promise<{ id: string; url: string; views?: number } | null> {
     try {
       await page
         .goto(`${this.baseUrl}/moje-inzeraty.php`, {
@@ -595,14 +595,26 @@ export class BazosSkProvider extends BrowserProvider {
         }
       }
 
-      // Capture ALL anchors so we can see exactly what the page returned, then
-      // pick the ad links among them and match by title.
+      // Capture ad links AND the view count from each ad's table row (the
+      // "Zobrazenie/Zobrazeno" column shows e.g. "12 x").
       const anchors = await page.$$eval("a", (as) =>
         as
-          .map((a) => ({
-            text: (a.textContent ?? "").trim(),
-            href: (a as HTMLAnchorElement).href,
-          }))
+          .map((a) => {
+            const el = a as HTMLAnchorElement;
+            const row =
+              el.closest("tr") ||
+              el.parentElement?.parentElement ||
+              el.parentElement;
+            const rowText = row ? (row.textContent ?? "") : "";
+            // The views column is the last standalone "N x" in the row.
+            const vms = Array.from(rowText.matchAll(/(\d+)\s*x\b/gi));
+            const last = vms.length ? vms[vms.length - 1] : null;
+            return {
+              text: (el.textContent ?? "").trim(),
+              href: el.href,
+              views: last ? parseInt(last[1], 10) : undefined,
+            };
+          })
           .filter((l) => l.text.length > 0),
       );
       const links = anchors.filter((l) => /\/inzerat\//i.test(l.href));
@@ -611,12 +623,12 @@ export class BazosSkProvider extends BrowserProvider {
         adLinks: links.length,
         sample: links
           .slice(0, 6)
-          .map((l) => `${l.text.slice(0, 45)} => ${l.href}`),
+          .map((l) => `${l.text.slice(0, 45)} (${l.views ?? "?"}x) => ${l.href}`),
       });
       if (!links.length) return null;
 
       const w = norm(title);
-      let best: { text: string; href: string } | null = null;
+      let best: { text: string; href: string; views?: number } | null = null;
       let bestScore = 0;
       for (const l of links) {
         const a = norm(l.text);
@@ -631,13 +643,14 @@ export class BazosSkProvider extends BrowserProvider {
       await ctx.log("Moje inzeráty – najlepšia zhoda", {
         bestScore,
         text: best?.text?.slice(0, 50),
+        views: best?.views,
         href: best?.href,
       });
       if (best && bestScore > 0) {
         const m = best.href.match(/\/inzerat\/(\d+)/);
         if (m) {
           await ctx.log(`Nájdený vlastný inzerát → ${best.href}`);
-          return { id: m[1], url: best.href };
+          return { id: m[1], url: best.href, views: best.views };
         }
       }
       return null;
@@ -958,17 +971,20 @@ export class BazosSkProvider extends BrowserProvider {
       if (ctx.listingTitle) {
         const own = await this.resolveOwnAdUrl(page, ctx, ctx.listingTitle);
         if (own) {
-          // Open the ad page itself to read its current view count.
-          let views: number | undefined;
-          try {
-            await page.goto(own.url, { waitUntil: "domcontentloaded" });
-            const adBody = await page
-              .locator("body")
-              .innerText()
-              .catch(() => "");
-            views = parseViews(adBody);
-          } catch {
-            /* views are best-effort */
+          // Prefer the view count from the "Moje inzeráty" row; only open the
+          // ad page if the list didn't expose it.
+          let views: number | undefined = own.views;
+          if (views == null) {
+            try {
+              await page.goto(own.url, { waitUntil: "domcontentloaded" });
+              const adBody = await page
+                .locator("body")
+                .innerText()
+                .catch(() => "");
+              views = parseViews(adBody);
+            } catch {
+              /* views are best-effort */
+            }
           }
           await ctx.log("Inzerát potvrdený cez Moje inzeráty", {
             remoteId: own.id,
