@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Send,
   ImageIcon,
+  Trash2,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,8 @@ import { PUBLICATION_STATUS } from "@/lib/status";
 
 export interface IncidentDTO {
   id: string; // publication id ("" if the publication no longer exists)
+  listingId: string;
+  portalKey: string | null;
   listingTitle: string;
   userEmail: string;
   portalName: string;
@@ -83,6 +86,21 @@ function Incident({ incident }: { incident: IncidentDTO }) {
       setDone("Správa odoslaná zákazníkovi (ticket vytvorený).");
       router.refresh();
     }
+  }
+
+  async function remove() {
+    if (!window.confirm("Vymazať tento záznam o chybe?")) return;
+    setBusy(true);
+    await fetch("/api/admin/incidents", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        listingId: incident.listingId,
+        portalKey: incident.portalKey,
+      }),
+    });
+    setBusy(false);
+    router.refresh();
   }
 
   const resolved = incident.status === "PUBLISHED";
@@ -152,6 +170,16 @@ function Incident({ incident }: { incident: IncidentDTO }) {
                 <ImageIcon className="size-3.5" /> Screenshot
               </a>
             )}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={remove}
+              disabled={busy}
+              className="text-muted-foreground hover:text-destructive"
+              title="Vymazať tento záznam"
+            >
+              <Trash2 className="size-4" /> Vymazať
+            </Button>
           </div>
 
           {composing && (

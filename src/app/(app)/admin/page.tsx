@@ -118,6 +118,8 @@ export default async function AdminPage() {
     );
     return {
       id: pub?.id ?? "",
+      listingId: l.listingId!,
+      portalKey: l.portalKey ?? null,
       listingTitle: listing?.title ?? "Inzerát",
       userEmail: listing?.user.email ?? "—",
       portalName: portalName(l.portalKey),
