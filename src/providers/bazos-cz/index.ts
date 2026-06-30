@@ -39,4 +39,7 @@ export class BazosCzProvider extends BazosSkProvider {
   protected mapSectionKey(key: string): string {
     return BazosCzProvider.KEY_MAP[key] ?? key;
   }
+
+  // Bazoš CZ "Moje inzeráty" lists by the phone in "421…" form (no leading 0).
+  protected myAdsPhonePrefix = "421";
 }

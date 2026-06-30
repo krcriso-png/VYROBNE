@@ -71,6 +71,19 @@ export class BazosSkProvider extends BrowserProvider {
     return key;
   }
 
+  // Format the phone for the "Moje inzeráty" lookup. Bazoš lists ads by the
+  // VERIFICATION phone, and each market expects a different format WITHOUT "+":
+  // Bazoš SK uses the local "0…" form, Bazoš CZ the "421…" form.
+  protected myAdsPhonePrefix = "0";
+  protected myAdsPhone(raw: string | null | undefined): string {
+    if (!raw) return "";
+    let d = raw.replace(/[^\d]/g, "");
+    if (d.startsWith("00421")) d = d.slice(5);
+    else if (d.startsWith("421")) d = d.slice(3);
+    else if (d.startsWith("0")) d = d.slice(1);
+    return this.myAdsPhonePrefix + d;
+  }
+
   async login(
     credentials: ProviderCredentials,
     ctx: ProviderContext,
@@ -534,39 +547,44 @@ export class BazosSkProvider extends BrowserProvider {
       await this.debugShot(page, ctx, "moje-inzeraty");
       await this.logStructure(page, ctx);
 
-      // Bazoš opens "Moje inzeráty" with the ad's e-mail + phone number (no
-      // account login). Fill that form and submit to reveal the user's ads.
-      const email = ctx.listingEmail;
-      const phone = formatPhone(ctx.listingPhone, this.phonePrefix);
-      if (email && phone) {
-        const phoneFilled = await fillFirst(
-          page,
-          [
-            'input[name="telefon"]',
-            'input[name="telefoni"]',
-            'input[name="telefoncislo"]',
-            'input[name="tel"]',
-            'input[name="cislo"]',
-          ],
-          phone,
+      // Bazoš opens "Moje inzeráty" with the ad's e-mail + the VERIFICATION
+      // phone (the SMS number, in the market's local format, no "+"). Fill the
+      // "Vypísať/Vypsat inzeráty" form and submit to reveal the user's ads.
+      const email = ctx.listingEmail ?? "";
+      const phone = this.myAdsPhone(ctx.secrets?.verifyPhone || ctx.listingPhone);
+      if (email || phone) {
+        await ctx.log("Otváram Moje inzeráty (e-mail + telefón)", { email, phone });
+        const filled = await page.evaluate(
+          ({ email, phone }) => {
+            const forms = Array.from(document.querySelectorAll("form"));
+            const form = forms.find((f) =>
+              Array.from(f.querySelectorAll('input[type="submit"]')).some((b) =>
+                /vyp[ií]s|vypsat/i.test((b as HTMLInputElement).value),
+              ),
+            );
+            if (!form) return false;
+            const texts = Array.from(form.querySelectorAll("input")).filter(
+              (i) => {
+                const t = ((i as HTMLInputElement).type || "text").toLowerCase();
+                return ["text", "email", "tel", ""].includes(t);
+              },
+            ) as HTMLInputElement[];
+            if (texts[0] && email) {
+              texts[0].value = email;
+              texts[0].dispatchEvent(new Event("input", { bubbles: true }));
+            }
+            if (texts[1] && phone) {
+              texts[1].value = phone;
+              texts[1].dispatchEvent(new Event("input", { bubbles: true }));
+            }
+            return true;
+          },
+          { email, phone },
         );
-        const emailFilled = await fillFirst(
-          page,
-          [
-            'input[name="maili"]',
-            'input[name="email"]',
-            'input[name="meil"]',
-            'input[type="email"]',
-          ],
-          email,
-        );
-        if (phoneFilled || emailFilled) {
-          await ctx.log("Otváram Moje inzeráty (e-mail + telefón inzerátu)");
+        if (filled) {
           await this.debugShot(page, ctx, "moje-login-filled");
           await page
-            .locator(
-              'form:has(input[name="telefon"]) input[type="submit"], form:has(input[name="telefoni"]) input[type="submit"], input[type="submit"][value*="Zobraz"], input[type="submit"]',
-            )
+            .locator('input[type="submit"][value*="Vyp"]')
             .first()
             .click({ timeout: 8000 })
             .catch(() => {});
@@ -945,17 +963,17 @@ export class BazosSkProvider extends BrowserProvider {
             views,
           };
         }
-        // We submitted the e-mail + phone. If the entry form is gone, the list
-        // opened and our ad genuinely isn't among them → removed. If the form is
-        // still there, e-mail/phone didn't open the list → we can't be sure.
-        const stillHasEntryForm =
-          (await page
-            .locator(
-              'input[name="telefon"], input[name="telefoni"], input[name="telefoncislo"]',
-            )
-            .count()
-            .catch(() => 0)) > 0;
-        if (!stillHasEntryForm) {
+        // The form stays on the page after listing, so detect the RESULTS
+        // header ("Všetky inzeráty užívateľa (N)" / "Všechny inzeráty
+        // uživatele"). If it's there, we genuinely listed the user's ads and
+        // ours isn't among them → removed. If not, the lookup didn't open the
+        // list → we can't be sure.
+        const listBody = await page
+          .locator("body")
+          .innerText()
+          .catch(() => "");
+        const listedAds = /inzer\w*\s+u[žz][ií]vate/i.test(listBody);
+        if (listedAds) {
           await ctx.log(
             "Inzerát sa v Moje inzeráty nenašiel — považujem za odstránený",
           );
