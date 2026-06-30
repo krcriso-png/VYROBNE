@@ -266,30 +266,40 @@ export function PublishPanel({
             <p className="pt-1 text-sm text-muted-foreground">{message}</p>
           )}
 
-          <div className="flex flex-wrap gap-2 pt-2">
-            <Button onClick={publish} disabled={busy || selected.size === 0}>
+          <div className="space-y-2 pt-2">
+            <Button
+              className="w-full"
+              onClick={publish}
+              disabled={busy || selected.size === 0}
+            >
               <Send className="size-4" />
               {busy ? "Pracujem…" : "Publikovať"}
             </Button>
-            {hasPublished && (
-              <Button
-                variant="outline"
-                onClick={topovat}
-                disabled={busy}
-                title="Zmaže inzerát a nahrá ho znova (čerstvý dátum)"
-              >
-                <RefreshCw className="size-4" /> Topovať
-              </Button>
-            )}
-            {publications.length > 0 && (
-              <Button
-                variant="outline"
-                onClick={checkStatus}
-                disabled={busy}
-                title="Overí na portáli, či je inzerát stále zverejnený"
-              >
-                <RefreshCw className="size-4" /> Skontrolovať stav
-              </Button>
+            {(hasPublished || publications.length > 0) && (
+              <div className="grid grid-cols-2 gap-2">
+                {hasPublished && (
+                  <Button
+                    className="w-full"
+                    variant="outline"
+                    onClick={topovat}
+                    disabled={busy}
+                    title="Zmaže inzerát a nahrá ho znova (čerstvý dátum)"
+                  >
+                    <RefreshCw className="size-4" /> Topovať
+                  </Button>
+                )}
+                {publications.length > 0 && (
+                  <Button
+                    className={"w-full" + (hasPublished ? "" : " col-span-2")}
+                    variant="outline"
+                    onClick={checkStatus}
+                    disabled={busy}
+                    title="Overí na portáli, či je inzerát stále zverejnený"
+                  >
+                    <RefreshCw className="size-4" /> Skontrolovať stav
+                  </Button>
+                )}
+              </div>
             )}
           </div>
         </CardContent>

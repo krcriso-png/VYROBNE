@@ -6,7 +6,8 @@ import { route, json, requireUser } from "@/lib/api";
 export const GET = route(async () => {
   const user = await requireUser();
   const portals = await prisma.portal.findMany({
-    where: { enabled: true },
+    // The "mock" portal is a dev-only test target — never show it to users.
+    where: { enabled: true, key: { not: "mock" } },
     orderBy: { name: "asc" },
     include: {
       accounts: { where: { userId: user.id }, select: { id: true, label: true } },
