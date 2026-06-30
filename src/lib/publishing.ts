@@ -171,10 +171,18 @@ export async function enqueueDueStatusChecks(
       // Re-verify PUBLISHED ads (views/liveness) and REMOVED ones too, so a
       // listing that was wrongly marked removed can heal back to PUBLISHED when
       // it's found again in the account's "Moje inzeráty".
-      status: { in: ["PUBLISHED", "REMOVED"] },
       remoteId: { not: null },
       listing: { status: { not: "ARCHIVED" } },
-      OR: [{ lastSyncedAt: null }, { lastSyncedAt: { lte: cutoff } }],
+      // PUBLISHED ads: re-check on the normal cadence. REMOVED ads that still
+      // carry a remote id were marked removed by a check (not a user delete) —
+      // re-verify them promptly so a wrongly-removed listing heals back fast.
+      OR: [
+        {
+          status: "PUBLISHED",
+          OR: [{ lastSyncedAt: null }, { lastSyncedAt: { lte: cutoff } }],
+        },
+        { status: "REMOVED" },
+      ],
     },
     include: { portal: true, listing: { select: { userId: true } } },
     take: 200,

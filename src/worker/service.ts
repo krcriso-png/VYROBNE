@@ -462,35 +462,53 @@ export async function runCheckStatus(data: BaseJobData): Promise<void> {
   const provider = getProvider(data.portalKey);
   const status = await provider.checkStatus(pub.remoteId, session, ctx);
 
-  // Only a CONFIDENT result may change the status. When unverified, leave the
-  // published/removed state untouched BUT record a visible note so the user
-  // knows it couldn't be confirmed (usually: not logged in to the portal).
+  const views =
+    status.views != null
+      ? { viewsCurrent: status.views, viewsCheckedAt: new Date() }
+      : {};
+
   if (status.verified === false) {
+    // Can't confirm. Klikado published this ad (it has a remote id), and the
+    // only "removal" would be an unconfirmed guess — so keep it PUBLISHED and
+    // just flag it as unverified. This both prevents false "removed" AND heals
+    // a listing that an earlier buggy check wrongly marked removed.
     await prisma.publication.update({
       where: { id: data.publicationId },
       data: {
+        status: "PUBLISHED",
         lastSyncedAt: new Date(),
         statusNote:
           "Stav sa nepodarilo overiť — Klikado nevidí „Moje inzeráty“. Skontroluj prihlasovacie údaje k Bazoš účtu v sekcii Portály.",
-        ...(status.views != null
-          ? { viewsCurrent: status.views, viewsCheckedAt: new Date() }
-          : {}),
+        ...views,
       },
     });
     return;
   }
 
+  if (status.live) {
+    await prisma.publication.update({
+      where: { id: data.publicationId },
+      data: {
+        status: "PUBLISHED",
+        remoteId: status.remoteId ?? pub.remoteId,
+        remoteUrl: status.remoteUrl ?? pub.remoteUrl,
+        lastSyncedAt: new Date(),
+        statusNote: null, // confirmed live — clear any "unverified" note
+        ...views,
+      },
+    });
+    return;
+  }
+
+  // Confidently gone (logged in to the account and the ad isn't in "Moje
+  // inzeráty"). Mark it removed and stop tracking the id so it isn't re-checked.
   await prisma.publication.update({
     where: { id: data.publicationId },
     data: {
-      status: status.live ? "PUBLISHED" : "REMOVED",
-      remoteId: status.remoteId ?? pub.remoteId,
-      remoteUrl: status.remoteUrl ?? pub.remoteUrl,
+      status: "REMOVED",
+      remoteId: null,
       lastSyncedAt: new Date(),
-      statusNote: null, // confident result — clear any stale "unverified" note
-      ...(status.views != null
-        ? { viewsCurrent: status.views, viewsCheckedAt: new Date() }
-        : {}),
+      statusNote: "Potvrdené: inzerát sa už na portáli nenachádza.",
     },
   });
 }
