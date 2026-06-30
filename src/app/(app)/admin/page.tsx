@@ -22,7 +22,7 @@ export default async function AdminPage() {
     errorCount,
     pendingCount,
     portals,
-    errorPubs,
+    errorLogs,
     openTicketCount,
     openTickets,
   ] = await Promise.all([
@@ -36,18 +36,12 @@ export default async function AdminPage() {
       where: { status: { in: ["PENDING", "PUBLISHING", "UPDATING"] } },
     }),
     prisma.portal.findMany({ orderBy: { name: "asc" } }),
-    // Failed publications — automatically surfaced to the admin (no user report
-    // needed), with the customer + listing + portal so they're actionable.
-    prisma.publication.findMany({
-      where: { status: "ERROR" },
-      orderBy: { updatedAt: "desc" },
-      take: 30,
-      include: {
-        portal: { select: { name: true, key: true } },
-        listing: {
-          select: { id: true, title: true, user: { select: { email: true } } },
-        },
-      },
+    // Error HISTORY from the activity log — persists even after a re-publish
+    // (which clears the publication's lastError), so incidents don't vanish.
+    prisma.activityLog.findMany({
+      where: { level: "ERROR", listingId: { not: null } },
+      orderBy: { createdAt: "desc" },
+      take: 150,
     }),
     // Support tickets still open (unresolved).
     prisma.supportThread.count({ where: { status: "OPEN" } }),
@@ -62,17 +56,46 @@ export default async function AdminPage() {
     }),
   ]);
 
-  // Attach the latest failure screenshot (logged with meta.debugScreenshot) to
-  // each incident.
-  const listingIds = [...new Set(errorPubs.map((p) => p.listing.id))];
-  const shotLogs = listingIds.length
-    ? await prisma.activityLog.findMany({
-        where: { listingId: { in: listingIds } },
-        orderBy: { createdAt: "desc" },
-        take: 300,
-      })
-    : [];
-  const screenshotFor = (listingId: string, portalKey: string) => {
+  // Keep the latest error per listing+portal (so a repeatedly-failing ad shows
+  // once), newest first, capped at 20 — they stay until a newer run replaces
+  // them, regardless of the live publication status.
+  const seen = new Set<string>();
+  const distinctErrors = errorLogs
+    .filter((l) => {
+      const key = `${l.listingId}|${l.portalKey ?? ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 20);
+
+  const listingIds = [...new Set(distinctErrors.map((l) => l.listingId!))];
+  const [incidentListings, incidentPubs, shotLogs] = listingIds.length
+    ? await Promise.all([
+        prisma.listing.findMany({
+          where: { id: { in: listingIds } },
+          select: { id: true, title: true, user: { select: { email: true } } },
+        }),
+        prisma.publication.findMany({
+          where: { listingId: { in: listingIds } },
+          select: {
+            id: true,
+            status: true,
+            listingId: true,
+            portal: { select: { key: true } },
+          },
+        }),
+        prisma.activityLog.findMany({
+          where: { listingId: { in: listingIds } },
+          orderBy: { createdAt: "desc" },
+          take: 400,
+        }),
+      ])
+    : [[], [], []];
+
+  const portalName = (key: string | null) =>
+    portals.find((p) => p.key === key)?.name ?? key ?? "—";
+  const screenshotFor = (listingId: string, portalKey: string | null) => {
     const log = shotLogs.find((l) => {
       const m = l.meta as Record<string, unknown> | null;
       return (
@@ -88,15 +111,22 @@ export default async function AdminPage() {
       : undefined;
   };
 
-  const incidents: IncidentDTO[] = errorPubs.map((p) => ({
-    id: p.id,
-    listingTitle: p.listing.title,
-    userEmail: p.listing.user.email,
-    portalName: p.portal.name,
-    error: classifyError(p.lastError).message,
-    screenshot: screenshotFor(p.listing.id, p.portal.key),
-    createdAt: p.updatedAt.toISOString(),
-  }));
+  const incidents: IncidentDTO[] = distinctErrors.map((l) => {
+    const listing = incidentListings.find((x) => x.id === l.listingId);
+    const pub = incidentPubs.find(
+      (p) => p.listingId === l.listingId && p.portal.key === l.portalKey,
+    );
+    return {
+      id: pub?.id ?? "",
+      listingTitle: listing?.title ?? "Inzerát",
+      userEmail: listing?.user.email ?? "—",
+      portalName: portalName(l.portalKey),
+      error: classifyError(l.message).message,
+      screenshot: screenshotFor(l.listingId!, l.portalKey),
+      status: pub?.status,
+      createdAt: l.createdAt.toISOString(),
+    };
+  });
 
   const stats = [
     { label: "Nevyriešené tickety", value: openTicketCount, icon: LifeBuoy, tone: openTicketCount > 0 ? "bg-warning/15 text-warning" : "bg-success/15 text-success" },
