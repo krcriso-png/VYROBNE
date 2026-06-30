@@ -1,14 +1,12 @@
 import { prisma } from "@/lib/db";
 import { route, json, requireUser, HttpError } from "@/lib/api";
-import { sendEmail } from "@/lib/email";
+import { notifyAdmins } from "@/lib/notify";
 import { publicOrigin } from "@/lib/url";
 
-// Where hidden error reports are sent.
-const REPORT_EMAIL = "krcriso@gmail.com";
-
-// POST /api/publications/:id/report — send a publishing error to the admins:
-// an in-app notification for every admin account + a hidden email, including
-// the error text and the full URL of the failure screenshot.
+// POST /api/publications/:id/report — turn a publishing error into a support
+// thread the admin can reply to (the reply reaches the user in-app + by
+// e-mail), and notify the admins (in-app + e-mail) with the error details and
+// the failure-screenshot URL.
 export const POST = route(
   async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
     const user = await requireUser();
@@ -48,29 +46,25 @@ export const POST = route(
       `Screenshot chyby: ${shotUrl ?? "(nie je k dispozícii)"}\n` +
       `Čas: ${new Date().toLocaleString("sk-SK")}`;
 
-    // In-app notification for every admin account.
-    const admins = await prisma.user.findMany({
-      where: { role: "ADMIN" },
-      select: { id: true },
-    });
-    if (admins.length > 0) {
-      await prisma.notification.createMany({
-        data: admins.map((a) => ({
-          userId: a.id,
-          type: "SYSTEM" as const,
-          title: `Chyba pri publikovaní (${pub.portal.name})`,
-          body,
-        })),
-      });
-    }
+    const subject = `Chyba pri publikovaní (${pub.portal.name})`;
 
-    // Hidden email to the maintainer (no-op if SMTP isn't configured).
-    const emailed = await sendEmail({
-      to: REPORT_EMAIL,
-      subject: `Klikado – chyba pri publikovaní (${pub.portal.name})`,
-      text: body,
+    // Create a support thread so the admin can reply and the user sees it.
+    await prisma.supportThread.create({
+      data: {
+        userId: user.id,
+        subject,
+        adminUnread: true,
+        userUnread: false,
+        messages: { create: { author: "USER", body } },
+      },
     });
 
-    return json({ ok: true, emailed });
+    // Notify the admins (in-app + e-mail).
+    await notifyAdmins({
+      title: subject,
+      body: `${body}\n\nOdpovedz v Klikade: ${origin}/podpora`,
+    });
+
+    return json({ ok: true });
   },
 );

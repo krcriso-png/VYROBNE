@@ -11,11 +11,13 @@ import { navItemsFor } from "./AppNav";
 // Top bar + slide-out drawer for phones (the sidebar is hidden under md).
 export function MobileNav({
   isAdmin,
+  supportUnread = 0,
   credits,
   userName,
   userEmail,
 }: {
   isAdmin: boolean;
+  supportUnread?: number;
   credits: string;
   userName: string;
   userEmail: string;
@@ -75,6 +77,7 @@ export function MobileNav({
                 const active =
                   pathname === item.href ||
                   pathname.startsWith(item.href + "/");
+                const badge = item.href === "/podpora" && supportUnread > 0;
                 return (
                   <Link
                     key={item.href}
@@ -88,7 +91,12 @@ export function MobileNav({
                     )}
                   >
                     <item.icon className="size-4" />
-                    {item.label}
+                    <span className="flex-1">{item.label}</span>
+                    {badge && (
+                      <span className="grid min-w-5 place-items-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground">
+                        {supportUnread}
+                      </span>
+                    )}
                   </Link>
                 );
               })}

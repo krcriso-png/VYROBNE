@@ -6,6 +6,7 @@ import { AppNav } from "@/components/AppNav";
 import { MobileNav } from "@/components/MobileNav";
 import { Button } from "@/components/ui/button";
 import { getCreditState } from "@/lib/credits";
+import { prisma } from "@/lib/db";
 
 // Shared shell for the authenticated area: sidebar nav + sign-out.
 export default async function AppLayout({
@@ -20,6 +21,15 @@ export default async function AppLayout({
     (session.user.name ?? session.user.email ?? "?").charAt(0).toUpperCase();
 
   const credit = await getCreditState(session.user.id);
+
+  // Unread support messages drive the "Podpora" nav badge: for the admin, any
+  // thread with a new user message; for a user, their threads with a new reply.
+  const isAdmin = session.user.role === "ADMIN";
+  const supportUnread = await prisma.supportThread.count({
+    where: isAdmin
+      ? { adminUnread: true }
+      : { userId: session.user.id, userUnread: true },
+  });
 
   return (
     <div className="flex min-h-screen bg-muted/30">
@@ -43,7 +53,7 @@ export default async function AppLayout({
           </span>
         </Link>
 
-        <AppNav isAdmin={session.user.role === "ADMIN"} />
+        <AppNav isAdmin={isAdmin} supportUnread={supportUnread} />
 
         <div className="mt-auto border-t pt-4">
           <Link
@@ -81,7 +91,8 @@ export default async function AppLayout({
 
       <div className="flex-1">
         <MobileNav
-          isAdmin={session.user.role === "ADMIN"}
+          isAdmin={isAdmin}
+          supportUnread={supportUnread}
           credits={credit.unlimited ? "∞" : String(credit.credits)}
           userName={session.user.name ?? "Používateľ"}
           userEmail={session.user.email ?? ""}

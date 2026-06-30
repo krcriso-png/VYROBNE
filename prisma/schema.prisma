@@ -56,6 +56,7 @@ model User {
   notifications       Notification[]
   logs                ActivityLog[]
   creditTransactions  CreditTransaction[]
+  supportThreads      SupportThread[]
 
   @@index([role])
 }
@@ -464,4 +465,51 @@ model Notification {
   createdAt DateTime @default(now())
 
   @@index([userId, read])
+}
+
+// ---------------------------------------------------------------------------
+// Support / feedback threads — two-way messaging between a user and the admin.
+// A user opens a thread (a "podnet" or an error report); the admin replies.
+// Each new message notifies the other side in-app + by e-mail.
+// ---------------------------------------------------------------------------
+
+enum SupportStatus {
+  OPEN
+  CLOSED
+}
+
+enum SupportAuthor {
+  USER
+  ADMIN
+}
+
+model SupportThread {
+  id      String        @id @default(cuid())
+  userId  String
+  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject String
+  status  SupportStatus @default(OPEN)
+
+  // Unread flags drive the "Podpora" nav badge until the side opens the page.
+  userUnread  Boolean @default(false)
+  adminUnread Boolean @default(true)
+
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  messages  SupportMessage[]
+
+  @@index([userId])
+  @@index([status, updatedAt])
+}
+
+model SupportMessage {
+  id       String        @id @default(cuid())
+  threadId String
+  thread   SupportThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author   SupportAuthor
+  body     String        @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([threadId])
 }

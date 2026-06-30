@@ -7,6 +7,7 @@ import {
   ListChecks,
   Plug,
   CreditCard,
+  LifeBuoy,
   ShieldCheck,
   User,
 } from "lucide-react";
@@ -17,6 +18,7 @@ export const NAV_ITEMS = [
   { href: "/listings", label: "Inzeráty", icon: ListChecks },
   { href: "/portals", label: "Portály", icon: Plug },
   { href: "/billing", label: "Predplatné", icon: CreditCard },
+  { href: "/podpora", label: "Podpora", icon: LifeBuoy },
   { href: "/profile", label: "Profil", icon: User },
 ];
 
@@ -30,7 +32,13 @@ export function navItemsFor(isAdmin: boolean) {
   return isAdmin ? [...NAV_ITEMS, ADMIN_ITEM] : NAV_ITEMS;
 }
 
-export function AppNav({ isAdmin }: { isAdmin: boolean }) {
+export function AppNav({
+  isAdmin,
+  supportUnread = 0,
+}: {
+  isAdmin: boolean;
+  supportUnread?: number;
+}) {
   const pathname = usePathname();
   const items = navItemsFor(isAdmin);
 
@@ -39,6 +47,7 @@ export function AppNav({ isAdmin }: { isAdmin: boolean }) {
       {items.map((item) => {
         const active =
           pathname === item.href || pathname.startsWith(item.href + "/");
+        const badge = item.href === "/podpora" && supportUnread > 0;
         return (
           <Link
             key={item.href}
@@ -51,7 +60,12 @@ export function AppNav({ isAdmin }: { isAdmin: boolean }) {
             )}
           >
             <item.icon className="size-4" />
-            {item.label}
+            <span className="flex-1">{item.label}</span>
+            {badge && (
+              <span className="grid min-w-5 place-items-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground">
+                {supportUnread}
+              </span>
+            )}
           </Link>
         );
       })}
