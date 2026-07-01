@@ -1,0 +1,88 @@
+# ===========================================================================
+# Production single-VPS stack (no Railway needed).
+#
+#   Postgres + Redis + app (web) + worker (Playwright/Chromium) + Caddy (HTTPS).
+#
+# Images are stored in the database (zero-config) — no S3/MinIO required.
+# Only Caddy is exposed to the internet (ports 80/443); everything else talks
+# over the internal Docker network.
+#
+# Usage on the server:
+#   cp .env.production.example .env   # then fill in the secrets
+#   docker compose -f docker-compose.prod.yml up -d --build
+# ===========================================================================
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: klikado
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-klikado_change_me}
+      POSTGRES_DB: klikado
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U klikado"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    # Apply migrations, seed the portal catalogue + demo admin, then serve.
+    command: sh -c "npx prisma migrate deploy && npm run db:seed && npm run start"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://klikado:${POSTGRES_PASSWORD:-klikado_change_me}@postgres:5432/klikado?schema=public
+      REDIS_URL: redis://redis:6379
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: npm run worker:prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://klikado:${POSTGRES_PASSWORD:-klikado_change_me}@postgres:5432/klikado?schema=public
+      REDIS_URL: redis://redis:6379
+      # Keep browser concurrency low so Chromium doesn't exhaust RAM.
+      WORKER_CONCURRENCY: "1"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+
+volumes:
+  pgdata:
+  caddydata:
+  caddyconfig:
