@@ -80,6 +80,7 @@ export default async function AdminPage() {
     portalKey: t.portalKey ?? undefined,
     listingTitle: t.listingId ? titleByListing.get(t.listingId) : undefined,
     portalStatus: statusByThread.get(t.id),
+    internalNote: t.internalNote,
     createdAt: t.createdAt.toISOString(),
     messages: t.messages.map((m) => ({
       id: m.id,

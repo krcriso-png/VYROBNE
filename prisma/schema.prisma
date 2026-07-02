@@ -513,6 +513,10 @@ model SupportThread {
   userUnread  Boolean @default(false)
   adminUnread Boolean @default(true)
 
+  // Private admin-only note (why it was resolved, what it was). Never shown to
+  // the customer. Auto-filled when a ticket resolves itself (e.g. the ad heals).
+  internalNote String? @db.Text
+
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
   messages  SupportMessage[]

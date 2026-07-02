@@ -554,6 +554,25 @@ export async function runCheckStatus(data: BaseJobData): Promise<void> {
         ...views,
       },
     });
+
+    // If this ad had healed from a failure, auto-resolve any open ticket about
+    // it and leave an internal note explaining why it closed itself.
+    if (pub.status !== "PUBLISHED") {
+      await prisma.supportThread
+        .updateMany({
+          where: {
+            listingId: data.listingId,
+            portalKey: data.portalKey,
+            status: "OPEN",
+          },
+          data: {
+            status: "CLOSED",
+            adminUnread: false,
+            internalNote: `Automaticky vyriešené (${new Date().toLocaleString("sk-SK")}): kontrola stavu potvrdila, že inzerát je opäť aktívny (PUBLISHED) na portáli — chyba sa vyriešila sama.`,
+          },
+        })
+        .catch(() => {});
+    }
     return;
   }
 

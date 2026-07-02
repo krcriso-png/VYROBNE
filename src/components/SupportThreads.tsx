@@ -35,6 +35,7 @@ export interface SupportThreadDTO {
   portalKey?: string;
   listingTitle?: string;
   portalStatus?: string;
+  internalNote?: string | null;
   createdAt: string;
   messages: SupportMessageDTO[];
 }
@@ -160,6 +161,22 @@ function Thread({
   const [reply, setReply] = useState("");
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
+  const [note, setNote] = useState(thread.internalNote ?? "");
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [noteSaved, setNoteSaved] = useState(false);
+
+  async function saveNote() {
+    setNoteSaving(true);
+    setNoteSaved(false);
+    await fetch(`/api/admin/support/${thread.id}/note`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ note }),
+    }).catch(() => {});
+    setNoteSaving(false);
+    setNoteSaved(true);
+    router.refresh();
+  }
 
   async function send() {
     if (!reply.trim()) return;
@@ -266,6 +283,35 @@ function Thread({
       </button>
       {open && (
       <CardContent className="space-y-4">
+        {isAdmin && (
+          <div className="rounded-lg border border-warning/40 bg-warning/5 p-3">
+            <p className="mb-1.5 text-xs font-semibold text-warning">
+              🔒 Interná poznámka (vidí len admin)
+            </p>
+            <textarea
+              value={note}
+              onChange={(e) => {
+                setNote(e.target.value);
+                setNoteSaved(false);
+              }}
+              rows={2}
+              placeholder="Napíš, čo to bolo a ako sa to vyriešilo…"
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-focus"
+            />
+            <div className="mt-2 flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={saveNote}
+                disabled={noteSaving}
+              >
+                {noteSaving ? "Ukladám…" : "Uložiť poznámku"}
+              </Button>
+              {noteSaved && <span className="text-xs text-success">Uložené ✓</span>}
+            </div>
+          </div>
+        )}
+
         {isAdmin && thread.listingId && (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 p-3">
             <div className="mr-auto min-w-0">
