@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { PLANS, yearlySavingPct, yearlyPerMonthEur, eur } from "@/lib/plans";
 import { getCreditState, creditReasonLabel } from "@/lib/credits";
+import { reconcileUserSubscription } from "@/lib/billing-sync";
 import { UpgradeButtons } from "@/components/UpgradeButtons";
 import { ManageSubscriptionButton } from "@/components/ManageSubscriptionButton";
 import { Card } from "@/components/ui/card";
@@ -26,6 +27,10 @@ function planFeatures(key: string): string[] {
 export default async function BillingPage() {
   const session = await auth();
   const userId = session!.user.id;
+
+  // Self-heal: pull the current subscription state from Stripe on view, so the
+  // plan is correct even if a webhook was missed/misconfigured.
+  await reconcileUserSubscription(userId);
 
   const [sub, credit, history] = await Promise.all([
     prisma.subscription.findUnique({ where: { userId } }),
