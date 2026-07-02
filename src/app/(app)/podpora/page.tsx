@@ -5,6 +5,8 @@ import {
   SupportThreads,
   type SupportThreadDTO,
 } from "@/components/SupportThreads";
+import { AdminIncidents } from "@/components/AdminIncidents";
+import { loadIncidents } from "@/lib/incidents";
 
 // Support / feedback inbox. Users see their own threads + a form to open a new
 // one; the admin sees ALL threads and can reply. Opening the page clears the
@@ -59,6 +61,10 @@ export default async function SupportPage() {
     }
   }
 
+  // Admin also handles auto-captured publishing errors here — one place for all
+  // support work.
+  const incidents = isAdmin ? await loadIncidents() : [];
+
   const dto: SupportThreadDTO[] = threads.map((t) => ({
     id: t.id,
     subject: t.subject,
@@ -87,6 +93,33 @@ export default async function SupportPage() {
             : "Napíš nám podnet, otázku alebo nahlás chybu. Odpoveď ti príde sem aj na e-mail."}
         </p>
       </div>
+      {isAdmin && incidents.length > 0 && (
+        <details className="group overflow-hidden rounded-xl border bg-card">
+          <summary className="flex cursor-pointer items-center justify-between gap-3 p-4 [&::-webkit-details-marker]:hidden">
+            <span className="flex items-center gap-2 font-semibold">
+              Automaticky zachytené chyby
+              <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
+                {incidents.length}
+              </span>
+            </span>
+            <span className="text-sm text-muted-foreground group-open:hidden">
+              rozbaliť ▾
+            </span>
+            <span className="hidden text-sm text-muted-foreground group-open:inline">
+              zbaliť ▴
+            </span>
+          </summary>
+          <div className="border-t p-4">
+            <p className="mb-3 text-sm text-muted-foreground">
+              Zlyhania zachytené automaticky — zákazník ich nemusí nahlásiť. Po
+              oprave spusti „Publikovať znova" a over stav, prípadne napíš
+              zákazníkovi.
+            </p>
+            <AdminIncidents incidents={incidents} />
+          </div>
+        </details>
+      )}
+
       <SupportThreads threads={dto} isAdmin={isAdmin} />
     </div>
   );
