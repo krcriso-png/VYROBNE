@@ -161,7 +161,9 @@ export async function refreshListing(
     await enqueueTask(
       "refresh",
       { publicationId: pub.id, userId, listingId, portalKey: pub.portal.key },
-      { delayMs: i * STAGGER_MS },
+      // No auto-retry: a repost deletes + re-posts (may trigger SMS); retrying
+      // would re-attempt SMS and spam the user. Fail once, report clearly.
+      { delayMs: i * STAGGER_MS, attempts: 1 },
     );
     i++;
   }
@@ -287,7 +289,8 @@ export async function enqueueDueRefreshes(): Promise<number> {
         listingId: pub.listingId,
         portalKey: pub.portal.key,
       },
-      { delayMs: i * STAGGER_MS },
+      // No auto-retry (see refreshListing) — a repost may trigger SMS.
+      { delayMs: i * STAGGER_MS, attempts: 1 },
     );
     i++;
   }
