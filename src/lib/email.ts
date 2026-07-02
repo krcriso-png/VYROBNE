@@ -21,6 +21,11 @@ function transporter() {
       process.env.SMTP_USER && process.env.SMTP_PASSWORD
         ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD }
         : undefined,
+    // Fail fast instead of hanging the request when the SMTP host/port is wrong
+    // or unreachable (otherwise a bad config blocks the caller indefinitely).
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 10000,
   });
 }
 
@@ -37,10 +42,17 @@ export async function sendEmail(opts: {
   }
   try {
     await t.sendMail({ from: FROM, ...opts });
+    // eslint-disable-next-line no-console
+    console.log(`[email] sent to ${opts.to} ("${opts.subject}")`);
     return true;
   } catch (err) {
+    const e = err as { code?: string; command?: string; message?: string };
     // eslint-disable-next-line no-console
-    console.error("[email] send failed", err);
+    console.error(
+      `[email] send FAILED to ${opts.to}: ${e.code ?? ""} ${e.command ?? ""} ${
+        e.message ?? String(err)
+      }`,
+    );
     return false;
   }
 }

@@ -37,20 +37,25 @@ export const POST = route(async (req: Request) => {
       email,
     )}`;
 
-    const sent = await sendEmail({
+    // Fire-and-forget: never make the browser wait on SMTP. The response returns
+    // immediately; the mail is sent in the background (with its own timeouts).
+    void sendEmail({
       to: email,
       subject: "Klikado – obnovenie hesla",
       text:
         `Ahoj,\n\npožiadal si o obnovenie hesla do Klikado. Klikni na odkaz nižšie ` +
         `a nastav si nové heslo (odkaz platí 1 hodinu):\n\n${link}\n\n` +
         `Ak si o zmenu nežiadal, tento e-mail ignoruj — tvoje heslo zostáva nezmenené.`,
-    });
-    if (!sent) {
-      // SMTP not configured / failed — log the link so a reset is still possible
-      // from the server logs. Never surfaced to the client.
-      // eslint-disable-next-line no-console
-      console.log(`[forgot] reset link for ${email}: ${link}`);
-    }
+    })
+      .then((sent) => {
+        if (!sent) {
+          // SMTP not configured / failed — log the link so a reset is still
+          // possible from the server logs. Never surfaced to the client.
+          // eslint-disable-next-line no-console
+          console.log(`[forgot] reset link for ${email}: ${link}`);
+        }
+      })
+      .catch(() => {});
   }
 
   return json({ ok: true });
