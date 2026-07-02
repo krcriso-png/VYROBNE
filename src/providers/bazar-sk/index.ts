@@ -111,8 +111,16 @@ export class BazarSkProvider extends BrowserProvider {
         "textarea",
       );
 
+      // Price — the amount field is the form input with class "price"
+      // (name data[param_1] for this category). Filling by class is
+      // category-independent and reliable.
       if (listing.price != null) {
-        await this.fillLabeled(page, "Cena", String(listing.price));
+        const priceInput = page.locator("form input.price").first();
+        if ((await priceInput.count().catch(() => 0)) > 0) {
+          await priceInput.fill(String(listing.price)).catch(() => {});
+        } else {
+          await this.fillLabeled(page, "Cena", String(listing.price));
+        }
       }
 
       // "Stav" (condition) may be a dropdown OR radio buttons depending on the
@@ -120,23 +128,13 @@ export class BazarSkProvider extends BrowserProvider {
       // first; required radios are handled generically below.
       await this.selectLabeled(page, "Stav", /použit|pouzit|nové|nove|zachoval/i);
 
-      // Location: bazar.sk's "Lokalita" is an AUTOCOMPLETE — typing a value
-      // isn't enough, a suggestion must be chosen or it counts as empty. Try the
-      // PSČ first (most deterministic), then the town.
-      const zip = normalizeZip(listing.zip);
+      // Location: bazar.sk's "Lokalita" is a CLICK widget (kraj → okres → mesto),
+      // not a text field. Open it and pick the listing's town/region.
       await this.fillLocation(
         page,
         ctx,
-        [zip.length === 5 ? zip : (listing.zip ?? ""), listing.location ?? ""].filter(
-          Boolean,
-        ),
+        [listing.location ?? "", normalizeZip(listing.zip)].filter(Boolean),
       );
-
-      // Re-affirm the price after the location step (defensive: a previous bug
-      // could append the PSČ into "Cena").
-      if (listing.price != null) {
-        await this.fillLabeled(page, "Cena", String(listing.price));
-      }
 
       // Any remaining required <select> in the category Špecifikácia block —
       // pick its first real option so a category with extra fields still submits.
@@ -186,20 +184,24 @@ export class BazarSkProvider extends BrowserProvider {
         jmeno,
       );
       const phone = localPhone(ctx.secrets?.verifyPhone || listing.phone);
-      // Fill the dynamic [contact] inputs: first with phone, second (if present)
-      // with e-mail. These carry the SMS-verification number.
-      const contacts = page.locator('form input[name$="[contact]"]');
-      const nContacts = await contacts.count().catch(() => 0);
-      if (nContacts > 0 && phone) {
-        await contacts.nth(0).fill(phone).catch(() => {});
+      // The two contact inputs are distinguished by class: input.phone and
+      // input.email (their names are dynamic hashes). Phone carries the SMS
+      // verification number, so it's the important one.
+      if (phone) {
+        const phoneInput = page.locator("form input.phone").first();
+        if ((await phoneInput.count().catch(() => 0)) > 0) {
+          await phoneInput.fill(phone).catch(() => {});
+        } else {
+          await this.fillLabeled(page, "Telefón", phone);
+        }
       }
-      if (nContacts > 1 && listing.email) {
-        await contacts.nth(1).fill(listing.email).catch(() => {});
-      }
-      // Fallbacks by label in case the names change.
-      if (nContacts === 0) {
-        if (phone) await this.fillLabeled(page, "Telefón", phone);
-        if (listing.email) await this.fillLabeled(page, "E-mail", listing.email);
+      if (listing.email) {
+        const emailInput = page.locator("form input.email").first();
+        if ((await emailInput.count().catch(() => 0)) > 0) {
+          await emailInput.fill(listing.email).catch(() => {});
+        } else {
+          await this.fillLabeled(page, "E-mail", listing.email);
+        }
       }
       // Per-ad password (min 7 chars) — lets us edit/delete later.
       const adPass = sevenPlus(ctx.secrets?.password);
@@ -658,106 +660,188 @@ export class BazarSkProvider extends BrowserProvider {
       await ctx.log("Lokalita: viditeľné pole sa nenašlo.");
       return;
     }
-    const loc = page.locator('[data-klikado-loc="1"]').first();
     const locName = page.locator('input[name="data[locationName]"]').first();
-
     const onForm = () =>
       page.url().includes("pridanie-neprihlaseny") ||
       page.url().includes("#form");
+    const town = candidates.find((c) => c && !/^\d+$/.test(c)) || candidates[0] || "";
 
-    for (const value of candidates.filter(Boolean)) {
-      if (!onForm()) break; // never keep going once we've left the add form
-      // Type directly into the location autocomplete (no global keyboard typing,
-      // which previously leaked into the site search).
-      await loc.click().catch(() => {});
-      await loc.fill("").catch(() => {});
-      await loc.type(value, { delay: 60 }).catch(() => {});
+    // 1) Open the location picker. bazar.sk has NO visible location text input —
+    // the picker opens on click of an element near the "Lokalita" label.
+    const trig = await page
+      .evaluate(() => {
+        const own = (e: Element) =>
+          Array.from(e.childNodes)
+            .filter((n) => n.nodeType === 3)
+            .map((n) => n.textContent ?? "")
+            .join("")
+            .trim();
+        let t: Element | null = document.querySelector(
+          '[class*="location"]:not(input):not(script):not(style),[class*="lokalit"]:not(input)',
+        );
+        if (!t) {
+          const label = Array.from(document.querySelectorAll("*"))
+            .filter((e) => /lokalit/i.test(own(e)))
+            .pop();
+          const scope =
+            (label && (label.closest("div,fieldset,tr,li,section") as Element)) ||
+            document.body;
+          t =
+            Array.from(scope.querySelectorAll("a,button,span,div,input")).find(
+              (el) => {
+                const txt = (el.textContent || "").replace(/\s+/g, " ").trim();
+                const cls = String((el as HTMLElement).className || "");
+                return (
+                  (/zadaj|vyber|zvo[ľl]|prida[ťt]|cel[áa]\s*sr|obec|mesto|kraj|okres|lokalit/i.test(
+                    txt,
+                  ) &&
+                    txt.length < 40) ||
+                  /location|lokalit|geo|region/i.test(cls)
+                );
+              },
+            ) || null;
+        }
+        // Never use an off-site link as the trigger.
+        if (
+          t &&
+          t.tagName === "A" &&
+          (t as HTMLAnchorElement).getAttribute("href") &&
+          !/^#|^javascript:/i.test(
+            (t as HTMLAnchorElement).getAttribute("href") || "",
+          )
+        )
+          t = null;
+        if (!t) return null;
+        t.setAttribute("data-klikado-loctrigger", "1");
+        return {
+          text: (t.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40),
+          cls: String((t as HTMLElement).className || "").slice(0, 40),
+          tag: t.tagName,
+        };
+      })
+      .catch(() => null);
+    await ctx.log("Lokalita – spúšťač", trig ?? { found: false });
+
+    if (trig) {
+      await page
+        .locator('[data-klikado-loctrigger="1"]')
+        .first()
+        .click({ timeout: 4000 })
+        .catch(() => {});
       await page.waitForTimeout(1300);
+    }
+    await this.debugShot(page, ctx, "lokalita-open");
+    if (!onForm()) {
+      await ctx.log("Lokalita: po otvorení sme mimo formulára — končím.");
+      return;
+    }
 
-      // Find the whisperer dropdown by POSITION (any element that popped up just
-      // below the location input), regardless of class — but strictly outside
-      // header/nav/footer and never an off-site <a>. Report each candidate's
-      // container class so the widget can be identified from the logs.
-      const found = await page
-        .evaluate((val: string) => {
-          const norm = (s: string) =>
-            s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-          const v = norm(val);
+    // 2) Dump the opened panel and find its search box (if any).
+    const panel = await page
+      .evaluate(() => {
+        const known = /title|video|param_|Agents|password|content|agreement/;
+        const isVis = (el: HTMLElement) => {
+          const r = el.getBoundingClientRect();
+          return r.width > 2 && r.height > 2 && el.offsetParent !== null;
+        };
+        let search: HTMLInputElement | null = null;
+        for (const i of Array.from(
+          document.querySelectorAll<HTMLInputElement>("input"),
+        )) {
+          const type = (i.type || "text").toLowerCase();
+          if (!["text", "search"].includes(type)) continue;
+          if (!isVis(i)) continue;
+          if (known.test(i.getAttribute("name") || "")) continue;
+          if (i.value) continue;
+          search = i;
+          if (
+            i.closest(
+              '[class*="modal"],[class*="overlay"],[class*="dialog"],[class*="popup"],[role="dialog"]',
+            )
+          )
+            break;
+        }
+        if (search) search.setAttribute("data-klikado-locsearch", "1");
+        const items: string[] = [];
+        for (const el of Array.from(
+          document.querySelectorAll<HTMLElement>(
+            '[class*="modal"] *,[class*="overlay"] *,[class*="popup"] *,[role="dialog"] *,[class*="location"] *,[class*="region"] *,[class*="geo"] *',
+          ),
+        )) {
+          if (el.closest("header,nav,footer")) continue;
+          if (el.querySelector("*")) continue;
+          const t = (el.textContent || "").replace(/\s+/g, " ").trim();
+          if (t.length < 2 || t.length > 40) continue;
+          items.push(t);
+        }
+        return {
+          hasSearch: !!search,
+          searchName: search?.getAttribute("name") || "",
+          items: Array.from(new Set(items)).slice(0, 30),
+        };
+      })
+      .catch(() => ({ hasSearch: false, searchName: "", items: [] as string[] }));
+    await ctx.log("Lokalita – panel", panel);
+
+    // 3) If a search box appeared, type the town and click the best result.
+    if (panel.hasSearch && town) {
+      const s = page.locator('[data-klikado-locsearch="1"]').first();
+      await s.click().catch(() => {});
+      await s.fill("").catch(() => {});
+      await s.type(town, { delay: 60 }).catch(() => {});
+      await page.waitForTimeout(1600);
+      const picked = await page
+        .evaluate((t: string) => {
+          const norm = (x: string) =>
+            x.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+          const nt = norm(t);
           const input = document.querySelector<HTMLElement>(
-            '[data-klikado-loc="1"]',
+            '[data-klikado-locsearch="1"]',
           );
-          if (!input) return { classes: [] as string[], items: [] as string[], tagged: false };
-          const ir = input.getBoundingClientRect();
-          const rows: { el: HTMLElement; txt: string; cls: string }[] = [];
+          const ir = input ? input.getBoundingClientRect() : null;
+          const rows: { el: HTMLElement; txt: string }[] = [];
           for (const el of Array.from(
             document.querySelectorAll<HTMLElement>("li,a,div,span,p,td"),
           )) {
             if (el.closest("header,nav,footer")) continue;
-            if (el.querySelector("li,ul,table,form,textarea,input")) continue; // leaf-ish
+            if (el.querySelector("li,ul,input,form")) continue;
             const r = el.getBoundingClientRect();
-            // Positioned just below the location input, roughly aligned with it.
-            if (r.top < ir.bottom - 4 || r.top > ir.bottom + 320) continue;
-            if (r.left < ir.left - 60 || r.left > ir.left + ir.width + 60) continue;
+            if (ir && r.top < ir.top - 8) continue;
             if (r.width < 20 || r.height < 8 || r.height > 60) continue;
             const txt = (el.textContent || "").replace(/\s+/g, " ").trim();
-            if (txt.length < 2 || txt.length > 70) continue;
-            // Skip anchors that navigate to another page/host.
-            if (
-              el.tagName === "A" &&
-              (el as HTMLAnchorElement).getAttribute("href") &&
-              !/^#|^javascript:/i.test(
-                (el as HTMLAnchorElement).getAttribute("href") || "",
-              )
-            )
-              continue;
-            rows.push({
-              el,
-              txt,
-              cls: (el.parentElement?.className || el.className || "").slice(0, 40),
-            });
+            if (txt.length < 2 || txt.length > 60) continue;
+            rows.push({ el, txt });
           }
-          let tagged = false;
-          let best = rows.find((r) => norm(r.txt).includes(v) || v.includes(norm(r.txt)));
+          let best = rows.find((r) => norm(r.txt).includes(nt));
           if (!best) best = rows[0];
-          if (best) {
-            best.el.setAttribute("data-klikado-sugg", "1");
-            tagged = true;
-          }
+          if (best) best.el.setAttribute("data-klikado-locpick", "1");
           return {
-            classes: Array.from(new Set(rows.map((r) => r.cls))).slice(0, 6),
-            items: rows.map((r) => r.txt).slice(0, 16),
-            tagged,
+            picked: best ? best.txt : "",
+            options: rows.map((r) => r.txt).slice(0, 12),
           };
-        }, value)
-        .catch(() => ({ classes: [] as string[], items: [] as string[], tagged: false }));
-      await ctx.log("Lokalita – rozbaľovačka", {
-        value,
-        containers: found.classes,
-        items: found.items,
-        tagged: found.tagged,
+        }, town)
+        .catch(() => ({ picked: "", options: [] as string[] }));
+      await ctx.log("Lokalita – výsledok hľadania", {
+        town,
+        picked: picked.picked || "∅",
+        options: picked.options,
       });
-
-      if (found.tagged) {
+      if (picked.picked) {
         await page
-          .locator('[data-klikado-sugg="1"]')
+          .locator('[data-klikado-locpick="1"]')
           .first()
           .click({ timeout: 3000 })
           .catch(() => {});
-        await page.waitForTimeout(700);
+        await page.waitForTimeout(900);
       }
-
-      const nameVal = await locName.inputValue().catch(() => "");
-      await ctx.log("Lokalita pokus", {
-        value,
-        clicked: found.tagged,
-        locationName: nameVal || "∅",
-        visible: (await loc.inputValue().catch(() => "")) || "∅",
-        onForm: onForm(),
-      });
-      await this.debugShot(page, ctx, "lokalita");
-      if (nameVal && nameVal.trim().length > 1) return; // hidden field populated
     }
-    await ctx.log("Lokalita: nepodarilo sa vybrať z ponuky.");
+
+    const nameVal = await locName.inputValue().catch(() => "");
+    await ctx.log("Lokalita – výsledok", {
+      locationName: nameVal || "∅",
+      onForm: onForm(),
+    });
+    await this.debugShot(page, ctx, "lokalita");
   }
 
   /**
