@@ -20,23 +20,50 @@ export const POST = async (req: Request) => {
   try {
     event = stripe.webhooks.constructEvent(body, sig, secret);
   } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[stripe-webhook] signature verification FAILED: ${(err as Error).message}`,
+    );
     return new Response(
       `Webhook signature verification failed: ${(err as Error).message}`,
       { status: 400 },
     );
   }
 
-  switch (event.type) {
-    case "customer.subscription.created":
-    case "customer.subscription.updated":
-    case "customer.subscription.deleted": {
-      const sub = event.data.object as Stripe.Subscription;
-      await syncSubscription(sub);
-      break;
+  // eslint-disable-next-line no-console
+  console.log(`[stripe-webhook] received ${event.type}`);
+
+  try {
+    switch (event.type) {
+      case "customer.subscription.created":
+      case "customer.subscription.updated":
+      case "customer.subscription.deleted": {
+        const sub = event.data.object as Stripe.Subscription;
+        await syncSubscription(sub);
+        break;
+      }
+      case "checkout.session.completed": {
+        // Belt-and-braces: right after payment, fetch the subscription and sync
+        // it — so the plan activates even if the subscription.* event is delayed.
+        const cs = event.data.object as Stripe.Checkout.Session;
+        if (cs.subscription) {
+          const sub = await stripe.subscriptions.retrieve(
+            cs.subscription as string,
+          );
+          await syncSubscription(sub);
+        }
+        break;
+      }
+      default:
+        // Ignore unrelated events.
+        break;
     }
-    default:
-      // Ignore unrelated events.
-      break;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[stripe-webhook] handler error for ${event.type}:`, err);
+    // Return 200 anyway so Stripe doesn't hammer retries for a transient issue;
+    // the log above captures what went wrong.
+    return new Response("handler-error", { status: 200 });
   }
 
   return new Response("ok", { status: 200 });
