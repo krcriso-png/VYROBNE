@@ -32,24 +32,32 @@ export const POST = route(async (req: Request) => {
   });
 
   try {
-    // Reuse or create the Stripe customer.
+    // Reuse or create the Stripe customer. preferred_locales="sk" makes Stripe
+    // send invoices/receipts in Slovak.
     let customerId = sub.stripeCustomerId ?? undefined;
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: user.email,
         metadata: { userId: user.id },
+        preferred_locales: ["sk"],
       });
       customerId = customer.id;
       await prisma.subscription.update({
         where: { userId: user.id },
         data: { stripeCustomerId: customerId },
       });
+    } else {
+      // Ensure existing customers also get Slovak documents.
+      await stripe.customers
+        .update(customerId, { preferred_locales: ["sk"] })
+        .catch(() => {});
     }
 
     const appUrl = appBaseUrl();
     const checkout = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,
+      locale: "sk", // Slovak checkout page
       line_items: [{ price: priceId, quantity: 1 }],
       subscription_data: { trial_period_days: TRIAL_DAYS },
       // Let businesses buy: collect the billing address and their VAT/tax ID so
