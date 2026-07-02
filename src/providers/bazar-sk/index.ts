@@ -1622,12 +1622,12 @@ async function downloadImages(
       buffer = await sharp(raw)
         .rotate()
         .resize({
-          width: 1200,
-          height: 1200,
+          width: 1024,
+          height: 1024,
           fit: "inside",
           withoutEnlargement: true,
         })
-        .jpeg({ quality: 80 })
+        .jpeg({ quality: 72 })
         .toBuffer();
     } catch {
       buffer = raw;

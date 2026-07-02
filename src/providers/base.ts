@@ -24,6 +24,12 @@ import { putObject } from "../lib/storage";
 // is that a new portal module only implements the portal-specific steps.
 // ===========================================================================
 
+// Ad / analytics / tracker hosts to block for every browser provider. These
+// add nothing to automation but load heavy cross-origin iframes/scripts that
+// OOM-crash the page in a memory-limited container and slow every step.
+const BLOCKED_RESOURCE_RE =
+  /doubleclick\.net|googlesyndication|googletagservices|googletagmanager|google-analytics|analytics\.google|pagead2|pubmatic\.com|gemius|azet\.sk\/livemonitor|tracker\.azet|adservice|adsystem|amazon-adsystem|criteo|rubiconproject|adnxs|casalemedia|smartadserver|scorecardresearch|outbrain|taboola|hotjar|cookielaw|onetrust|facebook\.net|connect\.facebook|\/ads\/|adsafeprotected|moatads|teads|yieldlab|quantserve/i;
+
 /** Default unsupported behaviour so partial providers still satisfy the type. */
 export abstract class BaseProvider implements Provider {
   abstract readonly key: string;
@@ -104,6 +110,14 @@ export abstract class BrowserProvider extends BaseProvider {
           "--disable-setuid-sandbox",
           "--disable-dev-shm-usage",
           "--disable-gpu",
+          // Portals like bazar.sk embed many cross-origin ad/tracker iframes.
+          // Under site isolation each becomes its own renderer process, which
+          // OOM-crashes the page in a memory-limited container ("Page crashed"
+          // during photo upload). Collapse them into fewer processes.
+          "--disable-features=IsolateOrigins,site-per-process,TranslateUI",
+          "--disable-background-timer-throttling",
+          "--disable-renderer-backgrounding",
+          "--disable-ipc-flooding-protection",
         ],
       });
       context = await browser.newContext({
@@ -113,6 +127,19 @@ export abstract class BrowserProvider extends BaseProvider {
           "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
         locale: "sk-SK",
       });
+      // Block ad/analytics/tracker requests. They add nothing to automation but
+      // load heavy iframes/scripts that push a constrained container into OOM
+      // and slow every step down. Never let a routing hiccup break the flow.
+      await context
+        .route("**/*", (route) => {
+          const url = route.request().url();
+          if (BLOCKED_RESOURCE_RE.test(url)) {
+            route.abort().catch(() => route.continue().catch(() => {}));
+          } else {
+            route.continue().catch(() => {});
+          }
+        })
+        .catch(() => {});
       // Our bundler keeps function names via an esbuild `__name` helper. When a
       // page.evaluate/$$eval callback is serialised and run in the browser, that
       // `__name` reference isn't defined there and throws
