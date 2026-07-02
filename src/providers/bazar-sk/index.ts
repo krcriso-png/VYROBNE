@@ -115,8 +115,9 @@ export class BazarSkProvider extends BrowserProvider {
         await this.fillLabeled(page, "Cena", String(listing.price));
       }
 
-      // "Stav" (condition) is a required dropdown — pick a sensible option
-      // ("Použité"), else the first real option so the field is satisfied.
+      // "Stav" (condition) may be a dropdown OR radio buttons depending on the
+      // category (Detské potreby uses radios: data[param_3]). Try the select
+      // first; required radios are handled generically below.
       await this.selectLabeled(page, "Stav", /použit|pouzit|nové|nove|zachoval/i);
 
       // Location: bazar.sk's "Lokalita" is an AUTOCOMPLETE — typing a value
@@ -141,6 +142,21 @@ export class BazarSkProvider extends BrowserProvider {
       // pick its first real option so a category with extra fields still submits.
       await this.fillRequiredSelects(page, ctx);
 
+      // Required radio groups (Stav and other category params like data[param_3]
+      // / data[param_4]) — check the first option of any group that has none
+      // selected, so the form isn't rejected for a missing required parameter.
+      await this.fillRequiredRadios(page, ctx);
+
+      // Safety: if any earlier step navigated us away from the add form (e.g. a
+      // stray click during the location autocomplete), stop now — don't upload
+      // photos to the homepage or "submit" nothing and report a false success.
+      if (!(await this.hasField(page, "Nadpis"))) {
+        await this.debugShot(page, ctx, "lost-form");
+        throw new Error(
+          `Bazar.sk: počas vypĺňania sme vypadli z formulára (skončili sme na ${page.url()}). Inzerát sa nezverejnil.`,
+        );
+      }
+
       // Photos.
       if (listing.images.length > 0) {
         const files = await downloadImages(listing.images);
@@ -156,18 +172,38 @@ export class BazarSkProvider extends BrowserProvider {
         await page.waitForTimeout(3000);
       }
 
-      // Contact block.
+      // Contact block — bazar.sk uses fixed field names for the advertiser name
+      // and password, and dynamic hashed names ending in [contact] for phone /
+      // e-mail. Fill by the real names (fall back to the label caption).
       const jmeno =
         listing.contactName ||
         listing.email?.split("@")[0] ||
         "Inzerent";
-      await this.fillLabeled(page, "Meno", jmeno);
-      if (listing.email) await this.fillLabeled(page, "E-mail", listing.email);
+      await this.fillByNameOrLabel(
+        page,
+        "data[Agents][agent][name]",
+        "Meno",
+        jmeno,
+      );
       const phone = localPhone(ctx.secrets?.verifyPhone || listing.phone);
-      if (phone) await this.fillLabeled(page, "Telefón", phone);
+      // Fill the dynamic [contact] inputs: first with phone, second (if present)
+      // with e-mail. These carry the SMS-verification number.
+      const contacts = page.locator('form input[name$="[contact]"]');
+      const nContacts = await contacts.count().catch(() => 0);
+      if (nContacts > 0 && phone) {
+        await contacts.nth(0).fill(phone).catch(() => {});
+      }
+      if (nContacts > 1 && listing.email) {
+        await contacts.nth(1).fill(listing.email).catch(() => {});
+      }
+      // Fallbacks by label in case the names change.
+      if (nContacts === 0) {
+        if (phone) await this.fillLabeled(page, "Telefón", phone);
+        if (listing.email) await this.fillLabeled(page, "E-mail", listing.email);
+      }
       // Per-ad password (min 7 chars) — lets us edit/delete later.
       const adPass = sevenPlus(ctx.secrets?.password);
-      await this.fillLabeled(page, "Heslo", adPass);
+      await this.fillByNameOrLabel(page, "data[password]", "Heslo", adPass);
 
       // Agree to the listing terms (required checkbox before "podmienkami inzercie").
       await this.checkTerms(page, ctx);
@@ -193,6 +229,46 @@ export class BazarSkProvider extends BrowserProvider {
         .evaluate((el) => (el as HTMLInputElement).files?.length ?? 0)
         .catch(() => -1);
       await ctx.log("Hodnoty formulára pred odoslaním", { ...readback, fileCount });
+
+      // Read back by the REAL field names too (the label mapping can miss on
+      // bazar.sk's params) — this shows exactly what will be submitted.
+      const byName = await page
+        .evaluate(() => {
+          const get = (n: string) =>
+            (
+              document.querySelector<HTMLInputElement>(`[name="${n}"]`)?.value ??
+              ""
+            ).slice(0, 40) || "∅";
+          const contacts = Array.from(
+            document.querySelectorAll<HTMLInputElement>(
+              'form input[name$="[contact]"]',
+            ),
+          )
+            .map((e) => e.value)
+            .filter(Boolean);
+          const radios = Array.from(
+            document.querySelectorAll<HTMLInputElement>(
+              'form input[type="radio"]:checked',
+            ),
+          ).map((e) => e.name);
+          return {
+            title: get("data[title]"),
+            content: get("data[content]"),
+            param_1: get("data[param_1]"),
+            locationName: get("data[locationName]"),
+            idCity: get("data[idCity]"),
+            name: get("data[Agents][agent][name]"),
+            password: document.querySelector<HTMLInputElement>(
+              '[name="data[password]"]',
+            )?.value
+              ? "✓"
+              : "∅",
+            contacts,
+            checkedRadios: radios,
+          };
+        })
+        .catch(() => null);
+      await ctx.log("Polia podľa názvu (reálne)", byName ?? { error: true });
 
       await this.debugShot(page, ctx, "form-filled");
 
@@ -533,66 +609,94 @@ export class BazarSkProvider extends BrowserProvider {
     const loc = page.locator('[data-klikado-loc="1"]').first();
     const locName = page.locator('input[name="data[locationName]"]').first();
 
+    const onForm = () =>
+      page.url().includes("pridanie-neprihlaseny") ||
+      page.url().includes("#form");
+
     for (const value of candidates.filter(Boolean)) {
-      // Step 1: CLICK the field to open the dropdown panel (search box + list).
+      if (!onForm()) break; // never keep going once we've left the add form
+      // Type directly into the location autocomplete (no global keyboard typing,
+      // which previously leaked into the site search).
       await loc.click().catch(() => {});
-      await page.waitForTimeout(900);
+      await loc.fill("").catch(() => {});
+      await loc.type(value, { delay: 60 }).catch(() => {});
+      await page.waitForTimeout(1300);
 
-      // Step 2: type the PSČ into whatever input the panel focused (the panel's
-      // own search box), so the list filters to "01001 - Žilina …".
-      await page.keyboard.type(value, { delay: 140 }).catch(() => {});
-      await page.waitForTimeout(2500);
-
-      // Tag the first dropdown item that contains the typed value (e.g. the
-      // "01001 - Žilina" row) and dump the visible options for debugging.
-      const dump = await page
+      // Look ONLY inside a real autocomplete/whisperer dropdown near the field —
+      // never arbitrary page elements (that navigated us to the homepage). Tag
+      // the best matching row; report the dropdown containers so the widget can
+      // be identified from the logs.
+      const found = await page
         .evaluate((val: string) => {
-          const out: string[] = [];
-          let taggedMatch = false;
-          let taggedFirst = false;
-          for (const el of Array.from(
-            document.querySelectorAll<HTMLElement>("li,a,div,td,span,p"),
-          )) {
-            if (el.closest("header,nav,footer")) continue;
-            // leaf-ish: avoid big containers
-            if (el.querySelector("li,table,form,textarea")) continue;
-            const r = el.getBoundingClientRect();
-            if (r.width < 25 || r.height < 9 || r.height > 70) continue;
-            const txt = (el.textContent || "").replace(/\s+/g, " ").trim();
-            if (txt.length < 3 || txt.length > 60) continue;
-            out.push(`${el.tagName}: ${txt}`);
-            // Prefer an item that actually contains the typed value.
-            if (!taggedMatch && txt.includes(val)) {
-              el.setAttribute("data-klikado-sugg", "1");
-              taggedMatch = true;
-            } else if (!taggedFirst && !taggedMatch) {
-              el.setAttribute("data-klikado-sugg2", "1");
-              taggedFirst = true;
+          const norm = (s: string) =>
+            s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+          const v = norm(val);
+          const containers = Array.from(
+            document.querySelectorAll<HTMLElement>(
+              '[class*="whisper"],[class*="autocomplete"],[class*="ac_results"],[class*="suggest"],[class*="results"],[class*="dropdown"],ul[role="listbox"]',
+            ),
+          ).filter((c) => {
+            if (c.closest("header,nav,footer")) return false;
+            const r = c.getBoundingClientRect();
+            return r.width > 20 && r.height > 8;
+          });
+          const classes = containers.map((c) => c.className).slice(0, 6);
+          const items: string[] = [];
+          let tagged = false;
+          for (const c of containers) {
+            const rows = Array.from(
+              c.querySelectorAll<HTMLElement>("li,a,div,span,p"),
+            );
+            for (const el of rows) {
+              if (el.querySelector("li,ul")) continue; // leaf-ish rows only
+              const txt = (el.textContent || "").replace(/\s+/g, " ").trim();
+              if (txt.length < 2 || txt.length > 70) continue;
+              const r = el.getBoundingClientRect();
+              if (r.height < 8) continue;
+              items.push(txt);
+              if (!tagged && (norm(txt).includes(v) || v.includes(norm(txt)))) {
+                el.setAttribute("data-klikado-sugg", "1");
+                tagged = true;
+              }
             }
           }
-          return out.slice(0, 16);
+          // If the dropdown has rows but none matched the text, take the first
+          // row of the first container (still safely inside the widget).
+          if (!tagged && containers.length) {
+            const firstRow = containers[0].querySelector<HTMLElement>(
+              "li,a,div,span,p",
+            );
+            if (firstRow) {
+              firstRow.setAttribute("data-klikado-sugg", "1");
+              tagged = true;
+            }
+          }
+          return { classes, items: items.slice(0, 16), tagged };
         }, value)
-        .catch(() => [] as string[]);
-      await ctx.log("Lokalita – rozbaľovačka", { value, dump });
+        .catch(() => ({ classes: [] as string[], items: [] as string[], tagged: false }));
+      await ctx.log("Lokalita – rozbaľovačka", {
+        value,
+        containers: found.classes,
+        items: found.items,
+        tagged: found.tagged,
+      });
 
-      // Step 3: click the matching item (fills the hidden geo fields).
-      let clicked = false;
-      for (const sel of ['[data-klikado-sugg="1"]', '[data-klikado-sugg2="1"]']) {
-        const s = page.locator(sel).first();
-        if (await s.count().catch(() => 0)) {
-          await s.click({ timeout: 3000 }).catch(() => {});
-          clicked = true;
-          break;
-        }
+      if (found.tagged) {
+        await page
+          .locator('[data-klikado-sugg="1"]')
+          .first()
+          .click({ timeout: 3000 })
+          .catch(() => {});
+        await page.waitForTimeout(700);
       }
-      await page.waitForTimeout(800);
 
       const nameVal = await locName.inputValue().catch(() => "");
       await ctx.log("Lokalita pokus", {
         value,
-        clicked,
+        clicked: found.tagged,
         locationName: nameVal || "∅",
         visible: (await loc.inputValue().catch(() => "")) || "∅",
+        onForm: onForm(),
       });
       await this.debugShot(page, ctx, "lokalita");
       if (nameVal && nameVal.trim().length > 1) return; // hidden field populated
@@ -601,6 +705,44 @@ export class BazarSkProvider extends BrowserProvider {
   }
 
   /** Select an option (preferring a regex match) in the dropdown after a label. */
+  /**
+   * Check the first option of every required radio group that has none selected
+   * (Stav and category params like data[param_3]/data[param_4] render as radios,
+   * not selects). Without this the form is rejected for a missing parameter.
+   */
+  private async fillRequiredRadios(
+    page: import("playwright").Page,
+    ctx: ProviderContext,
+  ): Promise<void> {
+    const done = await page
+      .evaluate(() => {
+        const groups: Record<string, HTMLInputElement[]> = {};
+        for (const el of Array.from(
+          document.querySelectorAll<HTMLInputElement>('form input[type="radio"]'),
+        )) {
+          const n = el.name || "";
+          if (!n) continue;
+          (groups[n] = groups[n] || []).push(el);
+        }
+        const out: string[] = [];
+        for (const n of Object.keys(groups)) {
+          const els = groups[n];
+          if (els.some((e) => e.checked)) continue;
+          const first = els[0];
+          if (!first) continue;
+          first.checked = true;
+          first.dispatchEvent(new Event("click", { bubbles: true }));
+          first.dispatchEvent(new Event("change", { bubbles: true }));
+          out.push(n);
+        }
+        return out;
+      })
+      .catch(() => [] as string[]);
+    if (done.length) {
+      await ctx.log("Doplnené povinné prepínače (prvá možnosť)", { groups: done });
+    }
+  }
+
   private async selectLabeled(
     page: import("playwright").Page,
     label: string,
