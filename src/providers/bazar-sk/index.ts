@@ -724,9 +724,15 @@ export class BazarSkProvider extends BrowserProvider {
       await this.useWhisperer(page, ctx, cat.sub ?? cat.main);
     }
 
-    for (let i = 0; i < 7; i++) {
+    // The sub-category panel loads by AJAX and can take a few seconds — don't
+    // give up after one look. Each round: wait for the panel (or the ad form)
+    // to appear, then pick a sub-category. Only stop once the form is reached or
+    // we've had several truly-empty rounds.
+    let emptyRounds = 0;
+    for (let i = 0; i < 9; i++) {
       await page.waitForLoadState("domcontentloaded").catch(() => {});
-      await page.waitForTimeout(1200);
+      await this.waitForSubPanel(page);
+      await page.waitForTimeout(500);
       await this.debugShot(page, ctx, `add-cat-${i}`);
       if (await this.hasField(page, "Nadpis")) return true;
       const advanced = await this.advanceSubcategory(
@@ -734,13 +740,44 @@ export class BazarSkProvider extends BrowserProvider {
         ctx,
         cat.sub ?? cat.main,
       );
-      if (!advanced) {
-        // No sub-category to pick and no ad form yet — try a "Pokračovať"
-        // submit if the layout has one, otherwise stop.
-        if (!(await this.clickContinue(page))) break;
+      if (advanced) {
+        emptyRounds = 0;
+        continue;
       }
+      // Nothing to pick yet — try a "Pokračovať" submit, else wait for the AJAX
+      // and retry. Give up only after 3 consecutive empty rounds.
+      if (await this.clickContinue(page)) {
+        emptyRounds = 0;
+        continue;
+      }
+      if (++emptyRounds >= 3) break;
+      await page.waitForTimeout(1500);
     }
     return await this.hasField(page, "Nadpis");
+  }
+
+  /**
+   * Wait for the AJAX sub-category panel to actually appear after a category
+   * click. The definitive marker is the "zmeniť kategóriu" control that the
+   * loaded panel shows; the ad form's "Nadpis" also counts (deeper leaf that
+   * skipped straight to step 2).
+   */
+  private async waitForSubPanel(
+    page: import("playwright").Page,
+  ): Promise<boolean> {
+    return page
+      .waitForFunction(
+        () => {
+          const t = document.body?.innerText || "";
+          if (/zmeni[ťt]\s+kateg/i.test(t)) return true;
+          if (/Nadpis/i.test(t)) return true;
+          const sub = document.querySelector("#piSubDiv");
+          return !!sub && (sub.textContent || "").trim().length > 15;
+        },
+        { timeout: 9000 },
+      )
+      .then(() => true)
+      .catch(() => false);
   }
 
   /** Click a category tile by its data-cat-id (fires the AJAX sub-cat load). */
@@ -819,33 +856,35 @@ export class BazarSkProvider extends BrowserProvider {
         const bad =
           /zmeni[ťt]\s+kateg|prihl[aá]s|zalo[žz]te|nov[ée]\s+konto|registr|reklama|kontakt|^blog$|gdpr|cookies|podmienky\s+inzercie|mobiln[áa]\s+verzia|prid[áa]vate|ako\s+inzerova|united\s+classif|bazar\.sk|vyh[ľl]ad|sledovan|moje\s+inzer|zvýhodni/i;
 
-        // Locate the loaded sub-category panel. Prefer #piSubDiv; fall back to
-        // #piSub, then to the smallest container that holds "zmeniť kategóriu".
+        // Locate the loaded sub-category panel. Prefer #piSubDiv / #piSub; then
+        // the smallest sensible container that holds "zmeniť kategóriu"; then
+        // the add form's main content area.
         const cands: Element[] = [];
-        const byId = document.querySelector("#piSubDiv");
-        if (byId) cands.push(byId);
-        const byId2 = document.querySelector("#piSub");
-        if (byId2) cands.push(byId2);
-        let root: Element | null = null;
-        for (const c of cands) {
-          if ((c.textContent || "").trim().length > 15) {
-            root = c;
-            break;
-          }
+        for (const s of ["#piSubDiv", "#piSub"]) {
+          const el = document.querySelector(s);
+          if (el && (el.textContent || "").trim().length > 15) cands.push(el);
         }
+        let root: Element | null = cands[0] ?? null;
         if (!root) {
           const all = Array.from(
             document.querySelectorAll("div,section,fieldset"),
           );
+          let smallest: Element | null = null;
+          let smallestSize = Infinity;
           for (const el of all) {
-            if (
-              /zmeni[ťt]\s+kateg/i.test(el.textContent || "") &&
-              el.querySelectorAll("*").length < 500
-            ) {
-              root = el;
-              break;
+            if (!/zmeni[ťt]\s+kateg/i.test(el.textContent || "")) continue;
+            const size = el.querySelectorAll("*").length;
+            if (size < smallestSize && size < 600) {
+              smallest = el;
+              smallestSize = size;
             }
           }
+          root = smallest;
+        }
+        if (!root) {
+          root =
+            document.querySelector(".main-content") ||
+            document.querySelector(".grey-box");
         }
         if (!root) return { dump: [], picked: "", tag: "" };
 
