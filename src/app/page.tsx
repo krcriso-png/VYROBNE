@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { OPERATOR } from "@/lib/legal";
 
 const FEATURES = [
   {
@@ -169,8 +170,27 @@ export default function HomePage() {
           </div>
         </section>
 
-        <footer className="border-t py-8 text-center text-sm text-muted-foreground">
-          © {new Date().getFullYear()} Klikado · API-first SaaS
+        <footer className="border-t py-8">
+          <div className="flex flex-col items-center gap-3 text-sm text-muted-foreground sm:flex-row sm:justify-between">
+            <span>
+              © {new Date().getFullYear()} {OPERATOR.brand}
+              {OPERATOR.legalName.startsWith("[") ? "" : ` · ${OPERATOR.legalName}`}
+            </span>
+            <nav className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1">
+              <Link href="/obchodne-podmienky" className="hover:text-foreground">
+                Obchodné podmienky
+              </Link>
+              <Link
+                href="/ochrana-osobnych-udajov"
+                className="hover:text-foreground"
+              >
+                Ochrana osobných údajov
+              </Link>
+              <Link href="/cookies" className="hover:text-foreground">
+                Cookies
+              </Link>
+            </nav>
+          </div>
         </footer>
       </div>
     </main>

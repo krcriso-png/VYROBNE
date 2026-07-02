@@ -125,6 +125,20 @@ export default function RegisterPage() {
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Vytváram…" : "Vytvoriť účet"}
             </Button>
+            <p className="text-center text-xs text-muted-foreground">
+              Vytvorením účtu súhlasíš s{" "}
+              <Link href="/obchodne-podmienky" className="text-primary hover:underline">
+                obchodnými podmienkami
+              </Link>{" "}
+              a{" "}
+              <Link
+                href="/ochrana-osobnych-udajov"
+                className="text-primary hover:underline"
+              >
+                spracovaním osobných údajov
+              </Link>
+              .
+            </p>
           </form>
 
           <ul className="mt-5 space-y-1.5 text-xs text-muted-foreground">
