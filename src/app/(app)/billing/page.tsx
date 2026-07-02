@@ -171,10 +171,13 @@ export default async function BillingPage() {
                 ) : (
                   <UpgradeButtons
                     plan={p.key as "BASIC" | "PRO"}
+                    planName={p.name}
                     monthlyPriceEur={p.priceEur}
                     yearlyPriceEur={p.prices.yearly ? p.priceEurYearly : null}
                     savingPct={p.prices.yearly ? yearlySavingPct(p.key) : null}
                     subscribed={hasPaidSub}
+                    trialing={sub?.status === "TRIALING"}
+                    nextChargeDate={endsAt}
                   />
                 )}
               </div>

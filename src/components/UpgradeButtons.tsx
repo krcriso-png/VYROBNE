@@ -4,26 +4,34 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
-// Choose a paid plan. For a new subscriber this starts Stripe Checkout; for an
-// existing subscriber it switches the current subscription's plan (no second
-// subscription). Shows monthly and — when available — a highlighted yearly
-// option with the saving percentage.
+// Choose a paid plan. For a NEW subscriber this starts Stripe Checkout (Stripe
+// shows its own confirmation + amount). For an EXISTING subscriber it switches
+// the current subscription's plan — but only after an explicit in-app
+// confirmation that shows the price and how it will be billed.
 export function UpgradeButtons({
   plan,
+  planName,
   monthlyPriceEur,
   yearlyPriceEur,
   savingPct,
   subscribed = false,
+  trialing = false,
+  nextChargeDate = null,
 }: {
   plan: "BASIC" | "PRO";
+  planName: string;
   monthlyPriceEur: number;
   yearlyPriceEur?: number | null;
   savingPct?: number | null;
   subscribed?: boolean;
+  trialing?: boolean;
+  nextChargeDate?: string | null;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState<string | null>(null);
+  const [pending, setPending] = useState<"monthly" | "yearly" | null>(null);
   const hasYearly = !!yearlyPriceEur;
+  const eur = (n: number) => `${n.toFixed(2).replace(".", ",")} €`;
 
   async function go(interval: "monthly" | "yearly") {
     setLoading(interval);
@@ -37,36 +45,81 @@ export function UpgradeButtons({
     if (data.url) {
       window.location.href = data.url; // new subscriber → Stripe Checkout
     } else if (res.ok) {
+      setPending(null);
       router.refresh(); // existing subscriber → plan changed in place
       setLoading(null);
     } else {
       setLoading(null);
+      setPending(null);
       alert(data.error ?? "Nepodarilo sa spracovať požiadavku.");
     }
   }
 
-  const eur = (n: number) => `${n.toFixed(2).replace(".", ",")} €`;
-  const verb = subscribed ? "Prejsť na" : "";
+  // Clicking a plan: new subscriber → straight to Stripe; existing → confirm.
+  function choose(interval: "monthly" | "yearly") {
+    if (subscribed) setPending(interval);
+    else go(interval);
+  }
+
+  // In-app confirmation for a plan CHANGE (existing subscriber).
+  if (pending) {
+    const price = pending === "yearly" ? eur(yearlyPriceEur! / 12) : eur(monthlyPriceEur);
+    const per = pending === "yearly" ? "/mes (účtované ročne)" : "/mes";
+    return (
+      <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">
+        <p className="text-sm">
+          Prejsť na <strong>{planName}</strong> za{" "}
+          <strong>
+            {price}
+            {per}
+          </strong>
+          ?
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {trialing
+            ? `Počas skúšobnej lehoty sa nič nestrhne. Od ${nextChargeDate ?? "konca skúšky"} sa účtuje nová cena.`
+            : `Rozdiel ceny do ${nextChargeDate ?? "konca obdobia"} sa zúčtuje alikvotne, ďalej platíš novú cenu.`}
+        </p>
+        <div className="mt-3 flex gap-2">
+          <Button
+            size="sm"
+            onClick={() => go(pending)}
+            disabled={loading !== null}
+          >
+            {loading ? "Mením…" : "Potvrdiť zmenu"}
+          </Button>
+          <button
+            type="button"
+            onClick={() => setPending(null)}
+            disabled={loading !== null}
+            className="rounded-lg border border-input px-3 py-2 text-sm font-medium transition-colors hover:bg-muted"
+          >
+            Späť
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-2">
       <Button
         size="sm"
         className="w-full"
-        onClick={() => go("monthly")}
+        onClick={() => choose("monthly")}
         disabled={loading !== null}
       >
         {loading === "monthly"
           ? "…"
           : subscribed
-            ? `${verb} mesačne · ${eur(monthlyPriceEur)}`
+            ? `Prejsť na mesačne · ${eur(monthlyPriceEur)}`
             : `Mesačne · ${eur(monthlyPriceEur)}`}
       </Button>
       {hasYearly && (
         <>
           <button
             type="button"
-            onClick={() => go("yearly")}
+            onClick={() => choose("yearly")}
             disabled={loading !== null}
             className="relative flex w-full items-center justify-center gap-2 rounded-lg border border-success/40 bg-success/5 px-3 py-2 text-sm font-medium text-success transition-colors hover:bg-success/10 disabled:opacity-50"
           >
