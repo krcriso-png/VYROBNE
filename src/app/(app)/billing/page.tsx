@@ -6,7 +6,10 @@ import { getCreditState, creditReasonLabel } from "@/lib/credits";
 import { reconcileUserSubscription } from "@/lib/billing-sync";
 import { UpgradeButtons } from "@/components/UpgradeButtons";
 import { ManageSubscriptionButton } from "@/components/ManageSubscriptionButton";
-import { CancelSubscription } from "@/components/CancelSubscription";
+import {
+  DowngradeToFree,
+  ResumeSubscription,
+} from "@/components/SubscriptionActions";
 import { Card } from "@/components/ui/card";
 
 function planFeatures(key: string): string[] {
@@ -60,21 +63,11 @@ export default async function BillingPage() {
           Aktuálny plán: <strong>{PLANS[plan].name}</strong>
           {sub?.status ? ` · stav ${sub.status}` : ""}
         </p>
-        {sub?.stripeCustomerId && (
-          <div className="mt-4 space-y-3">
-            {hasPaidSub && (
-              <CancelSubscription
-                cancelAtPeriodEnd={sub?.cancelAtPeriodEnd ?? false}
-                endsAt={endsAt}
-              />
-            )}
-            <div>
-              <ManageSubscriptionButton />
-              <p className="mt-1 text-xs text-muted-foreground">
-                Faktúry a zmena platobnej karty
-              </p>
-            </div>
-          </div>
+        {hasPaidSub && sub?.cancelAtPeriodEnd && (
+          <p className="mt-2 text-sm font-medium text-warning">
+            ⚠️ Predplatné sa zruší{endsAt ? ` ${endsAt}` : ""} a prepne na Free.
+            Obnoviť ho môžeš v karte plánu nižšie.
+          </p>
         )}
       </div>
 
@@ -144,16 +137,34 @@ export default async function BillingPage() {
                 ))}
               </ul>
               <div className="mt-6">
-                {p.key === "FREE" || current ? (
-                  <span className="text-sm text-muted-foreground">
-                    {current ? "Práve používaš" : "Zadarmo"}
-                  </span>
+                {current ? (
+                  <div className="space-y-3">
+                    <span className="text-sm font-medium text-primary">
+                      Práve používaš
+                    </span>
+                    {hasPaidSub && sub?.cancelAtPeriodEnd && (
+                      <ResumeSubscription />
+                    )}
+                  </div>
+                ) : p.key === "FREE" ? (
+                  hasPaidSub ? (
+                    sub?.cancelAtPeriodEnd ? (
+                      <span className="text-sm text-muted-foreground">
+                        Sem prejdeš{endsAt ? ` ${endsAt}` : ""}
+                      </span>
+                    ) : (
+                      <DowngradeToFree endsAt={endsAt} />
+                    )
+                  ) : (
+                    <span className="text-sm text-muted-foreground">Zadarmo</span>
+                  )
                 ) : (
                   <UpgradeButtons
                     plan={p.key as "BASIC" | "PRO"}
                     monthlyPriceEur={p.priceEur}
                     yearlyPriceEur={p.prices.yearly ? p.priceEurYearly : null}
                     savingPct={p.prices.yearly ? yearlySavingPct(p.key) : null}
+                    subscribed={hasPaidSub}
                   />
                 )}
               </div>
@@ -161,9 +172,19 @@ export default async function BillingPage() {
           );
         })}
       </div>
-      <p className="text-xs text-muted-foreground">
-        * Pro plán má neobmedzený počet kreditov v rámci férového použitia.
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-muted-foreground">
+          * Pro plán má neobmedzený počet kreditov v rámci férového použitia.
+        </p>
+        {sub?.stripeCustomerId && (
+          <div className="text-right">
+            <ManageSubscriptionButton />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Faktúry a platobná karta
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* History */}
       <section>
