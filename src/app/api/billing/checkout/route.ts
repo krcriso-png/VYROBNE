@@ -52,6 +52,14 @@ export const POST = route(async (req: Request) => {
       customer: customerId,
       line_items: [{ price: priceId, quantity: 1 }],
       subscription_data: { trial_period_days: TRIAL_DAYS },
+      // Let businesses buy: collect the billing address and their VAT/tax ID so
+      // Stripe issues a proper invoice for their accounting. When Stripe Tax is
+      // enabled (STRIPE_TAX_ENABLED=true) and the EU VAT ID is valid, reverse
+      // charge is applied automatically (invoice without VAT — "bez DPH").
+      billing_address_collection: "required",
+      tax_id_collection: { enabled: true },
+      customer_update: { address: "auto", name: "auto" },
+      automatic_tax: { enabled: process.env.STRIPE_TAX_ENABLED === "true" },
       success_url: `${appUrl}/dashboard?billing=success`,
       cancel_url: `${appUrl}/billing?billing=cancelled`,
       metadata: { userId: user.id, plan },
