@@ -837,13 +837,68 @@ export class BazarSkProvider extends BrowserProvider {
       }
     }
 
-    // c) links inside the sub block
-    const links = page.locator(
-      '#piSub a[data-cat-id], #piSubDiv a[data-cat-id], #piSub a[href*="pridanie"], #piSubDiv a[href*="pridanie"], #piSubDiv li a',
-    );
-    if ((await links.count().catch(() => 0)) > 0) {
-      await links.first().click({ timeout: 6000 }).catch(() => {});
-      await ctx.log("Podkategória (odkaz) → prvá");
+    // c) sub-category links — after picking a main category, Bazar.sk renders
+    // the leaf sub-categories as plain <a> links (e.g. "Autosedačky", "Hračky").
+    // Tag the best text match inside the sub block (never the "zmeniť kategóriu"
+    // / login / group-heading links), then click it.
+    const tagged = await page
+      .evaluate((wantWords: string) => {
+        const bad =
+          /zmeni[ťt]\s+kateg|prihl|zalo[žz]te|nov[ée]\s+konto|registr|reklama|kontakt|blog|gdpr|cookies|podmienky|mobiln/i;
+        const scopes = ["#piSubDiv", "#piSub", ".categories-sub"];
+        let root: Element | null = null;
+        for (const s of scopes) {
+          const el = document.querySelector(s);
+          if (el && el.querySelector("a")) {
+            root = el;
+            break;
+          }
+        }
+        if (!root) return "";
+        const want = new Set(
+          wantWords
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[̀-ͯ]/g, "")
+            .split(/[^a-z0-9]+/)
+            .filter((w) => w.length > 2),
+        );
+        const links = Array.from(root.querySelectorAll<HTMLAnchorElement>("a"));
+        let best: HTMLAnchorElement | null = null;
+        let bestScore = -1;
+        let first: HTMLAnchorElement | null = null;
+        for (const a of links) {
+          const txt = (a.textContent || "").replace(/\s+/g, " ").trim();
+          if (txt.length < 2 || txt.length > 45) continue;
+          if (bad.test(txt)) continue;
+          const r = a.getBoundingClientRect();
+          if (r.width < 10 || r.height < 6) continue;
+          if (!first) first = a;
+          let score = 0;
+          const words = txt
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[̀-ͯ]/g, "")
+            .split(/[^a-z0-9]+/);
+          for (const w of words) if (want.has(w)) score++;
+          if (score > bestScore) {
+            bestScore = score;
+            best = a;
+          }
+        }
+        const pick = bestScore > 0 ? best : first;
+        if (!pick) return "";
+        pick.setAttribute("data-klikado-subcat", "1");
+        return (pick.textContent || "").replace(/\s+/g, " ").trim();
+      }, wanted)
+      .catch(() => "");
+    if (tagged) {
+      await page
+        .locator('[data-klikado-subcat="1"]')
+        .first()
+        .click({ timeout: 6000 })
+        .catch(() => {});
+      await ctx.log(`Podkategória (odkaz) → ${tagged}`);
       return true;
     }
     return false;
