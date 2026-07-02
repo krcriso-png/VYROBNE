@@ -29,11 +29,14 @@ export const OPERATOR = {
   // Registration line: for a živnosť the trade-register office + number, for an
   // s.r.o. the commercial-register court + section/insert.
   registration:
-    "Zapísaná v Obchodnom registri Okresného súdu Žilina, oddiel: Sro, vložka č. [DOPLŇ vložku]",
+    "Spoločnosť zapísaná v Obchodnom registri Okresného súdu Žilina, oddiel: Sro, vložka č. 86046/L",
+  // Statutory representative (konateľ).
+  representative: "Bc. Richard Krč, konateľ",
 
   // --- Contact -------------------------------------------------------------
   email: "info@klikado.sk",
-  phone: "[DOPLŇ: telefón]",
+  // Optional — leave "" to omit; set to add a phone to the legal pages.
+  phone: "",
 
   // Date the documents were last updated (shown on each page).
   updated: "2. 7. 2026",
