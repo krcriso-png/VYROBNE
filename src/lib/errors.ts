@@ -18,11 +18,13 @@ export function classifyError(raw: string | null | undefined): FriendlyError {
   const e = (raw ?? "").toLowerCase();
   if (!e) return { kind: "system", message: "Neznáma chyba." };
 
-  if (/zablokoval|maximum kódov|skúste to neskôr/.test(e)) {
+  if (/zablokovan|maximum kód|skúste to neskôr|zkuste to pozd|sms limit/.test(e)) {
     return {
       kind: "user",
       message:
-        "Portál dočasne zablokoval SMS overenie na tvoje číslo (priveľa pokusov). Skús to o pár hodín.",
+        "Portál zablokoval SMS overenie na toto telefónne číslo (priveľa pokusov). " +
+        "Pripoj účet portálu (e-mail + heslo) v sekcii Portály — potom sa SMS pri pridávaní nežiada. " +
+        "Alebo použi iné číslo na overenie, prípadne skús o pár hodín.",
     };
   }
   if (/nie je zadané žiadne číslo|nemá telefónne|vyžaduje overenie telefón/.test(e)) {

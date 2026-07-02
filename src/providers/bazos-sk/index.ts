@@ -703,13 +703,14 @@ export class BazosSkProvider extends BrowserProvider {
         .innerText()
         .catch(() => "");
       if (
-        /prekročili|překročili|skúste to neskôr|zkuste to později|maximum kódov|maximum kódů/i.test(
+        /zablokovan|prekročili|překročili|skúste to neskôr|zkuste to później|maximum kódov|maximum kódů/i.test(
           body,
         )
       ) {
         throw new Error(
-          "Bazoš dočasne zablokoval SMS kódy pre toto číslo (priveľa pokusov). " +
-            "Skús to znova o niekoľko hodín alebo zajtra — nie je to chyba Klikada.",
+          "Bazoš zablokoval toto telefónne číslo na SMS overenie (priveľa pokusov / SMS limit). " +
+            "Riešenie: v sekcii Portály pripoj Bazoš účet (e-mail + heslo) — potom sa SMS overenie pri pridávaní nevyžaduje. " +
+            "Alebo zadaj iné telefónne číslo na overenie, prípadne počkaj niekoľko hodín. Nie je to chyba Klikada.",
         );
       }
       if ((await page.locator('input[name="nadpis"]').count()) === 0) {

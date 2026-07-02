@@ -1,5 +1,7 @@
 import { prisma } from "../lib/db";
 import { logActivity } from "../lib/logger";
+import { notifyUser } from "../lib/notify";
+import { classifyError } from "../lib/errors";
 import { spendCredits, hasCredits } from "../lib/credits";
 import { signedDownloadUrl } from "../lib/storage";
 import { encryptJson, decrypt, decryptJson } from "../lib/crypto";
@@ -362,15 +364,35 @@ export async function runRefresh(data: BaseJobData): Promise<void> {
       await ctx.log(
         "Nepodarilo sa potvrdiť zmazanie pôvodného inzerátu — topovanie preskočené, aby nevznikol duplikát (ochrana pred banom).",
       );
+      const note =
+        "Automatické topovanie sa dočasne pozastavilo — nepodarilo sa zmazať pôvodný inzerát (ochrana pred duplikátom). Skúsime znova; ak to pretrváva, over prihlásenie k portálu v sekcii Portály.";
       await prisma.publication.update({
         where: { id: data.publicationId },
-        data: { nextRefreshAt: await computeNextRefresh(data.listingId, true) },
+        data: {
+          nextRefreshAt: await computeNextRefresh(data.listingId, true),
+          statusNote: note,
+        },
       });
+      // Notify once per failure episode (don't repeat every cycle).
+      if (pub.statusNote !== note) {
+        await notifyTopovanieFailed(
+          data,
+          "nepodarilo sa zmazať pôvodný inzerát na portáli",
+        );
+      }
       return;
     }
 
     const payload = await buildPayload(data.listingId);
-    const result = await provider.publish(payload, session, ctx);
+    let result;
+    try {
+      result = await provider.publish(payload, session, ctx);
+    } catch (err) {
+      // The old ad was removed but the fresh post failed — tell the user so they
+      // can fix it (e.g. blocked SMS number → connect a portal account).
+      await notifyTopovanieFailed(data, String(err));
+      throw err;
+    }
     await persistSessionRefresh(data.publicationId, result.session);
     await prisma.publication.update({
       where: { id: data.publicationId },
@@ -380,6 +402,7 @@ export async function runRefresh(data: BaseJobData): Promise<void> {
         publishedAt: new Date(),
         lastRefreshedAt: new Date(),
         lastError: null,
+        statusNote: null,
         nextRefreshAt: await computeNextRefresh(data.listingId, true),
         // The old ad's views are now gone; fold them into the cumulative base
         // so the total reach survives the re-post.
@@ -593,6 +616,27 @@ async function persistSessionRefresh(
       sessionValidUntil: session.validUntil ?? null,
     },
   });
+}
+
+/** Notify the listing owner that automatic topovanie failed, with the reason. */
+async function notifyTopovanieFailed(
+  data: BaseJobData,
+  rawReason: string,
+): Promise<void> {
+  try {
+    const listing = await prisma.listing.findUnique({
+      where: { id: data.listingId },
+      select: { title: true },
+    });
+    const reason = classifyError(rawReason).message;
+    await notifyUser(data.userId, {
+      title: "Automatické topovanie zlyhalo",
+      body: `Inzerát „${listing?.title ?? "?"}“ — topovanie na ${data.portalKey} sa nepodarilo. ${reason}`,
+      type: "PUBLISH_ERROR",
+    });
+  } catch {
+    /* non-fatal */
+  }
 }
 
 async function computeNextRefresh(
