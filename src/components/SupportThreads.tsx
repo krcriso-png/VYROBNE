@@ -10,6 +10,7 @@ import {
   MessageSquare,
   UploadCloud,
   RefreshCw,
+  ChevronDown,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -158,6 +159,7 @@ function Thread({
   const router = useRouter();
   const [reply, setReply] = useState("");
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
 
   async function send() {
     if (!reply.trim()) return;
@@ -205,36 +207,64 @@ function Thread({
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
-        <div className="min-w-0">
-          <CardTitle className="truncate">{thread.subject}</CardTitle>
-          <p className="mt-1 text-xs text-muted-foreground">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-3 p-4 text-left"
+      >
+        <ChevronDown
+          className={
+            "size-4 shrink-0 text-muted-foreground transition-transform " +
+            (open ? "rotate-180" : "")
+          }
+        />
+        <span
+          className={
+            "size-2 shrink-0 rounded-full " +
+            (closed ? "bg-muted-foreground/40" : "bg-success")
+          }
+        />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-semibold">{thread.subject}</span>
+          <span className="block truncate text-xs text-muted-foreground">
             {isAdmin && thread.userEmail ? `${thread.userEmail} · ` : ""}
-            {formatDate(thread.createdAt)}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Badge tone={closed ? "neutral" : "success"}>
-            {closed ? "Uzavreté" : "Otvorené"}
-          </Badge>
-          {isAdmin && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={toggleStatus}
-              disabled={busy}
-              title={closed ? "Znovu otvoriť" : "Označiť ako vyriešené"}
-            >
-              {closed ? (
-                <Circle className="size-4" />
-              ) : (
-                <CheckCircle2 className="size-4" />
-              )}
-              {closed ? "Otvoriť" : "Vyriešené"}
-            </Button>
-          )}
-        </div>
-      </CardHeader>
+            {thread.messages.length} správ · {formatDate(thread.createdAt)}
+          </span>
+        </span>
+        <Badge tone={closed ? "neutral" : "success"} className="shrink-0">
+          {closed ? "Uzavreté" : "Otvorené"}
+        </Badge>
+        {isAdmin && (
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleStatus();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.stopPropagation();
+                toggleStatus();
+              }
+            }}
+            className={
+              "inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors " +
+              (busy ? "opacity-50 " : "") +
+              "border-input hover:bg-muted"
+            }
+            title={closed ? "Znovu otvoriť" : "Označiť ako vyriešené"}
+          >
+            {closed ? (
+              <Circle className="size-4" />
+            ) : (
+              <CheckCircle2 className="size-4" />
+            )}
+            {closed ? "Otvoriť" : "Vyriešené"}
+          </span>
+        )}
+      </button>
+      {open && (
       <CardContent className="space-y-4">
         {isAdmin && thread.listingId && (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 p-3">
@@ -329,6 +359,7 @@ function Thread({
           </Button>
         </div>
       </CardContent>
+      )}
     </Card>
   );
 }
