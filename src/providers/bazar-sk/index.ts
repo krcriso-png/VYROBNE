@@ -852,6 +852,9 @@ export class BazarSkProvider extends BrowserProvider {
     // exclude header/nav/footer and the initial main-category grid, so we catch
     // the sub-category items wherever the AJAX rendered them. Rich diagnostics
     // are returned so we can see exactly where the items live.
+    // Let the page settle first — the hash nav + ad iframes can otherwise tear
+    // down the execution context mid-evaluate.
+    await page.waitForLoadState("networkidle").catch(() => {});
     const result = await page
       .evaluate((wantWords: string) => {
         const strip = (s: string) =>
@@ -940,11 +943,12 @@ export class BazarSkProvider extends BrowserProvider {
           diag,
         };
       }, wanted)
-      .catch(() => ({
+      .catch((e) => ({
         dump: [] as string[],
         picked: "",
         tag: "",
         diag: null as unknown,
+        error: String(e),
       }));
 
     await ctx.log("Podkategórie – kandidáti", {
@@ -953,6 +957,7 @@ export class BazarSkProvider extends BrowserProvider {
       picked: result.picked || "∅",
       tag: result.tag || "∅",
       diag: result.diag,
+      error: (result as { error?: string }).error ?? null,
     });
 
     if (result.picked) {
