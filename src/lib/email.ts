@@ -29,15 +29,60 @@ function transporter() {
   });
 }
 
+/**
+ * Send via Resend's HTTP API. Works where outbound SMTP is blocked (e.g.
+ * Railway blocks ports 465/587), because it goes over HTTPS (443).
+ */
+async function sendViaResend(opts: {
+  to: string;
+  subject: string;
+  text: string;
+}): Promise<boolean> {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return false;
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        from: FROM,
+        to: [opts.to],
+        subject: opts.subject,
+        text: opts.text,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (res.ok) {
+      // eslint-disable-next-line no-console
+      console.log(`[email] sent via Resend to ${opts.to} ("${opts.subject}")`);
+      return true;
+    }
+    const body = await res.text().catch(() => "");
+    // eslint-disable-next-line no-console
+    console.error(`[email] Resend FAILED (${res.status}) to ${opts.to}: ${body}`);
+    return false;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[email] Resend error to ${opts.to}:`, err);
+    return false;
+  }
+}
+
 export async function sendEmail(opts: {
   to: string;
   subject: string;
   text: string;
 }): Promise<boolean> {
+  // Prefer the HTTP API (bypasses cloud SMTP blocks). Fall back to SMTP.
+  if (process.env.RESEND_API_KEY) return sendViaResend(opts);
+
   const t = transporter();
   if (!t) {
     // eslint-disable-next-line no-console
-    console.log(`[email] SMTP not configured — skipping mail to ${opts.to}`);
+    console.log(`[email] no email provider configured — skipping mail to ${opts.to}`);
     return false;
   }
   try {
