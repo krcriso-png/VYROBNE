@@ -30,7 +30,11 @@ export const ADMIN_ITEM = {
 };
 
 export function navItemsFor(isAdmin: boolean) {
-  return isAdmin ? [...NAV_ITEMS, ADMIN_ITEM] : NAV_ITEMS;
+  // Admin handles all support inside the Admin panel, so the customer-facing
+  // "Podpora" item is hidden for admins.
+  return isAdmin
+    ? [...NAV_ITEMS.filter((i) => i.href !== "/podpora"), ADMIN_ITEM]
+    : NAV_ITEMS;
 }
 
 export function AppNav({
@@ -62,7 +66,7 @@ export function AppNav({
           item.href === "/podpora"
             ? supportUnread
             : item.href === "/admin"
-              ? adminAlert
+              ? adminAlert + supportUnread // admin's tickets alert lives here
               : 0;
         const badge = count > 0;
         return (

@@ -1,20 +1,22 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Users, Clock, AlertTriangle, LifeBuoy, ArrowRight } from "lucide-react";
+import { Users, Clock, AlertTriangle, LifeBuoy } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AdminPlanSelect } from "@/components/AdminPlanSelect";
 import { AdminPortalToggle } from "@/components/AdminPortalToggle";
+import { AdminIncidents } from "@/components/AdminIncidents";
+import { SupportThreads, type SupportThreadDTO } from "@/components/SupportThreads";
+import { loadIncidents } from "@/lib/incidents";
 
-// Admin panel = OVERVIEW only: stats, users, portals. All support work (user
-// tickets + auto-captured errors) is handled in one place: the "Podpora" hub.
+// Admin panel = the single place for everything admin: stats, all support
+// (customer tickets + auto-captured errors), portals and users.
 export default async function AdminPage() {
   const session = await auth();
   if (session?.user.role !== "ADMIN") redirect("/dashboard");
 
-  const [users, errorCount, pendingCount, portals, openTicketCount] =
+  const [users, errorCount, pendingCount, portals, openTicketCount, threads, incidents] =
     await Promise.all([
       prisma.user.findMany({
         orderBy: { createdAt: "desc" },
@@ -27,7 +29,65 @@ export default async function AdminPage() {
       }),
       prisma.portal.findMany({ orderBy: { name: "asc" } }),
       prisma.supportThread.count({ where: { status: "OPEN" } }),
+      prisma.supportThread.findMany({
+        orderBy: { updatedAt: "desc" },
+        include: {
+          user: { select: { email: true } },
+          messages: { orderBy: { createdAt: "asc" } },
+        },
+      }),
+      loadIncidents(),
     ]);
+
+  // Opening the panel clears the admin's "unread ticket" flag (drives the nav).
+  await prisma.supportThread.updateMany({
+    where: { adminUnread: true },
+    data: { adminUnread: false },
+  });
+
+  // For tickets linked to a listing, resolve the current portal status so a fix
+  // can be verified straight from the ticket.
+  const statusByThread = new Map<string, string>();
+  const titleByListing = new Map<string, string>();
+  const linked = threads.filter((t) => t.listingId);
+  const listingIds = [...new Set(linked.map((t) => t.listingId!))];
+  if (listingIds.length) {
+    const [listings, pubs] = await Promise.all([
+      prisma.listing.findMany({
+        where: { id: { in: listingIds } },
+        select: { id: true, title: true },
+      }),
+      prisma.publication.findMany({
+        where: { listingId: { in: listingIds } },
+        select: { listingId: true, status: true, portal: { select: { key: true } } },
+      }),
+    ]);
+    for (const l of listings) titleByListing.set(l.id, l.title);
+    for (const t of linked) {
+      const p = pubs.find(
+        (p) => p.listingId === t.listingId && p.portal.key === t.portalKey,
+      );
+      if (p) statusByThread.set(t.id, p.status);
+    }
+  }
+
+  const ticketDtos: SupportThreadDTO[] = threads.map((t) => ({
+    id: t.id,
+    subject: t.subject,
+    status: t.status,
+    userEmail: t.user.email,
+    listingId: t.listingId ?? undefined,
+    portalKey: t.portalKey ?? undefined,
+    listingTitle: t.listingId ? titleByListing.get(t.listingId) : undefined,
+    portalStatus: statusByThread.get(t.id),
+    createdAt: t.createdAt.toISOString(),
+    messages: t.messages.map((m) => ({
+      id: m.id,
+      author: m.author,
+      body: m.body,
+      createdAt: m.createdAt.toISOString(),
+    })),
+  }));
 
   const stats = [
     { label: "Nevyriešené tickety", value: openTicketCount, icon: LifeBuoy, tone: openTicketCount > 0 ? "bg-warning/15 text-warning" : "bg-success/15 text-success" },
@@ -41,7 +101,7 @@ export default async function AdminPage() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Admin</h1>
         <p className="text-sm text-muted-foreground">
-          Prehľad používateľov, fronty a portálov.
+          Podpora, používatelia, fronta a portály — všetko na jednom mieste.
         </p>
       </div>
 
@@ -57,25 +117,39 @@ export default async function AdminPage() {
         ))}
       </div>
 
-      {/* Everything support-related lives in the Podpora hub. */}
-      <Link href="/podpora" className="block">
-        <Card className="flex items-center gap-4 p-5 transition-colors hover:bg-muted/40">
-          <div className="grid size-11 shrink-0 place-items-center rounded-lg bg-warning/15 text-warning">
-            <LifeBuoy className="size-5" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="font-semibold">Podpora a chyby</p>
-            <p className="text-sm text-muted-foreground">
-              {openTicketCount > 0
-                ? `${openTicketCount} otvorených ticketov · `
-                : "Žiadne otvorené tickety · "}
-              rieš tickety od zákazníkov aj automaticky zachytené chyby na
-              jednom mieste.
-            </p>
-          </div>
-          <ArrowRight className="size-5 shrink-0 text-muted-foreground" />
-        </Card>
-      </Link>
+      {/* Support: auto-captured errors (collapsed) + customer tickets. */}
+      <section className="space-y-4">
+        <h2 className="font-semibold">Podpora</h2>
+
+        {incidents.length > 0 && (
+          <details className="group overflow-hidden rounded-xl border bg-card">
+            <summary className="flex cursor-pointer items-center justify-between gap-3 p-4 [&::-webkit-details-marker]:hidden">
+              <span className="flex items-center gap-2 font-medium">
+                Automaticky zachytené chyby
+                <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
+                  {incidents.length}
+                </span>
+              </span>
+              <span className="text-sm text-muted-foreground group-open:hidden">
+                rozbaliť ▾
+              </span>
+              <span className="hidden text-sm text-muted-foreground group-open:inline">
+                zbaliť ▴
+              </span>
+            </summary>
+            <div className="border-t p-4">
+              <p className="mb-3 text-sm text-muted-foreground">
+                Zlyhania zachytené automaticky — zákazník ich nemusí nahlásiť.
+                Po oprave spusti „Publikovať znova" a over stav, prípadne napíš
+                zákazníkovi.
+              </p>
+              <AdminIncidents incidents={incidents} />
+            </div>
+          </details>
+        )}
+
+        <SupportThreads threads={ticketDtos} isAdmin />
+      </section>
 
       <section>
         <h2 className="mb-1 font-semibold">Portály</h2>

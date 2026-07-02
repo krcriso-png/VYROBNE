@@ -86,7 +86,7 @@ export function MobileNav({
                   item.href === "/podpora"
                     ? supportUnread
                     : item.href === "/admin"
-                      ? adminAlert
+                      ? adminAlert + supportUnread
                       : 0;
                 const badge = count > 0;
                 return (
