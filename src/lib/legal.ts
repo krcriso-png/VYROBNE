@@ -16,20 +16,20 @@ export const OPERATOR = {
   // --- Fill these with your REAL registered details ------------------------
   // Business name exactly as registered (e.g. "Ján Novák" for a živnosť or
   // "Klikado s. r. o." for a company).
-  legalName: "[DOPLŇ: obchodné meno]",
+  legalName: "KBR Trade s. r. o.",
   // "živnosť" | "s.r.o." — drives which register line is shown.
-  form: "živnosť" as "živnosť" | "s.r.o.",
+  form: "s.r.o." as "živnosť" | "s.r.o.",
   // Registered seat / place of business.
-  address: "[DOPLŇ: ulica č., PSČ Mesto]",
-  ico: "[DOPLŇ: IČO]",
-  dic: "[DOPLŇ: DIČ]",
+  address: "Babkov 234, 013 11 Lietavská Svinná-Babkov",
+  ico: "56566808",
+  dic: "2122344642",
   // VAT id, or leave the "not a VAT payer" note.
-  icDph: "" /* napr. "SK1234567890" */,
+  icDph: "SK2122344642",
   vatNote: "Nie sme platcami DPH.",
   // Registration line: for a živnosť the trade-register office + number, for an
   // s.r.o. the commercial-register court + section/insert.
   registration:
-    "[DOPLŇ: napr. Okresný úrad Žilina, číslo živnostenského registra 580-00000]",
+    "Zapísaná v Obchodnom registri Okresného súdu Žilina, oddiel: Sro, vložka č. [DOPLŇ vložku]",
 
   // --- Contact -------------------------------------------------------------
   email: "info@klikado.sk",
