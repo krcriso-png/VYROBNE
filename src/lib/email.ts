@@ -9,6 +9,60 @@ import nodemailer from "nodemailer";
 // ===========================================================================
 
 const FROM = process.env.EMAIL_FROM ?? "Klikado <noreply@klikado.app>";
+const BRAND = "#4f46e5"; // Klikado indigo
+const SITE = (process.env.AUTH_URL ?? "https://klikado.sk").replace(/\/$/, "");
+
+/**
+ * Wrap content in a clean, branded, email-client-safe HTML shell (logo,
+ * optional call-to-action button, footer). Inline styles + tables for maximum
+ * client compatibility.
+ */
+export function renderBrandedEmail(opts: {
+  heading: string;
+  paragraphs: string[];
+  button?: { label: string; url: string };
+  footerNote?: string;
+}): string {
+  const body = opts.paragraphs
+    .map(
+      (p) =>
+        `<p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#374151">${p}</p>`,
+    )
+    .join("");
+  const button = opts.button
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:22px 0"><tr><td style="border-radius:10px;background:${BRAND}">
+         <a href="${opts.button.url}" style="display:inline-block;padding:13px 26px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:10px">${opts.button.label}</a>
+       </td></tr></table>`
+    : "";
+  const footerNote = opts.footerNote
+    ? `<p style="margin:0 0 10px;font-size:12px;line-height:1.5;color:#9ca3af">${opts.footerNote}</p>`
+    : "";
+  return `<!doctype html><html lang="sk"><body style="margin:0;padding:0;background:#f3f4f6">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:28px 12px">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;border:1px solid #e5e7eb;overflow:hidden">
+        <tr><td style="padding:24px 28px 8px">
+          <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+            <td style="width:40px;height:40px;background:${BRAND};border-radius:10px;text-align:center;vertical-align:middle;color:#fff;font-size:20px;font-weight:800;font-family:Arial,Helvetica,sans-serif">K</td>
+            <td style="padding-left:10px;font-size:20px;font-weight:800;color:#111827;font-family:Arial,Helvetica,sans-serif">Klikado</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:14px 28px 4px">
+          <h1 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#111827;font-family:Arial,Helvetica,sans-serif">${opts.heading}</h1>
+          <div style="font-family:Arial,Helvetica,sans-serif">${body}${button}</div>
+        </td></tr>
+        <tr><td style="padding:18px 28px 24px;border-top:1px solid #f0f0f3;margin-top:8px">
+          ${footerNote}
+          <p style="margin:0;font-size:12px;line-height:1.5;color:#9ca3af;font-family:Arial,Helvetica,sans-serif">
+            © ${new Date().getFullYear()} Klikado ·
+            <a href="${SITE}" style="color:${BRAND};text-decoration:none">klikado.sk</a><br/>
+            Jeden inzerát, všetky portály.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table></body></html>`;
+}
 
 function transporter() {
   const host = process.env.SMTP_HOST;
@@ -37,6 +91,7 @@ async function sendViaResend(opts: {
   to: string;
   subject: string;
   text: string;
+  html?: string;
 }): Promise<boolean> {
   const key = process.env.RESEND_API_KEY;
   if (!key) return false;
@@ -52,6 +107,7 @@ async function sendViaResend(opts: {
         to: [opts.to],
         subject: opts.subject,
         text: opts.text,
+        ...(opts.html ? { html: opts.html } : {}),
       }),
       signal: AbortSignal.timeout(10000),
     });
@@ -75,6 +131,7 @@ export async function sendEmail(opts: {
   to: string;
   subject: string;
   text: string;
+  html?: string;
 }): Promise<boolean> {
   // Prefer the HTTP API (bypasses cloud SMTP blocks). Fall back to SMTP.
   if (process.env.RESEND_API_KEY) return sendViaResend(opts);

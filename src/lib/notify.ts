@@ -1,6 +1,8 @@
 import type { NotificationType } from "@prisma/client";
 import { prisma } from "./db";
-import { sendEmail } from "./email";
+import { sendEmail, renderBrandedEmail } from "./email";
+
+const SITE = (process.env.AUTH_URL ?? "https://klikado.sk").replace(/\/$/, "");
 
 // ===========================================================================
 // Notifications — in-app + e-mail.
@@ -19,6 +21,17 @@ interface NotifyOpts {
   title: string;
   body: string;
   type?: NotificationType;
+  /** Where the e-mail's button links (defaults to the app). */
+  url?: string;
+  buttonLabel?: string;
+}
+
+function brandedHtml(opts: NotifyOpts, url: string, label: string): string {
+  return renderBrandedEmail({
+    heading: opts.title,
+    paragraphs: opts.body.split("\n").filter(Boolean),
+    button: { label, url },
+  });
 }
 
 /** Notify every admin account (in-app + e-mail), plus the maintainer inbox. */
@@ -39,10 +52,12 @@ export async function notifyAdmins(opts: NotifyOpts): Promise<void> {
     });
   }
 
+  const url = opts.url ?? `${SITE}/admin`;
+  const html = brandedHtml(opts, url, opts.buttonLabel ?? "Otvoriť v Admine");
   const recipients = new Set<string>([MAINTAINER_EMAIL]);
   for (const a of admins) if (a.email) recipients.add(a.email);
   for (const to of recipients) {
-    await sendEmail({ to, subject: `Klikado – ${opts.title}`, text: opts.body });
+    await sendEmail({ to, subject: `Klikado – ${opts.title}`, text: opts.body, html });
   }
 }
 
@@ -64,10 +79,12 @@ export async function notifyUser(
     select: { email: true },
   });
   if (user?.email) {
+    const url = opts.url ?? `${SITE}/podpora`;
     await sendEmail({
       to: user.email,
       subject: `Klikado – ${opts.title}`,
       text: opts.body,
+      html: brandedHtml(opts, url, opts.buttonLabel ?? "Otvoriť Klikado"),
     });
   }
 }

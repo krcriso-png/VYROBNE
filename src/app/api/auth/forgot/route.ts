@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { prisma } from "@/lib/db";
 import { route, json } from "@/lib/api";
 import { forgotPasswordSchema } from "@/lib/validation";
-import { sendEmail } from "@/lib/email";
+import { sendEmail, renderBrandedEmail } from "@/lib/email";
 
 // POST /api/auth/forgot — start a password reset.
 // Body: { email }. Always responds { ok: true } (never reveals whether the
@@ -46,6 +46,16 @@ export const POST = route(async (req: Request) => {
         `Ahoj,\n\npožiadal si o obnovenie hesla do Klikado. Klikni na odkaz nižšie ` +
         `a nastav si nové heslo (odkaz platí 1 hodinu):\n\n${link}\n\n` +
         `Ak si o zmenu nežiadal, tento e-mail ignoruj — tvoje heslo zostáva nezmenené.`,
+      html: renderBrandedEmail({
+        heading: "Obnovenie hesla",
+        paragraphs: [
+          "Ahoj, požiadal si o obnovenie hesla do Klikado.",
+          "Klikni na tlačidlo nižšie a nastav si nové heslo. Odkaz platí <strong>1 hodinu</strong>.",
+        ],
+        button: { label: "Nastaviť nové heslo", url: link },
+        footerNote:
+          "Ak si o zmenu nežiadal, tento e-mail pokojne ignoruj — tvoje heslo zostáva nezmenené.",
+      }),
     })
       .then((sent) => {
         if (!sent) {
