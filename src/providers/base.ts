@@ -113,6 +113,15 @@ export abstract class BrowserProvider extends BaseProvider {
           "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
         locale: "sk-SK",
       });
+      // Our bundler keeps function names via an esbuild `__name` helper. When a
+      // page.evaluate/$$eval callback is serialised and run in the browser, that
+      // `__name` reference isn't defined there and throws
+      // "ReferenceError: __name is not defined". Define a no-op shim on every
+      // document (survives navigations) so all in-page callbacks work. Passed as
+      // a STRING so the bundler can't rewrite the shim into a self-reference.
+      await context.addInitScript(
+        "window.__name = window.__name || function (t) { return t; };",
+      );
       return await fn(context);
     } catch (err) {
       // Capture what the page looked like so selectors/flows can be debugged
