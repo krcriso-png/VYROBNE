@@ -848,45 +848,31 @@ export class BazarSkProvider extends BrowserProvider {
       }
     }
 
-    // Clickable sub-category elements (any tag) inside the loaded panel.
+    // Clickable sub-category elements (any tag). Search the whole <body> but
+    // exclude header/nav/footer and the initial main-category grid, so we catch
+    // the sub-category items wherever the AJAX rendered them. Rich diagnostics
+    // are returned so we can see exactly where the items live.
     const result = await page
       .evaluate((wantWords: string) => {
         const strip = (s: string) =>
           s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
         const bad =
-          /zmeni[ťt]\s+kateg|prihl[aá]s|zalo[žz]te|nov[ée]\s+konto|registr|reklama|kontakt|^blog$|gdpr|cookies|podmienky\s+inzercie|mobiln[áa]\s+verzia|prid[áa]vate|ako\s+inzerova|united\s+classif|bazar\.sk|vyh[ľl]ad|sledovan|moje\s+inzer|zvýhodni/i;
+          /zmeni[ťt]\s+kateg|prihl[aá]s|zalo[žz]te|nov[ée]\s+konto|registr|reklama|^kontakt$|^blog$|gdpr|cookies|podmienky\s+inzercie|mobiln[áa]\s+verzia|prid[áa]vate|ako\s+inzerova|united\s+classif|^bazar\.sk|vyh[ľl]ad[áa]|sledovanie|moje\s+inzer|zvýhodni|napí[šs]te|navrhneme|alebo\s+si|vyberte\s+kateg/i;
 
-        // Locate the loaded sub-category panel. Prefer #piSubDiv / #piSub; then
-        // the smallest sensible container that holds "zmeniť kategóriu"; then
-        // the add form's main content area.
-        const cands: Element[] = [];
-        for (const s of ["#piSubDiv", "#piSub"]) {
-          const el = document.querySelector(s);
-          if (el && (el.textContent || "").trim().length > 15) cands.push(el);
-        }
-        let root: Element | null = cands[0] ?? null;
-        if (!root) {
-          const all = Array.from(
-            document.querySelectorAll("div,section,fieldset"),
-          );
-          let smallest: Element | null = null;
-          let smallestSize = Infinity;
-          for (const el of all) {
-            if (!/zmeni[ťt]\s+kateg/i.test(el.textContent || "")) continue;
-            const size = el.querySelectorAll("*").length;
-            if (size < smallestSize && size < 600) {
-              smallest = el;
-              smallestSize = size;
-            }
-          }
-          root = smallest;
-        }
-        if (!root) {
-          root =
-            document.querySelector(".main-content") ||
-            document.querySelector(".grey-box");
-        }
-        if (!root) return { dump: [], picked: "", tag: "" };
+        const bodyText = document.body?.innerText || "";
+        const diag = {
+          iframes: Array.from(document.querySelectorAll("iframe"))
+            .map((f) => f.getAttribute("src") || f.id || "?")
+            .slice(0, 6),
+          piSubLen: (
+            document.querySelector("#piSubDiv")?.textContent || ""
+          ).trim().length,
+          hasSubText:
+            /autosedač|hračk|ko[čc][ií]k|oble[čc]en|ostatn[ée]\s+detsk/i.test(
+              bodyText,
+            ),
+          zmenit: /zmeni[ťt]\s+kateg/i.test(bodyText),
+        };
 
         const want = new Set(
           strip(wantWords)
@@ -894,18 +880,17 @@ export class BazarSkProvider extends BrowserProvider {
             .filter((x) => x.length > 2),
         );
 
-        // Candidate = leaf-ish clickable element with a short category label.
-        // Accept anything carrying a category marker (rel / data-cat-id /
-        // data-sef-name / sub-cat|main-cat class), plus generic leaf elements.
-        type Cand = { el: Element; txt: string };
+        type Cand = { el: Element; txt: string; marked: boolean };
         const seen = new Set<string>();
         const list: Cand[] = [];
         const nodes = Array.from(
-          root.querySelectorAll<HTMLElement>(
+          document.body.querySelectorAll<HTMLElement>(
             "a,span,li,div,td,p,button,[rel],[data-cat-id],[data-sef-name]",
           ),
         );
         for (const el of nodes) {
+          if (el.closest("header,nav,footer")) continue; // skip chrome/megamenu
+          if (el.closest(".category-list")) continue; // skip the 20 main tiles
           const own = Array.from(el.childNodes)
             .filter((n) => n.nodeType === 3)
             .map((n) => n.textContent ?? "")
@@ -923,14 +908,12 @@ export class BazarSkProvider extends BrowserProvider {
             el.classList.contains("sub-cat") ||
             el.classList.contains("main-cat") ||
             el.tagName === "A";
-          // Unmarked elements must be true leaves (no element children) so we
-          // don't grab column wrappers / group headings.
-          if (!marked && el.querySelector("*")) continue;
+          if (!marked && el.querySelector("*")) continue; // generic → leaf only
           const r = el.getBoundingClientRect();
           if (r.width < 10 || r.height < 6) continue;
           if (seen.has(txt)) continue;
           seen.add(txt);
-          list.push({ el, txt });
+          list.push({ el, txt, marked });
         }
 
         let best: Cand | null = null;
@@ -954,15 +937,22 @@ export class BazarSkProvider extends BrowserProvider {
           dump: list.slice(0, 30).map((c) => c.txt),
           picked: pick ? pick.txt : "",
           tag: pick ? pick.el.tagName : "",
+          diag,
         };
       }, wanted)
-      .catch(() => ({ dump: [] as string[], picked: "", tag: "" }));
+      .catch(() => ({
+        dump: [] as string[],
+        picked: "",
+        tag: "",
+        diag: null as unknown,
+      }));
 
     await ctx.log("Podkategórie – kandidáti", {
       count: result.dump.length,
       items: result.dump,
       picked: result.picked || "∅",
       tag: result.tag || "∅",
+      diag: result.diag,
     });
 
     if (result.picked) {
