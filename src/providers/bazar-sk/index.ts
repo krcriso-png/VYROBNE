@@ -241,31 +241,18 @@ export class BazarSkProvider extends BrowserProvider {
         .getAttribute("href")
         .catch(() => null);
       const urlIsAd = /\/inzerat\//.test(url);
-      const success =
-        !rejected &&
-        (urlIsAd ||
-          !!adLink ||
-          /úspe[šs]|ďakujeme|dakujeme|zverejnen|prida[nl]|aktivuj|dokon[čc]en/i.test(
-            text,
-          ));
 
-      if (!success) {
+      // Declare success ONLY with a real ad link — never on vague page text.
+      // If we didn't land on a real ad, it did NOT publish (e.g. the flow ended
+      // on the homepage / search), so report a clear error instead of lying.
+      const remoteUrl = urlIsAd ? url : adLink ? absolute(adLink) : "";
+      if (!remoteUrl || rejected) {
         const hint = text.replace(/\s+/g, " ").slice(0, 300);
         throw new Error(
-          rejected
-            ? `Bazar.sk odmietol inzerát (chýba povinné pole alebo fotka): ${hint}`
-            : `Bazar.sk nepotvrdil zverejnenie inzerátu. Text stránky: ${hint}`,
+          `Bazar.sk: inzerát sa nepodarilo zverejniť (nedostali sme odkaz na inzerát; skončili sme na ${url}). ${hint}`,
         );
       }
-
-      let remoteUrl = urlIsAd ? url : adLink ? absolute(adLink) : "";
-      let remoteId = remoteUrl ? extractAdId(remoteUrl) : "";
-      if (!remoteUrl) {
-        // Couldn't pin the exact ad URL — keep a useful fallback and leave the
-        // id empty so a later status check never wrongly flips it to removed.
-        remoteUrl = `${this.baseUrl}/moje-inzeraty/`;
-        remoteId = "";
-      }
+      const remoteId = extractAdId(remoteUrl);
 
       await ctx.log("Inzerát zverejnený na Bazar.sk ✅", { remoteId, remoteUrl });
       return { remoteId, remoteUrl, session: await this.snapshot(context) };
