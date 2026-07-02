@@ -221,7 +221,7 @@ function Thread({
         <span
           className={
             "size-2 shrink-0 rounded-full " +
-            (closed ? "bg-muted-foreground/40" : "bg-success")
+            (closed ? "bg-success" : "bg-destructive")
           }
         />
         <span className="min-w-0 flex-1">
@@ -231,8 +231,8 @@ function Thread({
             {thread.messages.length} správ · {formatDate(thread.createdAt)}
           </span>
         </span>
-        <Badge tone={closed ? "neutral" : "success"} className="shrink-0">
-          {closed ? "Uzavreté" : "Otvorené"}
+        <Badge tone={closed ? "success" : "destructive"} className="shrink-0">
+          {closed ? "Vyriešené" : "Nevyriešené"}
         </Badge>
         {isAdmin && (
           <span
