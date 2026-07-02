@@ -3,6 +3,37 @@ import type { SubscriptionStatus } from "@prisma/client";
 import { prisma } from "./db";
 import { stripe } from "./stripe";
 import { planFromPriceId, PLANS } from "./plans";
+import { OPERATOR } from "./legal";
+
+/** Seller's legal details shown on every Stripe invoice (footer). */
+function invoiceFooter(): string {
+  const dph = OPERATOR.icDph ? ` · IČ DPH: ${OPERATOR.icDph}` : "";
+  const dphNote = OPERATOR.icDph ? " Dodávateľ je platiteľom DPH." : "";
+  return (
+    `Dodávateľ: ${OPERATOR.legalName}, ${OPERATOR.address}. ` +
+    `IČO: ${OPERATOR.ico} · DIČ: ${OPERATOR.dic}${dph}. ` +
+    `${OPERATOR.registration}.${dphNote}`
+  );
+}
+
+/**
+ * Make the customer's documents Slovak and stamp our legal details onto their
+ * invoices. Idempotent; safe to call on checkout and on billing view.
+ */
+export async function ensureCustomerBillingProfile(
+  customerId: string,
+): Promise<void> {
+  if (!process.env.STRIPE_SECRET_KEY) return;
+  try {
+    await stripe.customers.update(customerId, {
+      preferred_locales: ["sk"],
+      invoice_settings: { footer: invoiceFooter() },
+    });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("[billing-sync] ensureCustomerBillingProfile failed", err);
+  }
+}
 
 // ===========================================================================
 // Stripe → DB subscription sync
@@ -105,6 +136,9 @@ export async function reconcileUserSubscription(userId: string): Promise<void> {
   const sub = await prisma.subscription.findUnique({ where: { userId } });
   if (!sub?.stripeCustomerId) return;
   try {
+    // Keep the customer's language + invoice footer up to date (applies to the
+    // next invoice, e.g. after the trial), then sync the subscription state.
+    await ensureCustomerBillingProfile(sub.stripeCustomerId);
     const list = await stripe.subscriptions.list({
       customer: sub.stripeCustomerId,
       status: "all",

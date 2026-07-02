@@ -3,6 +3,7 @@ import { route, json, requireUser, HttpError } from "@/lib/api";
 import { checkoutSchema } from "@/lib/validation";
 import { stripe, TRIAL_DAYS, appBaseUrl } from "@/lib/stripe";
 import { PLANS } from "@/lib/plans";
+import { ensureCustomerBillingProfile } from "@/lib/billing-sync";
 
 // POST /api/billing/checkout — start a Stripe Checkout session for a paid plan.
 // Returns a URL the client redirects to. A 7-day trial is attached.
@@ -32,26 +33,21 @@ export const POST = route(async (req: Request) => {
   });
 
   try {
-    // Reuse or create the Stripe customer. preferred_locales="sk" makes Stripe
-    // send invoices/receipts in Slovak.
+    // Reuse or create the Stripe customer.
     let customerId = sub.stripeCustomerId ?? undefined;
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: user.email,
         metadata: { userId: user.id },
-        preferred_locales: ["sk"],
       });
       customerId = customer.id;
       await prisma.subscription.update({
         where: { userId: user.id },
         data: { stripeCustomerId: customerId },
       });
-    } else {
-      // Ensure existing customers also get Slovak documents.
-      await stripe.customers
-        .update(customerId, { preferred_locales: ["sk"] })
-        .catch(() => {});
     }
+    // Slovak documents + our legal details on invoices (new and existing).
+    await ensureCustomerBillingProfile(customerId);
 
     const appUrl = appBaseUrl();
     const checkout = await stripe.checkout.sessions.create({
