@@ -554,55 +554,107 @@ export class BazarSkProvider extends BrowserProvider {
     ctx: ProviderContext,
     candidates: string[],
   ): Promise<void> {
-    // Diagnostics: dump every input's name + placeholder so we can see exactly
-    // how the location field is identified if matching fails.
-    const inputDump = await page
-      .evaluate(() =>
-        Array.from(document.querySelectorAll("input"))
-          .map(
-            (i) =>
-              `${i.getAttribute("name") || i.id || "?"}|ph:${i.placeholder || ""}|t:${i.type}`,
-          )
-          .slice(0, 40),
-      )
-      .catch(() => [] as string[]);
-    await ctx.log("Lokalita – vstupné polia", { inputDump });
-
-    // The location field has NO name/placeholder — it's the visible text input
-    // right after the "Lokalita" label that drives a JS autocomplete which fills
-    // hidden geo fields (data[idCity], data[locationName]…). Tag it so we can
-    // target it precisely.
-    const tagged = await page
+    // Identify the location autocomplete input and tag it. bazar.sk's location
+    // field is a "whisperer" text input near the hidden data[locationName]. We
+    // pick it robustly (whisperer class → placeholder hint → the visible text
+    // input closest to data[locationName] → the input after the "Lokalita"
+    // label) and dump every visible text input (name + class + placeholder) so
+    // the field can be identified from the logs if matching still misses.
+    const tagInfo = await page
       .evaluate(() => {
-        const els = Array.from(document.querySelectorAll<HTMLElement>("*"));
-        const label = els
-          .filter((e) => {
-            const own = Array.from(e.childNodes)
-              .filter((n) => n.nodeType === 3)
-              .map((n) => n.textContent ?? "")
-              .join("")
-              .trim();
-            return /^Lokalita/i.test(own);
-          })
-          .pop();
-        if (!label) return false;
-        for (const inp of Array.from(
+        const isVisible = (el: HTMLElement) => {
+          const r = el.getBoundingClientRect();
+          return r.width > 2 && r.height > 2 && el.offsetParent !== null;
+        };
+        const texts = Array.from(
           document.querySelectorAll<HTMLInputElement>("input"),
-        )) {
-          const after =
-            label.compareDocumentPosition(inp) &
-            Node.DOCUMENT_POSITION_FOLLOWING;
-          if (!after) continue;
-          const type = (inp.type || "text").toLowerCase();
-          if (["text", "search", "tel"].includes(type) && inp.offsetParent) {
-            inp.setAttribute("data-klikado-loc", "1");
-            return true;
+        ).filter(
+          (i) =>
+            ["text", "search", "tel"].includes((i.type || "text").toLowerCase()) &&
+            isVisible(i),
+        );
+        const dump = texts.map((i) => ({
+          name: i.getAttribute("name") || "",
+          cls: (i.className || "").slice(0, 40),
+          ph: i.placeholder || "",
+        }));
+
+        let target: HTMLInputElement | null = null;
+        // 1) a whisperer input that isn't the category one
+        target =
+          texts.find(
+            (i) =>
+              /whisper/i.test(i.className) &&
+              i.getAttribute("name") !== "input-category",
+          ) ?? null;
+        // 2) placeholder hint (obec / mesto / PSČ / lokalita / okres)
+        if (!target)
+          target =
+            texts.find((i) =>
+              /obec|mesto|ps[čc]|lokalit|okres|region|kraj/i.test(
+                i.placeholder || "",
+              ),
+            ) ?? null;
+        // 3) the visible text input closest (in DOM order) to data[locationName]
+        if (!target) {
+          const hidden = document.querySelector('[name="data[locationName]"]');
+          if (hidden) {
+            let best: HTMLInputElement | null = null;
+            let bestDist = Infinity;
+            const all = Array.from(document.querySelectorAll<HTMLElement>("*"));
+            const hiddenIdx = all.indexOf(hidden as HTMLElement);
+            texts.forEach((i) => {
+              const idx = all.indexOf(i);
+              const dist = Math.abs(idx - hiddenIdx);
+              if (dist < bestDist) {
+                bestDist = dist;
+                best = i;
+              }
+            });
+            target = best;
           }
         }
-        return false;
+        // 4) the input after the "Lokalita" label
+        if (!target) {
+          const label = Array.from(document.querySelectorAll<HTMLElement>("*"))
+            .filter((e) =>
+              /^Lokalita/i.test(
+                Array.from(e.childNodes)
+                  .filter((n) => n.nodeType === 3)
+                  .map((n) => n.textContent ?? "")
+                  .join("")
+                  .trim(),
+              ),
+            )
+            .pop();
+          if (label) {
+            target =
+              texts.find(
+                (i) =>
+                  (label.compareDocumentPosition(i) &
+                    Node.DOCUMENT_POSITION_FOLLOWING) !==
+                  0,
+              ) ?? null;
+          }
+        }
+        if (target) target.setAttribute("data-klikado-loc", "1");
+        return {
+          dump,
+          chosen: target
+            ? {
+                name: target.getAttribute("name") || "",
+                cls: (target.className || "").slice(0, 40),
+                ph: target.placeholder || "",
+              }
+            : null,
+        };
       })
-      .catch(() => false);
-    if (!tagged) {
+      .catch(() => ({ dump: [] as unknown[], chosen: null }));
+    await ctx.log("Lokalita – viditeľné polia", {
+      inputs: tagInfo.dump,
+      chosen: tagInfo.chosen,
+    });
+    if (!tagInfo.chosen) {
       await ctx.log("Lokalita: viditeľné pole sa nenašlo.");
       return;
     }
@@ -622,56 +674,60 @@ export class BazarSkProvider extends BrowserProvider {
       await loc.type(value, { delay: 60 }).catch(() => {});
       await page.waitForTimeout(1300);
 
-      // Look ONLY inside a real autocomplete/whisperer dropdown near the field —
-      // never arbitrary page elements (that navigated us to the homepage). Tag
-      // the best matching row; report the dropdown containers so the widget can
-      // be identified from the logs.
+      // Find the whisperer dropdown by POSITION (any element that popped up just
+      // below the location input), regardless of class — but strictly outside
+      // header/nav/footer and never an off-site <a>. Report each candidate's
+      // container class so the widget can be identified from the logs.
       const found = await page
         .evaluate((val: string) => {
           const norm = (s: string) =>
             s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
           const v = norm(val);
-          const containers = Array.from(
-            document.querySelectorAll<HTMLElement>(
-              '[class*="whisper"],[class*="autocomplete"],[class*="ac_results"],[class*="suggest"],[class*="results"],[class*="dropdown"],ul[role="listbox"]',
-            ),
-          ).filter((c) => {
-            if (c.closest("header,nav,footer")) return false;
-            const r = c.getBoundingClientRect();
-            return r.width > 20 && r.height > 8;
-          });
-          const classes = containers.map((c) => c.className).slice(0, 6);
-          const items: string[] = [];
+          const input = document.querySelector<HTMLElement>(
+            '[data-klikado-loc="1"]',
+          );
+          if (!input) return { classes: [] as string[], items: [] as string[], tagged: false };
+          const ir = input.getBoundingClientRect();
+          const rows: { el: HTMLElement; txt: string; cls: string }[] = [];
+          for (const el of Array.from(
+            document.querySelectorAll<HTMLElement>("li,a,div,span,p,td"),
+          )) {
+            if (el.closest("header,nav,footer")) continue;
+            if (el.querySelector("li,ul,table,form,textarea,input")) continue; // leaf-ish
+            const r = el.getBoundingClientRect();
+            // Positioned just below the location input, roughly aligned with it.
+            if (r.top < ir.bottom - 4 || r.top > ir.bottom + 320) continue;
+            if (r.left < ir.left - 60 || r.left > ir.left + ir.width + 60) continue;
+            if (r.width < 20 || r.height < 8 || r.height > 60) continue;
+            const txt = (el.textContent || "").replace(/\s+/g, " ").trim();
+            if (txt.length < 2 || txt.length > 70) continue;
+            // Skip anchors that navigate to another page/host.
+            if (
+              el.tagName === "A" &&
+              (el as HTMLAnchorElement).getAttribute("href") &&
+              !/^#|^javascript:/i.test(
+                (el as HTMLAnchorElement).getAttribute("href") || "",
+              )
+            )
+              continue;
+            rows.push({
+              el,
+              txt,
+              cls: (el.parentElement?.className || el.className || "").slice(0, 40),
+            });
+          }
           let tagged = false;
-          for (const c of containers) {
-            const rows = Array.from(
-              c.querySelectorAll<HTMLElement>("li,a,div,span,p"),
-            );
-            for (const el of rows) {
-              if (el.querySelector("li,ul")) continue; // leaf-ish rows only
-              const txt = (el.textContent || "").replace(/\s+/g, " ").trim();
-              if (txt.length < 2 || txt.length > 70) continue;
-              const r = el.getBoundingClientRect();
-              if (r.height < 8) continue;
-              items.push(txt);
-              if (!tagged && (norm(txt).includes(v) || v.includes(norm(txt)))) {
-                el.setAttribute("data-klikado-sugg", "1");
-                tagged = true;
-              }
-            }
+          let best = rows.find((r) => norm(r.txt).includes(v) || v.includes(norm(r.txt)));
+          if (!best) best = rows[0];
+          if (best) {
+            best.el.setAttribute("data-klikado-sugg", "1");
+            tagged = true;
           }
-          // If the dropdown has rows but none matched the text, take the first
-          // row of the first container (still safely inside the widget).
-          if (!tagged && containers.length) {
-            const firstRow = containers[0].querySelector<HTMLElement>(
-              "li,a,div,span,p",
-            );
-            if (firstRow) {
-              firstRow.setAttribute("data-klikado-sugg", "1");
-              tagged = true;
-            }
-          }
-          return { classes, items: items.slice(0, 16), tagged };
+          return {
+            classes: Array.from(new Set(rows.map((r) => r.cls))).slice(0, 6),
+            items: rows.map((r) => r.txt).slice(0, 16),
+            tagged,
+          };
         }, value)
         .catch(() => ({ classes: [] as string[], items: [] as string[], tagged: false }));
       await ctx.log("Lokalita – rozbaľovačka", {
@@ -704,7 +760,6 @@ export class BazarSkProvider extends BrowserProvider {
     await ctx.log("Lokalita: nepodarilo sa vybrať z ponuky.");
   }
 
-  /** Select an option (preferring a regex match) in the dropdown after a label. */
   /**
    * Check the first option of every required radio group that has none selected
    * (Stav and category params like data[param_3]/data[param_4] render as radios,
