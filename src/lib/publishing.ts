@@ -25,8 +25,20 @@ export async function publishListing(
     where: { id: listingId, userId },
   });
 
+  // Admins may still publish to portals paused for customers (for testing);
+  // regular users cannot.
+  const owner = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true },
+  });
+  const isAdmin = owner?.role === "ADMIN";
+
   const portals = await prisma.portal.findMany({
-    where: { key: { in: portalKeys }, enabled: true },
+    where: {
+      key: { in: portalKeys },
+      enabled: true,
+      ...(isAdmin ? {} : { pausedForUsers: false }),
+    },
   });
 
   for (const portal of portals) {

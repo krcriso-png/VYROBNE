@@ -19,6 +19,7 @@ export default async function ListingDetailPage({
   const { id } = await params;
   const session = await auth();
   const userId = session!.user.id;
+  const isAdmin = session!.user.role === "ADMIN";
 
   const listing = await prisma.listing.findFirst({
     where: { id, userId },
@@ -31,7 +32,12 @@ export default async function ListingDetailPage({
 
   const portals = await prisma.portal.findMany({
     // The "mock" portal is a dev-only test target — never show it to users.
-    where: { enabled: true, key: { not: "mock" } },
+    // Portals paused for customers stay visible to admins for testing.
+    where: {
+      enabled: true,
+      key: { not: "mock" },
+      ...(isAdmin ? {} : { pausedForUsers: false }),
+    },
     orderBy: { name: "asc" },
     include: { accounts: { where: { userId }, select: { id: true } } },
   });
@@ -116,6 +122,7 @@ export default async function ListingDetailPage({
               name: p.name,
               integration: p.integration,
               hasAccount: p.accounts.length > 0,
+              paused: p.pausedForUsers,
             }))}
             publications={listing.publications.map((pub) => ({
               id: pub.id,

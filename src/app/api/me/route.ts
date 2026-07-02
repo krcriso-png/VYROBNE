@@ -45,6 +45,20 @@ export const PATCH = route(async (req: Request) => {
   }
 
   if (data.password) {
+    // Changing an existing password requires the current one; only an account
+    // with no password yet (e.g. Google-only) may set one without it.
+    const current = await prisma.user.findUnique({
+      where: { id: u.id },
+      select: { passwordHash: true },
+    });
+    if (current?.passwordHash) {
+      const ok =
+        !!data.currentPassword &&
+        (await bcrypt.compare(data.currentPassword, current.passwordHash));
+      if (!ok) {
+        throw new HttpError(400, "Súčasné heslo je nesprávne.");
+      }
+    }
     update.passwordHash = await bcrypt.hash(data.password, 12);
   }
 

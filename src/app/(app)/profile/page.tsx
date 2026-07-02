@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 export default function ProfilePage() {
   const [form, setForm] = useState({ name: "", email: "", phone: "" });
   const [password, setPassword] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +51,7 @@ export default function ProfilePage() {
         name: form.name || null,
         email: form.email,
         phone: form.phone || null,
-        ...(password ? { password } : {}),
+        ...(password ? { password, currentPassword } : {}),
       }),
     });
     setSaving(false);
@@ -60,6 +61,7 @@ export default function ProfilePage() {
       return;
     }
     setPassword("");
+    setCurrentPassword("");
     setSaved(true);
   }
 
@@ -121,13 +123,28 @@ export default function ProfilePage() {
           <CardHeader>
             <CardTitle>Zmena hesla</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="currentPassword">Súčasné heslo</Label>
+              <Input
+                id="currentPassword"
+                type="password"
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(e) => {
+                  setCurrentPassword(e.target.value);
+                  setSaved(false);
+                }}
+                placeholder="Zadaj len pri zmene hesla"
+              />
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="password">Nové heslo</Label>
               <Input
                 id="password"
                 type="password"
                 minLength={8}
+                autoComplete="new-password"
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);
@@ -135,6 +152,9 @@ export default function ProfilePage() {
                 }}
                 placeholder="Nechaj prázdne, ak nemeníš"
               />
+              <p className="text-xs text-muted-foreground">
+                Pri zmene hesla musíš zadať aj svoje súčasné heslo.
+              </p>
             </div>
           </CardContent>
         </Card>

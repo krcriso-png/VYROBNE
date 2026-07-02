@@ -23,6 +23,8 @@ interface PortalOption {
   name: string;
   integration: string;
   hasAccount: boolean;
+  // True when the portal is paused for regular customers (only admins see it).
+  paused?: boolean;
 }
 
 interface PublicationState {
@@ -250,6 +252,11 @@ export function PublishPanel({
                           ? "Automatizácia prehliadača"
                           : "API"}
                     </p>
+                    {p.paused && (
+                      <p className="mt-1 inline-flex items-center gap-1 rounded bg-warning/15 px-1.5 py-0.5 text-[11px] font-medium text-warning">
+                        Pozastavené pre zákazníkov — vidíš len ako admin
+                      </p>
+                    )}
                   </div>
                 </label>
                 {pub?.remoteUrl && pub.status === "PUBLISHED" && (

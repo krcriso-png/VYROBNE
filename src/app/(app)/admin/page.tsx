@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
 import { classifyError } from "@/lib/errors";
 import { AdminPlanSelect } from "@/components/AdminPlanSelect";
+import { AdminPortalToggle } from "@/components/AdminPortalToggle";
 import { AdminIncidents, type IncidentDTO } from "@/components/AdminIncidents";
 
 // Admin panel: users, subscriptions, queue health, recent errors, portals.
@@ -203,13 +204,24 @@ export default async function AdminPage() {
       </section>
 
       <section>
-        <h2 className="mb-3 font-semibold">Portály</h2>
-        <div className="flex flex-wrap gap-2">
-          {portals.map((p) => (
-            <Badge key={p.id} tone={p.enabled ? "success" : "neutral"}>
-              {p.name} · {p.integration} {p.enabled ? "✓" : "—"}
-            </Badge>
-          ))}
+        <h2 className="mb-1 font-semibold">Portály</h2>
+        <p className="mb-3 text-sm text-muted-foreground">
+          Ak portál dočasne nefunguje pre ľudí, pozastav ho pre zákazníkov —
+          skryje sa im, ale tebe (adminovi) zostane funkčný na testovanie.
+        </p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {portals
+            .filter((p) => p.key !== "mock")
+            .map((p) => (
+              <AdminPortalToggle
+                key={p.id}
+                portalKey={p.key}
+                name={p.name}
+                integration={p.integration}
+                enabled={p.enabled}
+                paused={p.pausedForUsers}
+              />
+            ))}
         </div>
       </section>
 

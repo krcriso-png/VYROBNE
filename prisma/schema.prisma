@@ -252,6 +252,9 @@ model Portal {
   enabled     Boolean         @default(true)
   // Whether this portal supports a "bump"/refresh action.
   supportsRefresh Boolean     @default(false)
+  // Admin switch: when true the portal is hidden from regular customers (e.g.
+  // while it's temporarily broken) but ADMIN accounts can still use it to test.
+  pausedForUsers Boolean      @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

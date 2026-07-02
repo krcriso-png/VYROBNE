@@ -23,6 +23,19 @@ export const profileUpdateSchema = z.object({
     .min(8, "Heslo musí mať aspoň 8 znakov")
     .max(200)
     .optional(),
+  // Current password — required to change the password when the account
+  // already has one (an OAuth-only account setting its first password omits it).
+  currentPassword: z.string().max(200).optional(),
+});
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+});
+
+export const resetPasswordSchema = z.object({
+  email: z.string().email(),
+  token: z.string().min(10),
+  password: z.string().min(8, "Heslo musí mať aspoň 8 znakov").max(200),
 });
 
 export const listingInputSchema = z.object({
