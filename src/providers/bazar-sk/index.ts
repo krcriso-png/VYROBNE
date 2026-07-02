@@ -73,40 +73,24 @@ export class BazarSkProvider extends BrowserProvider {
       await this.logStructure(page, ctx);
 
       // --- Step 1: Kategória --------------------------------------------
-      // Map the listing to a real Bazar.sk category + sub-category (so the ad
-      // lands where it belongs and isn't removed for mis-categorisation), with
-      // "Ostatné" only as a safe fallback. The tiles are JS elements (they set a
-      // hidden data[idCategory]); at each wizard step click the sub-category if
-      // it's shown, otherwise the main category, by exact tile text.
+      // Bazar.sk step 1 is CATEGORY ONLY. The page has a grid of tiles
+      // (.s-categories[data-cat-id="N"]) plus a "napovedač" whisperer text box.
+      // Clicking a MAIN tile AJAX-loads its sub-categories into #piSubDiv;
+      // picking a leaf sub-category advances to step 2 (the ad form with the
+      // "Nadpis" field). We select by the real data-cat-id — NEVER by tile text,
+      // which used to match the header megamenu links and navigate away to the
+      // homepage (that was the "publikuje sa" / empty-form bug).
       const cat = bazarCategoryPath(listing.category, listing.title);
-      const targets = [cat.sub, cat.main].filter(Boolean) as string[];
       await ctx.log(
-        `Kategória na Bazar.sk: ${cat.main}${cat.sub ? " / " + cat.sub : ""}`,
+        `Kategória na Bazar.sk: ${cat.main} (#${cat.id})${
+          cat.sub ? " / " + cat.sub : ""
+        }`,
       );
-
-      for (let step = 0; step < 5; step++) {
-        if (await this.hasField(page, "Nadpis")) break;
-        let clicked = false;
-        for (const t of targets) {
-          if (await this.clickTileByText(page, t)) {
-            await ctx.log(`Kategória → ${t}`);
-            clicked = true;
-            break;
-          }
-        }
-        // Fall back to a fuzzy match on the MAIN category only (never fuzzy the
-        // sub-category — that could land on a wrong main tile).
-        if (!clicked) clicked = await this.clickCategoryTile(page, ctx, cat.main);
-        await page.waitForLoadState("domcontentloaded").catch(() => {});
-        await page.waitForTimeout(1100);
-        await this.debugShot(page, ctx, `add-cat-${step}`);
-        if (!clicked) break;
-      }
-
-      if (!(await this.hasField(page, "Nadpis"))) {
+      const reached = await this.selectCategory(page, ctx, cat);
+      if (!reached) {
         await this.logStructure(page, ctx);
         throw new Error(
-          "Bazar.sk: nepodarilo sa dostať na formulár inzerátu (pole 'Nadpis' chýba) — pozri screenshoty 'add-cat-*' a POLIA v logoch.",
+          "Bazar.sk: nepodarilo sa dostať na formulár inzerátu (krok 1 – výber kategórie zlyhal). Pozri screenshoty 'add-cat-*'.",
         );
       }
 
@@ -721,81 +705,188 @@ export class BazarSkProvider extends BrowserProvider {
   }
 
   /**
-   * Click a category tile by its visible text. The tiles are JS elements (not
-   * links) inside the wizard body — explicitly EXCLUDE the header/nav/footer so
-   * we never hit the browse megamenu. Prefers an exact name; on a sub-category
-   * step where names differ, clicks the closest match, else the first tile.
+   * Step 1 — pick the category. Click the MAIN tile by its real data-cat-id
+   * (fires the AJAX sub-category load into #piSubDiv), then keep choosing the
+   * best sub-category tile until step 2 (the ad form with "Nadpis") appears.
+   * Falls back to the whisperer text box if the tile isn't found. Returns true
+   * once the ad form is reached.
    */
-  private async clickCategoryTile(
+  private async selectCategory(
+    page: import("playwright").Page,
+    ctx: ProviderContext,
+    cat: { id: number; main: string; sub?: string },
+  ): Promise<boolean> {
+    const clicked = await this.clickCatTile(page, cat.id);
+    if (clicked) {
+      await ctx.log(`Kategória → ${cat.main} (#${cat.id})`);
+    } else {
+      await ctx.log(`Dlaždica #${cat.id} sa nenašla — skúšam napovedač.`);
+      await this.useWhisperer(page, ctx, cat.sub ?? cat.main);
+    }
+
+    for (let i = 0; i < 7; i++) {
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      await page.waitForTimeout(1200);
+      await this.debugShot(page, ctx, `add-cat-${i}`);
+      if (await this.hasField(page, "Nadpis")) return true;
+      const advanced = await this.advanceSubcategory(
+        page,
+        ctx,
+        cat.sub ?? cat.main,
+      );
+      if (!advanced) {
+        // No sub-category to pick and no ad form yet — try a "Pokračovať"
+        // submit if the layout has one, otherwise stop.
+        if (!(await this.clickContinue(page))) break;
+      }
+    }
+    return await this.hasField(page, "Nadpis");
+  }
+
+  /** Click a category tile by its data-cat-id (fires the AJAX sub-cat load). */
+  private async clickCatTile(
+    page: import("playwright").Page,
+    id: number,
+  ): Promise<boolean> {
+    const tile = page.locator(`.s-categories[data-cat-id="${id}"]`).first();
+    if ((await tile.count().catch(() => 0)) === 0) return false;
+    await tile.scrollIntoViewIfNeeded().catch(() => {});
+    // The click handler lives on the tile or its .main-cat label span.
+    const label = tile.locator(".main-cat, .sub-cat, span").first();
+    const target = (await label.count().catch(() => 0)) ? label : tile;
+    await target.click({ timeout: 6000 }).catch(() => {});
+    // Belt-and-braces: also click the tile itself in case the handler is there.
+    if (!(await this.hasField(page, "Nadpis"))) {
+      await tile.click({ timeout: 3000 }).catch(() => {});
+    }
+    return true;
+  }
+
+  /**
+   * Choose a sub-category inside the AJAX-loaded #piSub block. Handles the
+   * shapes United Classifieds uses: more .s-categories tiles, a <select>, or a
+   * list of links. Picks the closest text match to what we want, else the first.
+   */
+  private async advanceSubcategory(
     page: import("playwright").Page,
     ctx: ProviderContext,
     wanted: string,
   ): Promise<boolean> {
-    // 1) Exact tile whose own text equals the category, not in header/nav/footer.
-    if (await this.clickTileByText(page, wanted)) {
-      await ctx.log(`Kategória (dlaždica) → ${wanted}`);
+    const scope = "#piSub, #piSubDiv, .categories-sub";
+    const w = norm(wanted);
+
+    // a) sub-category tiles
+    const tiles = page.locator(
+      "#piSub .s-categories, #piSubDiv .s-categories, .categories-sub .s-categories",
+    );
+    const nt = await tiles.count().catch(() => 0);
+    if (nt > 0) {
+      let bestIdx = 0;
+      let bs = -1;
+      for (let i = 0; i < nt; i++) {
+        const nm =
+          (await tiles.nth(i).getAttribute("data-name").catch(() => "")) ||
+          (await tiles.nth(i).innerText().catch(() => ""));
+        const s = wordOverlap(norm(nm), w);
+        if (s > bs) {
+          bs = s;
+          bestIdx = i;
+        }
+      }
+      const tile = tiles.nth(bestIdx);
+      const nm = (await tile.getAttribute("data-name").catch(() => "")) || "(prvá)";
+      const label = tile.locator(".main-cat, .sub-cat, span").first();
+      await ((await label.count().catch(() => 0)) ? label : tile)
+        .click({ timeout: 6000 })
+        .catch(() => {});
+      await ctx.log(`Podkategória → ${nm}`);
       return true;
     }
 
-    // 2) Sub-category step: gather the wizard's category-like texts and click
-    // the closest match (else the first).
-    const w = norm(wanted);
-    const texts: string[] = await page
-      .evaluate(() => {
-        const bad =
-          /prihl|registr|moje inzer|vyh[ľl]ad|sledovan|kontakt|reklama|blog|gdpr|cookies|podmienky|mobiln|ako inzerovat|zvýhodni|napíšte|united|bazar\.sk|prida[ťt] inzer|zalo[žz]te|navrhneme|zmeni[ťt] kateg/i;
-        const seen = new Set<string>();
-        const out: string[] = [];
-        for (const e of Array.from(document.querySelectorAll("a,li,div,span,p"))) {
-          const el = e as HTMLElement;
-          if (el.closest("header,nav,footer")) continue; // skip megamenu/footer
-          // own (direct) text only, so we target the leaf tile label
-          const own = Array.from(el.childNodes)
-            .filter((n) => n.nodeType === 3)
-            .map((n) => n.textContent ?? "")
-            .join("")
-            .trim();
-          if (own.length < 2 || own.length > 35) continue;
-          if (bad.test(own)) continue;
-          const r = el.getBoundingClientRect();
-          if (r.width < 20 || r.height < 8) continue;
-          if (seen.has(own)) continue;
-          seen.add(own);
-          out.push(own);
+    // b) sub-category <select>
+    const sel = page
+      .locator(`${scope}`)
+      .locator("select")
+      .first();
+    if (await sel.count().catch(() => 0)) {
+      const opts = await sel
+        .locator("option")
+        .evaluateAll((o) =>
+          o.map((e) => ({
+            value: (e as HTMLOptionElement).value,
+            text: (e.textContent ?? "").trim(),
+          })),
+        )
+        .catch(() => [] as { value: string; text: string }[]);
+      const real = opts.filter(
+        (o) => o.value && !/^0?$/.test(o.value) && !/vyberte|zvo[ľl]te/i.test(o.text),
+      );
+      if (real.length) {
+        let pick = real[0];
+        let bs = -1;
+        for (const o of real) {
+          const s = wordOverlap(norm(o.text), w);
+          if (s > bs) {
+            bs = s;
+            pick = o;
+          }
         }
-        return out;
-      })
-      .catch(() => [] as string[]);
-
-    if (!texts.length) {
-      await ctx.log("Kategórie: žiadne dlaždice na kliknutie.");
-      return false;
-    }
-    let best = texts[0];
-    let bs = -1;
-    for (const t of texts) {
-      const s = wordOverlap(norm(t), w);
-      if (s > bs) {
-        bs = s;
-        best = t;
+        await sel.selectOption(pick.value).catch(() => {});
+        await ctx.log(`Podkategória (select) → ${pick.text}`);
+        return true;
       }
     }
-    await ctx.log(`Kategória (text) → ${best}`);
-    await this.clickTileByText(page, best);
-    return true;
+
+    // c) links inside the sub block
+    const links = page.locator(
+      '#piSub a[data-cat-id], #piSubDiv a[data-cat-id], #piSub a[href*="pridanie"], #piSubDiv a[href*="pridanie"], #piSubDiv li a',
+    );
+    if ((await links.count().catch(() => 0)) > 0) {
+      await links.first().click({ timeout: 6000 }).catch(() => {});
+      await ctx.log("Podkategória (odkaz) → prvá");
+      return true;
+    }
+    return false;
   }
 
-  /** Click an element whose OWN text equals `text`, outside header/nav/footer. */
-  private async clickTileByText(
+  /** Type into the "napovedač" whisperer and pick its first suggestion. */
+  private async useWhisperer(
     page: import("playwright").Page,
+    ctx: ProviderContext,
     text: string,
+  ): Promise<void> {
+    const inp = page
+      .locator('input[name="input-category"], input.whisperer.category')
+      .first();
+    if ((await inp.count().catch(() => 0)) === 0) return;
+    await inp.click().catch(() => {});
+    await inp.fill(text).catch(() => {});
+    await page.waitForTimeout(1800);
+    const sugg = page
+      .locator(
+        '.whisperer-items li, .whisperer-item, ul.whisperer li, .ui-autocomplete li, .whisperer-list li',
+      )
+      .first();
+    if (await sugg.count().catch(() => 0)) {
+      await sugg.click({ timeout: 4000 }).catch(() => {});
+      await ctx.log(`Napovedač kategórie → "${text}"`);
+    } else {
+      await page.keyboard.press("Enter").catch(() => {});
+    }
+  }
+
+  /** Click a "Pokračovať"/"Ďalej" submit within the add form, if present. */
+  private async clickContinue(
+    page: import("playwright").Page,
   ): Promise<boolean> {
-    const xp =
-      "xpath=//*[not(ancestor::header) and not(ancestor::nav) and not(ancestor::footer)]" +
-      `[normalize-space(text())=${JSON.stringify(text)}]`;
-    const loc = page.locator(xp).filter({ visible: true }).first();
-    if ((await loc.count().catch(() => 0)) === 0) return false;
-    await loc.click({ timeout: 6000 }).catch(() => {});
+    const btn = page
+      .locator(
+        '.edit-form button[type="submit"], .edit-form input[type="submit"], button.continue',
+      )
+      .filter({ visible: true })
+      .first();
+    if ((await btn.count().catch(() => 0)) === 0) return false;
+    await btn.click({ timeout: 6000 }).catch(() => {});
     return true;
   }
 
@@ -956,10 +1047,22 @@ export class BazarSkProvider extends BrowserProvider {
 
 // --- module helpers --------------------------------------------------------
 
-/** XPath locator: the first <tag> following the caption cell that starts with `label`. */
+/**
+ * XPath locator: the first visible <tag> following the caption whose OWN text
+ * node starts with `label`. We match a direct text node (text()) rather than the
+ * element's whole text content (.) so huge containers don't match, exclude the
+ * header/footer, and skip hidden inputs — that last part fixes the bug where the
+ * footer's hidden token input (value "74xXk2gx7tIr6jIx") was read as "Stav"/
+ * "Telefón".
+ */
 function labelXpath(label: string, tag: string): string {
   const l = JSON.stringify(label); // safe double-quoted string for XPath
-  return `xpath=(//*[starts-with(normalize-space(.), ${l})])[last()]/following::${tag}[1]`;
+  const notHidden = tag === "input" ? "[not(@type='hidden')]" : "";
+  return (
+    `xpath=(//*[not(ancestor::header) and not(ancestor::footer)]` +
+    `[starts-with(normalize-space(text()), ${l})])[last()]` +
+    `/following::${tag}${notHidden}[1]`
+  );
 }
 
 /** Escape a string for safe use inside a RegExp. */
@@ -1013,15 +1116,42 @@ const CATEGORY_RULES: { re: RegExp; main: string; sub?: string }[] = [
   { re: /\bpráca\b|brigád|zamestnan|ponuka\s*prác/i, main: "Práca" },
 ];
 
+// Real Bazar.sk main-category ids (from data-cat-id on the add page). Used to
+// click the exact tile instead of guessing by text.
+const CATEGORY_IDS: Record<string, number> = {
+  "Autá": 1,
+  "Detské potreby": 14,
+  "Elektro": 10,
+  "Hudba": 7,
+  "Knihy": 6,
+  "Mobily": 11,
+  "Motorky": 17,
+  "Nábytok a bývanie": 13,
+  "Oblečenie a obuv": 3,
+  "Počítače": 18,
+  "Práca": 4,
+  "Reality": 2,
+  "Služby": 12,
+  "Starožitnosti a zberateľstvo": 639,
+  "Stavba a záhrada": 16,
+  "Stroje a náradie": 15,
+  "Športové potreby": 5,
+  "Zdravie a krása": 638,
+  "Zvieratá": 8,
+  "Ostatné": 9,
+};
+
 function bazarCategoryPath(
   category: string | null | undefined,
   title: string | null | undefined,
-): { main: string; sub?: string } {
+): { id: number; main: string; sub?: string } {
   const hay = `${category ?? ""} ${title ?? ""}`.toLowerCase();
   for (const r of CATEGORY_RULES) {
-    if (r.re.test(hay)) return { main: r.main, sub: r.sub };
+    if (r.re.test(hay)) {
+      return { id: CATEGORY_IDS[r.main] ?? CATEGORY_IDS["Ostatné"], main: r.main, sub: r.sub };
+    }
   }
-  return { main: "Ostatné" };
+  return { id: CATEGORY_IDS["Ostatné"], main: "Ostatné" };
 }
 
 /** Bazar.sk requires ≥ N chars of body text; pad with the title if too short. */
