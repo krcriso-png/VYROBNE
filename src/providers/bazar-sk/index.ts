@@ -783,16 +783,20 @@ export class BazarSkProvider extends BrowserProvider {
     if (nt > 0) {
       let bestIdx = 0;
       let bs = -1;
+      let ostatneIdx = -1;
       for (let i = 0; i < nt; i++) {
         const nm =
           (await tiles.nth(i).getAttribute("data-name").catch(() => "")) ||
           (await tiles.nth(i).innerText().catch(() => ""));
+        if (ostatneIdx < 0 && /ostatn/i.test(nm)) ostatneIdx = i;
         const s = wordOverlap(norm(nm), w);
         if (s > bs) {
           bs = s;
           bestIdx = i;
         }
       }
+      // No keyword match → prefer an "Ostatné …" tile over the first one.
+      if (bs <= 0 && ostatneIdx >= 0) bestIdx = ostatneIdx;
       const tile = tiles.nth(bestIdx);
       const nm = (await tile.getAttribute("data-name").catch(() => "")) || "(prvá)";
       const label = tile.locator(".main-cat, .sub-cat, span").first();
@@ -831,6 +835,8 @@ export class BazarSkProvider extends BrowserProvider {
             pick = o;
           }
         }
+        // No keyword match → prefer an "Ostatné …" option over the first.
+        if (bs <= 0) pick = real.find((o) => /ostatn/i.test(o.text)) ?? real[0];
         await sel.selectOption(pick.value).catch(() => {});
         await ctx.log(`Podkategória (select) → ${pick.text}`);
         return true;
@@ -867,6 +873,7 @@ export class BazarSkProvider extends BrowserProvider {
         let best: HTMLAnchorElement | null = null;
         let bestScore = -1;
         let first: HTMLAnchorElement | null = null;
+        let ostatne: HTMLAnchorElement | null = null; // safe "Ostatné …" catch-all
         for (const a of links) {
           const txt = (a.textContent || "").replace(/\s+/g, " ").trim();
           if (txt.length < 2 || txt.length > 45) continue;
@@ -874,6 +881,7 @@ export class BazarSkProvider extends BrowserProvider {
           const r = a.getBoundingClientRect();
           if (r.width < 10 || r.height < 6) continue;
           if (!first) first = a;
+          if (!ostatne && /ostatn/i.test(txt)) ostatne = a;
           let score = 0;
           const words = txt
             .toLowerCase()
@@ -886,7 +894,9 @@ export class BazarSkProvider extends BrowserProvider {
             best = a;
           }
         }
-        const pick = bestScore > 0 ? best : first;
+        // Exact keyword match wins; otherwise prefer an "Ostatné …" sub-category
+        // (correct catch-all, no extra required fields) over a blind first pick.
+        const pick = bestScore > 0 ? best : ostatne ?? first;
         if (!pick) return "";
         pick.setAttribute("data-klikado-subcat", "1");
         return (pick.textContent || "").replace(/\s+/g, " ").trim();
