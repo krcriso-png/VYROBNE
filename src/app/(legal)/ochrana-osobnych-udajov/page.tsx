@@ -29,6 +29,9 @@ export default function PrivacyPage() {
         <br />
         IČO: {OPERATOR.ico}
         {OPERATOR.dic ? <>, DIČ: {OPERATOR.dic}</> : null}
+        {OPERATOR.icDph ? <>, IČ DPH: {OPERATOR.icDph}</> : null}
+        <br />
+        {OPERATOR.registration}
         <br />
         E-mail: <a href={`mailto:${OPERATOR.email}`}>{OPERATOR.email}</a>
         {OPERATOR.phone ? <>, tel.: {OPERATOR.phone}</> : null}
