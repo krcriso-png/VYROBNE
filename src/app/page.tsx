@@ -12,7 +12,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { OPERATOR } from "@/lib/legal";
-import { PLANS as PLAN_DEFS, yearlySavingPct } from "@/lib/plans";
+import {
+  PLANS as PLAN_DEFS,
+  yearlySavingPct,
+  yearlyPerMonthEur,
+  eur,
+} from "@/lib/plans";
 
 const FEATURES = [
   {
@@ -56,7 +61,7 @@ const PLANS = (["FREE", "BASIC", "PRO"] as const).map((k) => {
     price: p.priceEur === 0 ? "0 €" : `${p.priceEur.toFixed(2)} €`,
     note: "/mesiac",
     yearly: p.priceEurYearly
-      ? `alebo ${p.priceEurYearly.toFixed(2).replace(".", ",")} €/rok · ušetríš ${yearlySavingPct(k)}%`
+      ? `alebo ${eur(yearlyPerMonthEur(k)!)}/mes pri ročnej platbe · ušetríš ${yearlySavingPct(k)}%`
       : null,
     features: [
       p.monthlyCredits === null

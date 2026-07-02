@@ -49,21 +49,26 @@ export function UpgradeButtons({
         {loading === "monthly" ? "…" : `Mesačne · ${eur(monthlyPriceEur)}`}
       </Button>
       {hasYearly && (
-        <button
-          type="button"
-          onClick={() => checkout("yearly")}
-          disabled={loading !== null}
-          className="relative flex w-full items-center justify-center gap-2 rounded-lg border border-success/40 bg-success/5 px-3 py-2 text-sm font-medium text-success transition-colors hover:bg-success/10 disabled:opacity-50"
-        >
-          {loading === "yearly"
-            ? "…"
-            : `Ročne · ${eur(yearlyPriceEur!)}`}
-          {savingPct ? (
-            <span className="rounded-full bg-success px-1.5 py-0.5 text-[11px] font-bold text-white">
-              −{savingPct}%
-            </span>
-          ) : null}
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={() => checkout("yearly")}
+            disabled={loading !== null}
+            className="relative flex w-full items-center justify-center gap-2 rounded-lg border border-success/40 bg-success/5 px-3 py-2 text-sm font-medium text-success transition-colors hover:bg-success/10 disabled:opacity-50"
+          >
+            {loading === "yearly"
+              ? "…"
+              : `Ročne · ${eur(yearlyPriceEur! / 12)}/mes`}
+            {savingPct ? (
+              <span className="rounded-full bg-success px-1.5 py-0.5 text-[11px] font-bold text-white">
+                −{savingPct}%
+              </span>
+            ) : null}
+          </button>
+          <p className="text-center text-[11px] text-muted-foreground">
+            účtované ročne
+          </p>
+        </>
       )}
     </div>
   );

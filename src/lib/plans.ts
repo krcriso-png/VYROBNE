@@ -76,6 +76,18 @@ export function yearlySavingPct(plan: Plan): number | null {
   return Math.round((1 - p.priceEurYearly / (p.priceEur * 12)) * 100);
 }
 
+/** The yearly price expressed as an equivalent per-month figure (nicer to show). */
+export function yearlyPerMonthEur(plan: Plan): number | null {
+  const p = PLANS[plan];
+  if (!p.priceEurYearly) return null;
+  return p.priceEurYearly / 12;
+}
+
+/** Format an EUR amount the Slovak way, e.g. 5.5917 -> "5,59 €". */
+export function eur(amount: number): string {
+  return `${amount.toFixed(2).replace(".", ",")} €`;
+}
+
 export function planFor(plan: Plan): PlanDefinition {
   return PLANS[plan];
 }

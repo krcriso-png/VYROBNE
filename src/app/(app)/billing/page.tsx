@@ -1,7 +1,7 @@
 import { Check, Coins } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
-import { PLANS, yearlySavingPct } from "@/lib/plans";
+import { PLANS, yearlySavingPct, yearlyPerMonthEur, eur } from "@/lib/plans";
 import { getCreditState, creditReasonLabel } from "@/lib/credits";
 import { UpgradeButtons } from "@/components/UpgradeButtons";
 import { ManageSubscriptionButton } from "@/components/ManageSubscriptionButton";
@@ -105,9 +105,9 @@ export default async function BillingPage() {
                 </span>
                 <span className="text-sm text-muted-foreground"> / mesiac</span>
               </p>
-              {p.prices.yearly && p.priceEurYearly && (
+              {p.prices.yearly && yearlyPerMonthEur(p.key) && (
                 <p className="mt-1 text-xs font-medium text-success">
-                  alebo {p.priceEurYearly.toFixed(2).replace(".", ",")} €/rok ·
+                  alebo {eur(yearlyPerMonthEur(p.key)!)}/mes pri ročnej platbe ·
                   ušetríš {yearlySavingPct(p.key)}%
                 </p>
               )}
