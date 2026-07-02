@@ -3,7 +3,16 @@ import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { PLANS, yearlySavingPct, yearlyPerMonthEur, eur } from "@/lib/plans";
 import { getCreditState, creditReasonLabel } from "@/lib/credits";
-import { reconcileUserSubscription } from "@/lib/billing-sync";
+import { reconcileUserSubscription, listUserInvoices } from "@/lib/billing-sync";
+
+// Stripe invoice status → Slovak label.
+const INVOICE_STATUS: Record<string, string> = {
+  paid: "Zaplatená",
+  open: "Neuhradená",
+  draft: "Koncept",
+  void: "Zrušená",
+  uncollectible: "Nevymožiteľná",
+};
 import { UpgradeButtons } from "@/components/UpgradeButtons";
 import { ManageSubscriptionButton } from "@/components/ManageSubscriptionButton";
 import {
@@ -36,7 +45,7 @@ export default async function BillingPage() {
   // plan is correct even if a webhook was missed/misconfigured.
   await reconcileUserSubscription(userId);
 
-  const [sub, credit, history] = await Promise.all([
+  const [sub, credit, history, invoices] = await Promise.all([
     prisma.subscription.findUnique({ where: { userId } }),
     getCreditState(userId),
     prisma.creditTransaction.findMany({
@@ -44,6 +53,7 @@ export default async function BillingPage() {
       orderBy: { createdAt: "desc" },
       take: 20,
     }),
+    listUserInvoices(userId),
   ]);
   const plan = sub?.plan ?? "FREE";
   const hasPaidSub =
@@ -180,11 +190,66 @@ export default async function BillingPage() {
           <div className="text-right">
             <ManageSubscriptionButton />
             <p className="mt-1 text-xs text-muted-foreground">
-              Faktúry a platobná karta
+              Zmena platobnej karty
             </p>
           </div>
         )}
       </div>
+
+      {/* Invoices */}
+      {sub?.stripeCustomerId && (
+        <section>
+          <h2 className="mb-3 font-semibold">Faktúry</h2>
+          {invoices.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Zatiaľ žiadne faktúry. Prvá sa vystaví po prvej platbe (po skončení
+              skúšobnej lehoty).
+            </p>
+          ) : (
+            <Card className="overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="border-b bg-muted/50 text-left text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-2.5 font-medium">Číslo</th>
+                    <th className="px-4 py-2.5 font-medium">Dátum</th>
+                    <th className="px-4 py-2.5 font-medium">Suma</th>
+                    <th className="px-4 py-2.5 font-medium">Stav</th>
+                    <th className="px-4 py-2.5" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {invoices.map((i) => (
+                    <tr key={i.id} className="border-b last:border-0">
+                      <td className="px-4 py-2.5">{i.number}</td>
+                      <td className="px-4 py-2.5">
+                        {i.date.toLocaleDateString("sk-SK")}
+                      </td>
+                      <td className="px-4 py-2.5 tabular-nums">
+                        {i.amountEur.toFixed(2).replace(".", ",")} €
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {INVOICE_STATUS[i.status] ?? i.status}
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        {i.url && (
+                          <a
+                            href={i.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-medium text-primary hover:underline"
+                          >
+                            Zobraziť / PDF
+                          </a>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          )}
+        </section>
+      )}
 
       {/* History */}
       <section>

@@ -61,6 +61,40 @@ export async function syncStripeSubscription(
   }
 }
 
+export interface InvoiceRow {
+  id: string;
+  number: string;
+  date: Date;
+  amountEur: number;
+  status: string;
+  url: string | null;
+}
+
+/** List the user's Stripe invoices (newest first) for the billing history. */
+export async function listUserInvoices(userId: string): Promise<InvoiceRow[]> {
+  if (!process.env.STRIPE_SECRET_KEY) return [];
+  const sub = await prisma.subscription.findUnique({ where: { userId } });
+  if (!sub?.stripeCustomerId) return [];
+  try {
+    const inv = await stripe.invoices.list({
+      customer: sub.stripeCustomerId,
+      limit: 24,
+    });
+    return inv.data.map((i) => ({
+      id: i.id ?? "",
+      number: i.number ?? i.id ?? "",
+      date: new Date(i.created * 1000),
+      amountEur: (i.total ?? 0) / 100,
+      status: i.status ?? "",
+      url: i.hosted_invoice_url ?? i.invoice_pdf ?? null,
+    }));
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("[billing-sync] listUserInvoices failed", err);
+    return [];
+  }
+}
+
 /**
  * Pull the user's current subscription straight from Stripe and sync it. Used as
  * a self-healing fallback when a webhook was missed. Safe no-op when Stripe or
