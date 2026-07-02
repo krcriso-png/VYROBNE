@@ -6,6 +6,7 @@ import { getCreditState, creditReasonLabel } from "@/lib/credits";
 import { reconcileUserSubscription } from "@/lib/billing-sync";
 import { UpgradeButtons } from "@/components/UpgradeButtons";
 import { ManageSubscriptionButton } from "@/components/ManageSubscriptionButton";
+import { CancelSubscription } from "@/components/CancelSubscription";
 import { Card } from "@/components/ui/card";
 
 function planFeatures(key: string): string[] {
@@ -42,6 +43,14 @@ export default async function BillingPage() {
     }),
   ]);
   const plan = sub?.plan ?? "FREE";
+  const hasPaidSub =
+    !!sub?.stripeCustomerId &&
+    plan !== "FREE" &&
+    ["ACTIVE", "TRIALING", "PAST_DUE"].includes(sub?.status ?? "");
+  const endsAt =
+    sub?.currentPeriodEnd?.toLocaleDateString("sk-SK") ??
+    sub?.trialEndsAt?.toLocaleDateString("sk-SK") ??
+    null;
 
   return (
     <div className="mx-auto max-w-4xl space-y-8">
@@ -52,8 +61,19 @@ export default async function BillingPage() {
           {sub?.status ? ` · stav ${sub.status}` : ""}
         </p>
         {sub?.stripeCustomerId && (
-          <div className="mt-3">
-            <ManageSubscriptionButton />
+          <div className="mt-4 space-y-3">
+            {hasPaidSub && (
+              <CancelSubscription
+                cancelAtPeriodEnd={sub?.cancelAtPeriodEnd ?? false}
+                endsAt={endsAt}
+              />
+            )}
+            <div>
+              <ManageSubscriptionButton />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Faktúry a zmena platobnej karty
+              </p>
+            </div>
           </div>
         )}
       </div>
