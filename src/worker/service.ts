@@ -485,20 +485,27 @@ export async function runCheckStatus(data: BaseJobData): Promise<void> {
       : {};
 
   if (status.verified === false) {
-    // Can't confirm. Klikado published this ad (it has a remote id), and the
-    // only "removal" would be an unconfirmed guess — so keep it PUBLISHED and
-    // just flag it as unverified. This both prevents false "removed" AND heals
-    // a listing that an earlier buggy check wrongly marked removed.
-    await prisma.publication.update({
-      where: { id: data.publicationId },
-      data: {
-        status: "PUBLISHED",
-        lastSyncedAt: new Date(),
-        statusNote:
-          "Stav sa nepodarilo overiť — Klikado nevidí „Moje inzeráty“. Skontroluj prihlasovacie údaje k Bazoš účtu v sekcii Portály.",
-        ...views,
-      },
-    });
+    // Couldn't confirm. Only an ad that was ALREADY published stays PUBLISHED
+    // (this prevents a false "removed" and heals an earlier wrong removal). An
+    // ERROR/REMOVED ad must NOT be invented as PUBLISHED just because we can't
+    // see "Moje inzeráty" — keep its status, only record that a check ran.
+    if (pub.status === "PUBLISHED") {
+      await prisma.publication.update({
+        where: { id: data.publicationId },
+        data: {
+          status: "PUBLISHED",
+          lastSyncedAt: new Date(),
+          statusNote:
+            "Stav sa nepodarilo overiť — Klikado nevidí „Moje inzeráty“. Skontroluj prihlasovacie údaje k Bazoš účtu v sekcii Portály.",
+          ...views,
+        },
+      });
+    } else {
+      await prisma.publication.update({
+        where: { id: data.publicationId },
+        data: { lastSyncedAt: new Date(), ...views },
+      });
+    }
     return;
   }
 
@@ -511,8 +518,28 @@ export async function runCheckStatus(data: BaseJobData): Promise<void> {
         remoteUrl: status.remoteUrl ?? pub.remoteUrl,
         lastSyncedAt: new Date(),
         statusNote: null, // confirmed live — clear any "unverified" note
+        lastError: null,
+        // Healing from ERROR/REMOVED → (re)start the auto-topovanie schedule.
+        ...(pub.status !== "PUBLISHED"
+          ? {
+              nextRefreshAt: await computeNextRefresh(
+                data.listingId,
+                provider.supportsRefresh,
+              ),
+            }
+          : {}),
         ...views,
       },
+    });
+    return;
+  }
+
+  // A genuine publish failure that never posted (ERROR, no remote id) should
+  // stay ERROR so the user can retry/report — don't relabel it as "removed".
+  if (pub.status === "ERROR" && !pub.remoteId) {
+    await prisma.publication.update({
+      where: { id: data.publicationId },
+      data: { lastSyncedAt: new Date() },
     });
     return;
   }

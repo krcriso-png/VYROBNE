@@ -216,20 +216,24 @@ export async function enqueueDueStatusChecks(
   const cutoff = new Date(Date.now() - maxAgeMs);
   const due = await prisma.publication.findMany({
     where: {
-      // Re-verify PUBLISHED ads (views/liveness) and REMOVED ones too, so a
-      // listing that was wrongly marked removed can heal back to PUBLISHED when
-      // it's found again in the account's "Moje inzeráty".
-      remoteId: { not: null },
       listing: { status: { not: "ARCHIVED" } },
-      // PUBLISHED ads: re-check on the normal cadence. REMOVED ads that still
-      // carry a remote id were marked removed by a check (not a user delete) —
-      // re-verify them promptly so a wrongly-removed listing heals back fast.
       OR: [
+        // PUBLISHED ads: re-check liveness/views on the normal cadence.
         {
           status: "PUBLISHED",
+          remoteId: { not: null },
           OR: [{ lastSyncedAt: null }, { lastSyncedAt: { lte: cutoff } }],
         },
-        { status: "REMOVED" },
+        // REMOVED ads that still carry a remote id were flagged by a check (not
+        // a user delete) — re-verify promptly so a wrongly-removed ad heals.
+        { status: "REMOVED", remoteId: { not: null } },
+        // ERROR ads: a publish can throw AFTER the ad actually went live (or on
+        // an our-side glitch). Re-verify so a live ad heals to PUBLISHED; a
+        // genuine failure stays ERROR (checkStatus only heals on confirmation).
+        {
+          status: "ERROR",
+          OR: [{ lastSyncedAt: null }, { lastSyncedAt: { lte: cutoff } }],
+        },
       ],
     },
     include: { portal: true, listing: { select: { userId: true } } },
