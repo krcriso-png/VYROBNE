@@ -25,10 +25,51 @@ export async function ensureCustomerBillingProfile(
 ): Promise<void> {
   if (!process.env.STRIPE_SECRET_KEY) return;
   try {
-    await stripe.customers.update(customerId, {
-      preferred_locales: ["sk"],
-      invoice_settings: { footer: invoiceFooter() },
+    const sub = await prisma.subscription.findFirst({
+      where: { stripeCustomerId: customerId },
     });
+
+    // Buyer's IČO/DIČ shown on the invoice as custom fields.
+    const customFields: { name: string; value: string }[] = [];
+    if (sub?.billingIco)
+      customFields.push({ name: "IČO", value: sub.billingIco.slice(0, 30) });
+    if (sub?.billingDic)
+      customFields.push({ name: "DIČ", value: sub.billingDic.slice(0, 30) });
+
+    const hasAddress =
+      !!sub?.billingStreet || !!sub?.billingCity || !!sub?.billingZip;
+
+    await stripe.customers.update(customerId, {
+      ...(sub?.billingName ? { name: sub.billingName } : {}),
+      ...(hasAddress
+        ? {
+            address: {
+              line1: sub?.billingStreet ?? undefined,
+              city: sub?.billingCity ?? undefined,
+              postal_code: sub?.billingZip ?? undefined,
+              country: sub?.billingCountry || "SK",
+            },
+          }
+        : {}),
+      preferred_locales: ["sk"],
+      invoice_settings: { footer: invoiceFooter(), custom_fields: customFields },
+    });
+
+    // IČ DPH → customer VAT tax id (drives reverse charge for EU businesses).
+    if (sub?.billingVatId) {
+      const val = sub.billingVatId.replace(/\s+/g, "").toUpperCase();
+      const existing = await stripe.customers.listTaxIds(customerId, {
+        limit: 10,
+      });
+      if (!existing.data.some((t) => t.value === val)) {
+        for (const t of existing.data) {
+          await stripe.customers.deleteTaxId(customerId, t.id).catch(() => {});
+        }
+        await stripe.customers
+          .createTaxId(customerId, { type: "eu_vat", value: val })
+          .catch(() => {});
+      }
+    }
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("[billing-sync] ensureCustomerBillingProfile failed", err);

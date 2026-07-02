@@ -17,6 +17,21 @@ export default function ProfilePage() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
+  const EMPTY_BILLING = {
+    billingName: "",
+    billingIco: "",
+    billingDic: "",
+    billingVatId: "",
+    billingStreet: "",
+    billingCity: "",
+    billingZip: "",
+    billingCountry: "SK",
+  };
+  const [billing, setBillingState] = useState(EMPTY_BILLING);
+  const [billingSaving, setBillingSaving] = useState(false);
+  const [billingSaved, setBillingSaved] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
+
   useEffect(() => {
     fetch("/api/me")
       .then((r) => r.json())
@@ -32,7 +47,46 @@ export default function ProfilePage() {
         setError("Profil sa nepodarilo načítať.");
         setLoading(false);
       });
+    fetch("/api/billing/profile")
+      .then((r) => r.json())
+      .then((b: Record<string, string | null>) => {
+        setBillingState({
+          billingName: b.billingName ?? "",
+          billingIco: b.billingIco ?? "",
+          billingDic: b.billingDic ?? "",
+          billingVatId: b.billingVatId ?? "",
+          billingStreet: b.billingStreet ?? "",
+          billingCity: b.billingCity ?? "",
+          billingZip: b.billingZip ?? "",
+          billingCountry: b.billingCountry ?? "SK",
+        });
+      })
+      .catch(() => {});
   }, []);
+
+  function setBilling<K extends keyof typeof billing>(key: K, value: string) {
+    setBillingState((b) => ({ ...b, [key]: value }));
+    setBillingSaved(false);
+  }
+
+  async function saveBilling(e: React.FormEvent) {
+    e.preventDefault();
+    setBillingSaving(true);
+    setBillingError(null);
+    setBillingSaved(false);
+    const res = await fetch("/api/billing/profile", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(billing),
+    });
+    setBillingSaving(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setBillingError(data.error ?? "Uloženie zlyhalo.");
+      return;
+    }
+    setBillingSaved(true);
+  }
 
   function set<K extends keyof typeof form>(key: K, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -167,6 +221,107 @@ export default function ProfilePage() {
             {saving ? "Ukladám…" : "Uložiť zmeny"}
           </Button>
         </div>
+      </form>
+
+      <form onSubmit={saveBilling}>
+        <Card>
+          <CardHeader>
+            <CardTitle>Fakturačné údaje (firma)</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Vyplň, ak chceš faktúry na firmu. Údaje sa použijú na faktúre za
+              predplatné (názov, adresa, IČO, DIČ, IČ DPH).
+            </p>
+            <div className="space-y-1.5">
+              <Label htmlFor="billingName">Názov firmy</Label>
+              <Input
+                id="billingName"
+                value={billing.billingName}
+                onChange={(e) => setBilling("billingName", e.target.value)}
+                placeholder="Napr. Firma s. r. o."
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="billingIco">IČO</Label>
+                <Input
+                  id="billingIco"
+                  value={billing.billingIco}
+                  onChange={(e) => setBilling("billingIco", e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="billingDic">DIČ</Label>
+                <Input
+                  id="billingDic"
+                  value={billing.billingDic}
+                  onChange={(e) => setBilling("billingDic", e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="billingVatId">IČ DPH</Label>
+                <Input
+                  id="billingVatId"
+                  value={billing.billingVatId}
+                  onChange={(e) => setBilling("billingVatId", e.target.value)}
+                  placeholder="SK…"
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="billingStreet">Ulica a číslo</Label>
+              <Input
+                id="billingStreet"
+                value={billing.billingStreet}
+                onChange={(e) => setBilling("billingStreet", e.target.value)}
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="billingZip">PSČ</Label>
+                <Input
+                  id="billingZip"
+                  value={billing.billingZip}
+                  onChange={(e) => setBilling("billingZip", e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="billingCity">Mesto</Label>
+                <Input
+                  id="billingCity"
+                  value={billing.billingCity}
+                  onChange={(e) => setBilling("billingCity", e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="billingCountry">Krajina (kód)</Label>
+              <Input
+                id="billingCountry"
+                value={billing.billingCountry}
+                onChange={(e) =>
+                  setBilling("billingCountry", e.target.value.toUpperCase())
+                }
+                maxLength={2}
+                placeholder="SK"
+                className="max-w-24"
+              />
+            </div>
+
+            {billingError && (
+              <p className="text-sm text-destructive">{billingError}</p>
+            )}
+            {billingSaved && (
+              <p className="text-sm text-success">Fakturačné údaje uložené ✓</p>
+            )}
+            <div className="flex justify-end">
+              <Button type="submit" disabled={billingSaving}>
+                {billingSaving ? "Ukladám…" : "Uložiť fakturačné údaje"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </form>
     </div>
   );

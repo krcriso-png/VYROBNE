@@ -74,6 +74,17 @@ export const portalAccountSchema = z.object({
   verifyPhone: z.string().max(40).optional(),
 });
 
+export const billingProfileSchema = z.object({
+  billingName: z.string().max(200).nullable().optional(),
+  billingIco: z.string().max(30).nullable().optional(),
+  billingDic: z.string().max(30).nullable().optional(),
+  billingVatId: z.string().max(30).nullable().optional(),
+  billingStreet: z.string().max(200).nullable().optional(),
+  billingCity: z.string().max(120).nullable().optional(),
+  billingZip: z.string().max(20).nullable().optional(),
+  billingCountry: z.string().max(2).nullable().optional(),
+});
+
 export const checkoutSchema = z.object({
   plan: z.enum(["BASIC", "PRO"]),
   interval: z.enum(["monthly", "yearly"]).default("monthly"),

@@ -140,6 +140,16 @@ model Subscription {
   trialEndsAt        DateTime?
   cancelAtPeriodEnd  Boolean   @default(false)
 
+  // Buyer's company / billing details for invoices (filled in the profile).
+  billingName    String?
+  billingIco     String?
+  billingDic     String?
+  billingVatId   String? // IČ DPH
+  billingStreet  String?
+  billingCity    String?
+  billingZip     String?
+  billingCountry String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
