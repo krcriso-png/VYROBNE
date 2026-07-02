@@ -118,7 +118,10 @@ export default async function BillingPage() {
                     {current ? "Práve používaš" : "Zadarmo"}
                   </span>
                 ) : (
-                  <UpgradeButtons plan={p.key as "BASIC" | "PRO"} />
+                  <UpgradeButtons
+                    plan={p.key as "BASIC" | "PRO"}
+                    hasYearly={!!p.prices.yearly}
+                  />
                 )}
               </div>
             </Card>

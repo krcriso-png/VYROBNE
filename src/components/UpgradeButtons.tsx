@@ -3,8 +3,15 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
-// Starts a Stripe Checkout session and redirects the user to pay.
-export function UpgradeButtons({ plan }: { plan: "BASIC" | "PRO" }) {
+// Starts a Stripe Checkout session and redirects the user to pay. The yearly
+// button only appears when a yearly price is configured for the plan.
+export function UpgradeButtons({
+  plan,
+  hasYearly = false,
+}: {
+  plan: "BASIC" | "PRO";
+  hasYearly?: boolean;
+}) {
   const [loading, setLoading] = useState<string | null>(null);
 
   async function checkout(interval: "monthly" | "yearly") {
@@ -33,15 +40,17 @@ export function UpgradeButtons({ plan }: { plan: "BASIC" | "PRO" }) {
       >
         {loading === "monthly" ? "…" : "Mesačne"}
       </Button>
-      <Button
-        size="sm"
-        variant="outline"
-        className="w-full"
-        onClick={() => checkout("yearly")}
-        disabled={loading !== null}
-      >
-        {loading === "yearly" ? "…" : "Ročne (zľava)"}
-      </Button>
+      {hasYearly && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full"
+          onClick={() => checkout("yearly")}
+          disabled={loading !== null}
+        >
+          {loading === "yearly" ? "…" : "Ročne (zľava)"}
+        </Button>
+      )}
     </div>
   );
 }
