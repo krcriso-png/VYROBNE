@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { OPERATOR } from "@/lib/legal";
+import { PLANS as PLAN_DEFS } from "@/lib/plans";
 
 const FEATURES = [
   {
@@ -46,11 +47,26 @@ const FEATURES = [
   },
 ];
 
-const PLANS = [
-  { name: "Free", price: "0 €", note: "max 3 inzeráty", features: ["3 aktívne inzeráty", "Všetky portály", "Manuálne publikovanie"] },
-  { name: "Basic", price: "9 €", note: "/mesiac", features: ["30 aktívnych inzerátov", "Automatická obnova", "Synchronizácia zmien"], highlight: true },
-  { name: "Pro", price: "19 €", note: "/mesiac", features: ["Neobmedzene inzerátov", "Prioritné spracovanie", "Všetky funkcie"] },
-];
+// Pricing cards are derived from the single source of truth (src/lib/plans.ts)
+// so the public page never drifts from the in-app billing plans.
+const PLANS = (["FREE", "BASIC", "PRO"] as const).map((k) => {
+  const p = PLAN_DEFS[k];
+  return {
+    name: p.name,
+    price: p.priceEur === 0 ? "0 €" : `${p.priceEur.toFixed(2)} €`,
+    note: "/mesiac",
+    features: [
+      p.monthlyCredits === null
+        ? "Neobmedzene kreditov*"
+        : `${p.monthlyCredits} kreditov / mesiac`,
+      "1 kredit = pridanie alebo topovanie",
+      "Všetky portály",
+      "Automatické topovanie",
+      k === "PRO" ? "Prioritné spracovanie" : "Synchronizácia zmien",
+    ],
+    highlight: k === "BASIC",
+  };
+});
 
 export default function HomePage() {
   return (
@@ -168,6 +184,10 @@ export default function HomePage() {
               </div>
             ))}
           </div>
+          <p className="mt-6 text-center text-xs text-muted-foreground">
+            * Pro plán má neobmedzený počet kreditov v rámci férového použitia.
+            Ceny sú uvedené s DPH.
+          </p>
         </section>
 
         <footer className="border-t py-8">
