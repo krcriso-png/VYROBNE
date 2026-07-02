@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { PLANS } from "@/lib/plans";
 import { getCreditState, creditReasonLabel } from "@/lib/credits";
 import { UpgradeButtons } from "@/components/UpgradeButtons";
+import { ManageSubscriptionButton } from "@/components/ManageSubscriptionButton";
 import { Card } from "@/components/ui/card";
 
 function planFeatures(key: string): string[] {
@@ -45,6 +46,11 @@ export default async function BillingPage() {
           Aktuálny plán: <strong>{PLANS[plan].name}</strong>
           {sub?.status ? ` · stav ${sub.status}` : ""}
         </p>
+        {sub?.stripeCustomerId && (
+          <div className="mt-3">
+            <ManageSubscriptionButton />
+          </div>
+        )}
       </div>
 
       {/* Credit balance */}

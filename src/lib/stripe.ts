@@ -22,3 +22,14 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 export const TRIAL_DAYS = Number(process.env.STRIPE_TRIAL_DAYS ?? 7);
+
+/** Public base URL for Stripe success/cancel/return links (no trailing slash). */
+export function appBaseUrl(): string {
+  return (
+    process.env.APP_URL ??
+    process.env.AUTH_URL ??
+    (process.env.RAILWAY_PUBLIC_DOMAIN
+      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+      : "http://localhost:3000")
+  ).replace(/\/$/, "");
+}

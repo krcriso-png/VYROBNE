@@ -1,7 +1,7 @@
 import type Stripe from "stripe";
 import { prisma } from "@/lib/db";
 import { stripe } from "@/lib/stripe";
-import { planFromPriceId } from "@/lib/plans";
+import { planFromPriceId, PLANS } from "@/lib/plans";
 import type { SubscriptionStatus } from "@prisma/client";
 
 // POST /api/webhooks/stripe — keep our Subscription rows in sync with Stripe.
@@ -55,17 +55,46 @@ const STATUS_MAP: Record<string, SubscriptionStatus> = {
 async function syncSubscription(sub: Stripe.Subscription) {
   const priceId = sub.items.data[0]?.price.id;
   const plan = sub.status === "canceled" ? "FREE" : planFromPriceId(priceId);
+  const status = STATUS_MAP[sub.status] ?? "INCOMPLETE";
+  const allowance = PLANS[plan].monthlyCredits;
 
-  await prisma.subscription.updateMany({
+  // There is one subscription row per customer; update each and, when the plan
+  // actually changes, immediately top the credit balance up to the new plan's
+  // allowance so the user gets what they paid for right away (finite plans).
+  const rows = await prisma.subscription.findMany({
     where: { stripeCustomerId: sub.customer as string },
-    data: {
-      plan,
-      status: STATUS_MAP[sub.status] ?? "INCOMPLETE",
-      stripeSubscriptionId: sub.id,
-      stripePriceId: priceId,
-      currentPeriodEnd: new Date(sub.current_period_end * 1000),
-      cancelAtPeriodEnd: sub.cancel_at_period_end,
-      trialEndsAt: sub.trial_end ? new Date(sub.trial_end * 1000) : null,
-    },
+    select: { userId: true, plan: true },
   });
+
+  for (const row of rows) {
+    const planChanged = row.plan !== plan;
+    const topUp = planChanged && allowance !== null;
+
+    await prisma.subscription.update({
+      where: { userId: row.userId },
+      data: {
+        plan,
+        status,
+        stripeSubscriptionId: sub.id,
+        stripePriceId: priceId,
+        currentPeriodEnd: new Date(sub.current_period_end * 1000),
+        cancelAtPeriodEnd: sub.cancel_at_period_end,
+        trialEndsAt: sub.trial_end ? new Date(sub.trial_end * 1000) : null,
+        // Align the monthly credit reset with the billing period end and grant
+        // the new allowance on a plan change.
+        ...(topUp
+          ? {
+              credits: allowance,
+              creditsRenewAt: new Date(sub.current_period_end * 1000),
+            }
+          : {}),
+      },
+    });
+
+    if (topUp) {
+      await prisma.creditTransaction.create({
+        data: { userId: row.userId, amount: allowance, reason: "monthly_grant" },
+      });
+    }
+  }
 }

@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { route, json, requireUser, HttpError } from "@/lib/api";
 import { checkoutSchema } from "@/lib/validation";
-import { stripe, TRIAL_DAYS } from "@/lib/stripe";
+import { stripe, TRIAL_DAYS, appBaseUrl } from "@/lib/stripe";
 import { PLANS } from "@/lib/plans";
 
 // POST /api/billing/checkout — start a Stripe Checkout session for a paid plan.
@@ -31,7 +31,7 @@ export const POST = route(async (req: Request) => {
     });
   }
 
-  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+  const appUrl = appBaseUrl();
   const checkout = await stripe.checkout.sessions.create({
     mode: "subscription",
     customer: customerId,
