@@ -68,6 +68,126 @@ async function main() {
     update: { role: "ADMIN" },
   });
   console.log(`Demo admin: ${email} / admin1234 (id=${admin.id})`);
+
+  // --- One-off admin promotion + data migration (env-driven) ---
+  await promoteAndMigrateAdmin();
+}
+
+/**
+ * Optional, env-driven admin setup that runs on every seed (idempotent):
+ *
+ *   PROMOTE_ADMIN_EMAIL  – promote this existing account to ADMIN.
+ *   MIGRATE_ADMIN_FROM   – (optional) move all data owned by this account
+ *                          (listings, portal logins, credits, logs, tickets)
+ *                          onto the promoted account.
+ *
+ * Safe to leave the variables in place: once the source account has been
+ * emptied, subsequent runs move nothing. Remove them afterwards to keep the
+ * config tidy.
+ */
+async function promoteAndMigrateAdmin(): Promise<void> {
+  const promoteEmail = process.env.PROMOTE_ADMIN_EMAIL?.trim();
+  if (!promoteEmail) return;
+
+  const target = await prisma.user.findFirst({
+    where: { email: { equals: promoteEmail, mode: "insensitive" } },
+  });
+  if (!target) {
+    console.log(
+      `[admin] PROMOTE_ADMIN_EMAIL=${promoteEmail} — účet zatiaľ neexistuje, preskakujem (zaregistruj ho a reštartni).`,
+    );
+    return;
+  }
+
+  if (target.role !== "ADMIN") {
+    await prisma.user.update({
+      where: { id: target.id },
+      data: { role: "ADMIN" },
+    });
+    console.log(`[admin] ${target.email} povýšený na ADMIN.`);
+  } else {
+    console.log(`[admin] ${target.email} už je ADMIN.`);
+  }
+  // Make sure the admin has a subscription row (PRO = unlimited credits).
+  await prisma.subscription.upsert({
+    where: { userId: target.id },
+    create: { userId: target.id, plan: "PRO", status: "ACTIVE" },
+    update: { plan: "PRO", status: "ACTIVE" },
+  });
+
+  const fromEmail = process.env.MIGRATE_ADMIN_FROM?.trim();
+  if (!fromEmail) return;
+  if (fromEmail.toLowerCase() === target.email.toLowerCase()) {
+    console.log("[admin] MIGRATE_ADMIN_FROM je ten istý účet — preskakujem.");
+    return;
+  }
+
+  const source = await prisma.user.findFirst({
+    where: { email: { equals: fromEmail, mode: "insensitive" } },
+  });
+  if (!source) {
+    console.log(`[admin] MIGRATE_ADMIN_FROM=${fromEmail} — zdrojový účet sa nenašiel.`);
+    return;
+  }
+  if (source.id === target.id) return;
+
+  // Portal logins: move each, skipping any portal the target already has (the
+  // unique (userId, portalId) constraint would otherwise reject it).
+  const srcPortals = await prisma.portalAccount.findMany({
+    where: { userId: source.id },
+    select: { id: true, portalId: true },
+  });
+  let movedPortals = 0;
+  for (const pa of srcPortals) {
+    const clash = await prisma.portalAccount.findFirst({
+      where: { userId: target.id, portalId: pa.portalId },
+      select: { id: true },
+    });
+    if (clash) continue;
+    await prisma.portalAccount.update({
+      where: { id: pa.id },
+      data: { userId: target.id },
+    });
+    movedPortals++;
+  }
+
+  const [listings, credits, logs, notifs, threads] = await Promise.all([
+    prisma.listing.updateMany({
+      where: { userId: source.id },
+      data: { userId: target.id },
+    }),
+    prisma.creditTransaction.updateMany({
+      where: { userId: source.id },
+      data: { userId: target.id },
+    }),
+    prisma.activityLog.updateMany({
+      where: { userId: source.id },
+      data: { userId: target.id },
+    }),
+    prisma.notification.updateMany({
+      where: { userId: source.id },
+      data: { userId: target.id },
+    }),
+    prisma.supportThread.updateMany({
+      where: { userId: source.id },
+      data: { userId: target.id },
+    }),
+  ]);
+
+  // Carry over the default contact phone if the admin doesn't have one yet.
+  if (!target.phone && source.phone) {
+    await prisma.user.update({
+      where: { id: target.id },
+      data: { phone: source.phone },
+    });
+  }
+
+  console.log(
+    `[admin] Presun z ${source.email} → ${target.email}: ` +
+      `${listings.count} inzerátov, ${movedPortals}/${srcPortals.length} portálov, ` +
+      `${credits.count} kreditových záznamov, ${logs.count} logov, ` +
+      `${notifs.count} notifikácií, ${threads.count} ticketov.`,
+  );
 }
 
 main()
