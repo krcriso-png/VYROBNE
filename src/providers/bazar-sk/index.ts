@@ -763,54 +763,23 @@ export class BazarSkProvider extends BrowserProvider {
   }
 
   /**
-   * Choose a sub-category inside the AJAX-loaded #piSub block. Handles the
-   * shapes United Classifieds uses: more .s-categories tiles, a <select>, or a
-   * list of links. Picks the closest text match to what we want, else the first.
+   * Choose a sub-category inside the AJAX-loaded #piSubDiv panel. Bazar.sk
+   * renders the leaf sub-categories NOT as <a> links but as clickable
+   * <span>/<div> elements (they never appear in the page's link list), so we
+   * scope strictly to the loaded panel and click the best matching clickable
+   * element regardless of tag. Always dumps the panel's real candidates to the
+   * log so the structure can be verified. A <select> (if any) is handled first.
    */
   private async advanceSubcategory(
     page: import("playwright").Page,
     ctx: ProviderContext,
     wanted: string,
   ): Promise<boolean> {
-    const scope = "#piSub, #piSubDiv, .categories-sub";
     const w = norm(wanted);
 
-    // a) sub-category tiles
-    const tiles = page.locator(
-      "#piSub .s-categories, #piSubDiv .s-categories, .categories-sub .s-categories",
-    );
-    const nt = await tiles.count().catch(() => 0);
-    if (nt > 0) {
-      let bestIdx = 0;
-      let bs = -1;
-      let ostatneIdx = -1;
-      for (let i = 0; i < nt; i++) {
-        const nm =
-          (await tiles.nth(i).getAttribute("data-name").catch(() => "")) ||
-          (await tiles.nth(i).innerText().catch(() => ""));
-        if (ostatneIdx < 0 && /ostatn/i.test(nm)) ostatneIdx = i;
-        const s = wordOverlap(norm(nm), w);
-        if (s > bs) {
-          bs = s;
-          bestIdx = i;
-        }
-      }
-      // No keyword match → prefer an "Ostatné …" tile over the first one.
-      if (bs <= 0 && ostatneIdx >= 0) bestIdx = ostatneIdx;
-      const tile = tiles.nth(bestIdx);
-      const nm = (await tile.getAttribute("data-name").catch(() => "")) || "(prvá)";
-      const label = tile.locator(".main-cat, .sub-cat, span").first();
-      await ((await label.count().catch(() => 0)) ? label : tile)
-        .click({ timeout: 6000 })
-        .catch(() => {});
-      await ctx.log(`Podkategória → ${nm}`);
-      return true;
-    }
-
-    // b) sub-category <select>
+    // <select> sub-category (needs selectOption, not a click) — handle first.
     const sel = page
-      .locator(`${scope}`)
-      .locator("select")
+      .locator("#piSubDiv select, #piSub select, .categories-sub select")
       .first();
     if (await sel.count().catch(() => 0)) {
       const opts = await sel
@@ -835,7 +804,6 @@ export class BazarSkProvider extends BrowserProvider {
             pick = o;
           }
         }
-        // No keyword match → prefer an "Ostatné …" option over the first.
         if (bs <= 0) pick = real.find((o) => /ostatn/i.test(o.text)) ?? real[0];
         await sel.selectOption(pick.value).catch(() => {});
         await ctx.log(`Podkategória (select) → ${pick.text}`);
@@ -843,72 +811,128 @@ export class BazarSkProvider extends BrowserProvider {
       }
     }
 
-    // c) sub-category links — after picking a main category, Bazar.sk renders
-    // the leaf sub-categories as plain <a> links (e.g. "Autosedačky", "Hračky").
-    // Tag the best text match inside the sub block (never the "zmeniť kategóriu"
-    // / login / group-heading links), then click it.
-    const tagged = await page
+    // Clickable sub-category elements (any tag) inside the loaded panel.
+    const result = await page
       .evaluate((wantWords: string) => {
+        const strip = (s: string) =>
+          s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
         const bad =
-          /zmeni[ťt]\s+kateg|prihl|zalo[žz]te|nov[ée]\s+konto|registr|reklama|kontakt|blog|gdpr|cookies|podmienky|mobiln/i;
-        const scopes = ["#piSubDiv", "#piSub", ".categories-sub"];
+          /zmeni[ťt]\s+kateg|prihl[aá]s|zalo[žz]te|nov[ée]\s+konto|registr|reklama|kontakt|^blog$|gdpr|cookies|podmienky\s+inzercie|mobiln[áa]\s+verzia|prid[áa]vate|ako\s+inzerova|united\s+classif|bazar\.sk|vyh[ľl]ad|sledovan|moje\s+inzer|zvýhodni/i;
+
+        // Locate the loaded sub-category panel. Prefer #piSubDiv; fall back to
+        // #piSub, then to the smallest container that holds "zmeniť kategóriu".
+        const cands: Element[] = [];
+        const byId = document.querySelector("#piSubDiv");
+        if (byId) cands.push(byId);
+        const byId2 = document.querySelector("#piSub");
+        if (byId2) cands.push(byId2);
         let root: Element | null = null;
-        for (const s of scopes) {
-          const el = document.querySelector(s);
-          if (el && el.querySelector("a")) {
-            root = el;
+        for (const c of cands) {
+          if ((c.textContent || "").trim().length > 15) {
+            root = c;
             break;
           }
         }
-        if (!root) return "";
-        const want = new Set(
-          wantWords
-            .toLowerCase()
-            .normalize("NFD")
-            .replace(/[̀-ͯ]/g, "")
-            .split(/[^a-z0-9]+/)
-            .filter((w) => w.length > 2),
-        );
-        const links = Array.from(root.querySelectorAll<HTMLAnchorElement>("a"));
-        let best: HTMLAnchorElement | null = null;
-        let bestScore = -1;
-        let first: HTMLAnchorElement | null = null;
-        let ostatne: HTMLAnchorElement | null = null; // safe "Ostatné …" catch-all
-        for (const a of links) {
-          const txt = (a.textContent || "").replace(/\s+/g, " ").trim();
-          if (txt.length < 2 || txt.length > 45) continue;
-          if (bad.test(txt)) continue;
-          const r = a.getBoundingClientRect();
-          if (r.width < 10 || r.height < 6) continue;
-          if (!first) first = a;
-          if (!ostatne && /ostatn/i.test(txt)) ostatne = a;
-          let score = 0;
-          const words = txt
-            .toLowerCase()
-            .normalize("NFD")
-            .replace(/[̀-ͯ]/g, "")
-            .split(/[^a-z0-9]+/);
-          for (const w of words) if (want.has(w)) score++;
-          if (score > bestScore) {
-            bestScore = score;
-            best = a;
+        if (!root) {
+          const all = Array.from(
+            document.querySelectorAll("div,section,fieldset"),
+          );
+          for (const el of all) {
+            if (
+              /zmeni[ťt]\s+kateg/i.test(el.textContent || "") &&
+              el.querySelectorAll("*").length < 500
+            ) {
+              root = el;
+              break;
+            }
           }
         }
-        // Exact keyword match wins; otherwise prefer an "Ostatné …" sub-category
-        // (correct catch-all, no extra required fields) over a blind first pick.
+        if (!root) return { dump: [], picked: "", tag: "" };
+
+        const want = new Set(
+          strip(wantWords)
+            .split(/[^a-z0-9]+/)
+            .filter((x) => x.length > 2),
+        );
+
+        // Candidate = leaf-ish clickable element with a short category label.
+        // Accept anything carrying a category marker (rel / data-cat-id /
+        // data-sef-name / sub-cat|main-cat class), plus generic leaf elements.
+        type Cand = { el: Element; txt: string };
+        const seen = new Set<string>();
+        const list: Cand[] = [];
+        const nodes = Array.from(
+          root.querySelectorAll<HTMLElement>(
+            "a,span,li,div,td,p,button,[rel],[data-cat-id],[data-sef-name]",
+          ),
+        );
+        for (const el of nodes) {
+          const own = Array.from(el.childNodes)
+            .filter((n) => n.nodeType === 3)
+            .map((n) => n.textContent ?? "")
+            .join("")
+            .replace(/\s+/g, " ")
+            .trim();
+          const full = (el.textContent || "").replace(/\s+/g, " ").trim();
+          const txt = own || full;
+          if (txt.length < 2 || txt.length > 45) continue;
+          if (bad.test(txt)) continue;
+          const marked =
+            el.hasAttribute("rel") ||
+            el.hasAttribute("data-cat-id") ||
+            el.hasAttribute("data-sef-name") ||
+            el.classList.contains("sub-cat") ||
+            el.classList.contains("main-cat") ||
+            el.tagName === "A";
+          // Unmarked elements must be true leaves (no element children) so we
+          // don't grab column wrappers / group headings.
+          if (!marked && el.querySelector("*")) continue;
+          const r = el.getBoundingClientRect();
+          if (r.width < 10 || r.height < 6) continue;
+          if (seen.has(txt)) continue;
+          seen.add(txt);
+          list.push({ el, txt });
+        }
+
+        let best: Cand | null = null;
+        let bestScore = -1;
+        let first: Cand | null = null;
+        let ostatne: Cand | null = null;
+        for (const c of list) {
+          if (!first) first = c;
+          if (!ostatne && /ostatn/i.test(c.txt)) ostatne = c;
+          let score = 0;
+          for (const word of strip(c.txt).split(/[^a-z0-9]+/))
+            if (want.has(word)) score++;
+          if (score > bestScore) {
+            bestScore = score;
+            best = c;
+          }
+        }
         const pick = bestScore > 0 ? best : ostatne ?? first;
-        if (!pick) return "";
-        pick.setAttribute("data-klikado-subcat", "1");
-        return (pick.textContent || "").replace(/\s+/g, " ").trim();
+        if (pick) pick.el.setAttribute("data-klikado-subcat", "1");
+        return {
+          dump: list.slice(0, 30).map((c) => c.txt),
+          picked: pick ? pick.txt : "",
+          tag: pick ? pick.el.tagName : "",
+        };
       }, wanted)
-      .catch(() => "");
-    if (tagged) {
+      .catch(() => ({ dump: [] as string[], picked: "", tag: "" }));
+
+    await ctx.log("Podkategórie – kandidáti", {
+      count: result.dump.length,
+      items: result.dump,
+      picked: result.picked || "∅",
+      tag: result.tag || "∅",
+    });
+
+    if (result.picked) {
       await page
         .locator('[data-klikado-subcat="1"]')
         .first()
         .click({ timeout: 6000 })
         .catch(() => {});
-      await ctx.log(`Podkategória (odkaz) → ${tagged}`);
+      await ctx.log(`Podkategória → ${result.picked}`);
       return true;
     }
     return false;
