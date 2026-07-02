@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { OPERATOR } from "@/lib/legal";
-import { PLANS as PLAN_DEFS } from "@/lib/plans";
+import { PLANS as PLAN_DEFS, yearlySavingPct } from "@/lib/plans";
 
 const FEATURES = [
   {
@@ -55,6 +55,9 @@ const PLANS = (["FREE", "BASIC", "PRO"] as const).map((k) => {
     name: p.name,
     price: p.priceEur === 0 ? "0 €" : `${p.priceEur.toFixed(2)} €`,
     note: "/mesiac",
+    yearly: p.priceEurYearly
+      ? `alebo ${p.priceEurYearly.toFixed(2).replace(".", ",")} €/rok · ušetríš ${yearlySavingPct(k)}%`
+      : null,
     features: [
       p.monthlyCredits === null
         ? "Neobmedzene kreditov*"
@@ -166,6 +169,11 @@ export default function HomePage() {
                   <span className="text-4xl font-bold">{p.price}</span>
                   <span className="text-sm text-muted-foreground">{p.note}</span>
                 </div>
+                {p.yearly && (
+                  <p className="mt-1 text-xs font-medium text-success">
+                    {p.yearly}
+                  </p>
+                )}
                 <ul className="mt-6 space-y-2.5">
                   {p.features.map((feat) => (
                     <li key={feat} className="flex items-center gap-2 text-sm">

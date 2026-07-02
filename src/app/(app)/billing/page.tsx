@@ -1,7 +1,7 @@
 import { Check, Coins } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
-import { PLANS } from "@/lib/plans";
+import { PLANS, yearlySavingPct } from "@/lib/plans";
 import { getCreditState, creditReasonLabel } from "@/lib/credits";
 import { UpgradeButtons } from "@/components/UpgradeButtons";
 import { ManageSubscriptionButton } from "@/components/ManageSubscriptionButton";
@@ -105,6 +105,12 @@ export default async function BillingPage() {
                 </span>
                 <span className="text-sm text-muted-foreground"> / mesiac</span>
               </p>
+              {p.prices.yearly && p.priceEurYearly && (
+                <p className="mt-1 text-xs font-medium text-success">
+                  alebo {p.priceEurYearly.toFixed(2).replace(".", ",")} €/rok ·
+                  ušetríš {yearlySavingPct(p.key)}%
+                </p>
+              )}
               <ul className="mt-4 space-y-2">
                 {planFeatures(p.key).map((f) => (
                   <li key={f} className="flex items-center gap-2 text-sm">
@@ -120,7 +126,9 @@ export default async function BillingPage() {
                 ) : (
                   <UpgradeButtons
                     plan={p.key as "BASIC" | "PRO"}
-                    hasYearly={!!p.prices.yearly}
+                    monthlyPriceEur={p.priceEur}
+                    yearlyPriceEur={p.prices.yearly ? p.priceEurYearly : null}
+                    savingPct={p.prices.yearly ? yearlySavingPct(p.key) : null}
                   />
                 )}
               </div>

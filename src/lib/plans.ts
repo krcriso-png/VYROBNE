@@ -16,6 +16,8 @@ export interface PlanDefinition {
   monthlyCredits: number | null;
   /** Display price in EUR per month (0 = free). */
   priceEur: number;
+  /** Display price in EUR per YEAR (already discounted). null = no yearly. */
+  priceEurYearly: number | null;
   /** Whether auto-renewal (bump) is available on this plan. */
   autoRenew: boolean;
   prices: {
@@ -33,6 +35,7 @@ export const PLANS: Record<Plan, PlanDefinition> = {
     maxActiveListings: null,
     monthlyCredits: 30,
     priceEur: 0,
+    priceEurYearly: null,
     autoRenew: true,
     prices: {},
   },
@@ -42,6 +45,8 @@ export const PLANS: Record<Plan, PlanDefinition> = {
     maxActiveListings: null,
     monthlyCredits: 300,
     priceEur: 6.99,
+    // 6,99 × 12 = 83,88 → −20 %.
+    priceEurYearly: 67.1,
     autoRenew: true,
     prices: {
       monthly: process.env.STRIPE_PRICE_BASIC_MONTHLY,
@@ -54,6 +59,8 @@ export const PLANS: Record<Plan, PlanDefinition> = {
     maxActiveListings: null, // unlimited
     monthlyCredits: null, // unlimited (fair-use)
     priceEur: 12.99,
+    // 12,99 × 12 = 155,88 → −20 %.
+    priceEurYearly: 124.7,
     autoRenew: true,
     prices: {
       monthly: process.env.STRIPE_PRICE_PRO_MONTHLY,
@@ -61,6 +68,13 @@ export const PLANS: Record<Plan, PlanDefinition> = {
     },
   },
 };
+
+/** Yearly saving vs paying monthly for a year, as a whole-number percent. */
+export function yearlySavingPct(plan: Plan): number | null {
+  const p = PLANS[plan];
+  if (!p.priceEurYearly || p.priceEur === 0) return null;
+  return Math.round((1 - p.priceEurYearly / (p.priceEur * 12)) * 100);
+}
 
 export function planFor(plan: Plan): PlanDefinition {
   return PLANS[plan];
