@@ -55,7 +55,10 @@ export const listingInputSchema = z.object({
   renewIntervalHours: z
     .number()
     .int()
-    .refine((v) => [24, 48, 168].includes(v), "Povolené: 24, 48 alebo 168 h")
+    .refine(
+      (v) => [24, 72, 168, 336, 720].includes(v),
+      "Neplatný interval topovania",
+    )
     .nullable()
     .optional(),
 });

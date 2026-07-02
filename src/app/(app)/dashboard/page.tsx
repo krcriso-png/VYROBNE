@@ -27,12 +27,8 @@ import { LISTING_STATUS, PUBLICATION_STATUS } from "@/lib/status";
 import { formatPrice, formatDate } from "@/lib/utils";
 import { AutoTopToggle } from "@/components/AutoTopToggle";
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { renewLabel } from "@/lib/renew";
 
-const RENEW_LABEL: Record<number, string> = {
-  24: "každých 24 h",
-  48: "každých 48 h",
-  168: "každý týždeň",
-};
 
 // Customer-friendly home: greeting, key numbers, and a clean overview of the
 // user's listings with their publishing status. No technical error logs here.
@@ -185,7 +181,7 @@ export default async function DashboardPage() {
                       {l.category} ·{" "}
                       {formatPrice(l.price?.toString(), l.currency)}
                       {l.renewIntervalHours
-                        ? ` · auto-topovať ${RENEW_LABEL[l.renewIntervalHours] ?? ""}`
+                        ? ` · auto-topovať ${renewLabel(l.renewIntervalHours).toLowerCase()}`
                         : ""}
                     </p>
                     {/* Per-portal status chips */}

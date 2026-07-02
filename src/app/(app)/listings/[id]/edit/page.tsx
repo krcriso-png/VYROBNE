@@ -12,6 +12,7 @@ import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CategoryPicker } from "@/components/CategoryPicker";
 import { bazosCategoryLabel } from "@/lib/bazos-categories";
+import { RENEW_OPTIONS } from "@/lib/renew";
 
 type Form = {
   title: string;
@@ -210,9 +211,11 @@ export default function EditListingPage({
                 onChange={(e) => set("renewIntervalHours", e.target.value)}
               >
                 <option value="">Vypnuté</option>
-                <option value="24">Každých 24 hodín</option>
-                <option value="48">Každých 48 hodín</option>
-                <option value="168">Každý týždeň</option>
+                {RENEW_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
               </Select>
               <p className="text-xs text-muted-foreground">
                 Inzerát sa automaticky zmaže a nahrá znova, aby bol stále navrchu.

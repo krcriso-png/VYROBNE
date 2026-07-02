@@ -337,29 +337,36 @@ export async function runRefresh(data: BaseJobData): Promise<void> {
   if (provider.refreshStrategy === "repost") {
     // "Topovať" = delete the old ad and publish a fresh one.
     await ctx.log("Topujem inzerát (zmazať + nahrať znova)");
+    let deleteOk = true;
     try {
       await provider.delete(pub.remoteId, session, ctx);
     } catch (err) {
-      await ctx.log("Mazanie pri topovaní zlyhalo, pokračujem: " + String(err));
+      deleteOk = false;
+      await ctx.log("Mazanie pri topovaní zlyhalo: " + String(err));
     }
 
-    // Make sure the old ad is really gone before re-posting; otherwise we'd
-    // create a duplicate. If it's still live, skip this round and try again
-    // on the next cycle instead of doubling the ad.
+    // NEVER re-post unless we're confident the old ad is gone — a duplicate can
+    // get the portal account BANNED. Rule: still live → skip; confirmed removed
+    // → repost; couldn't verify → repost ONLY if the delete itself succeeded.
+    let safeToRepost: boolean;
     try {
       const check = await provider.checkStatus(pub.remoteId, session, ctx);
-      if (check.live) {
-        await ctx.log(
-          "Pôvodný inzerát sa nepodarilo zmazať — preskakujem topovanie, aby nevznikol duplikát.",
-        );
-        await prisma.publication.update({
-          where: { id: data.publicationId },
-          data: { nextRefreshAt: await computeNextRefresh(data.listingId, true) },
-        });
-        return;
-      }
+      if (check.live) safeToRepost = false;
+      else if (check.verified) safeToRepost = true;
+      else safeToRepost = deleteOk;
     } catch {
-      // Verification failed — proceed (delete already returned without error).
+      safeToRepost = deleteOk;
+    }
+
+    if (!safeToRepost) {
+      await ctx.log(
+        "Nepodarilo sa potvrdiť zmazanie pôvodného inzerátu — topovanie preskočené, aby nevznikol duplikát (ochrana pred banom).",
+      );
+      await prisma.publication.update({
+        where: { id: data.publicationId },
+        data: { nextRefreshAt: await computeNextRefresh(data.listingId, true) },
+      });
+      return;
     }
 
     const payload = await buildPayload(data.listingId);
