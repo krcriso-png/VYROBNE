@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Globe, Check, ChevronDown } from "lucide-react";
+import { Globe, Check, ChevronDown, Eye, EyeOff } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,8 @@ export default function PortalsPage() {
   const [verifyPhone, setVerifyPhone] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The saved password shown after clicking the eye (fetched on demand).
+  const [revealed, setRevealed] = useState<string | null>(null);
 
   async function load() {
     const res = await fetch("/api/portals");
@@ -52,7 +54,23 @@ export default function PortalsPage() {
     setLogin(p.login ?? "");
     setVerifyPhone(p.verifyPhone ?? "");
     setPassword("");
+    setRevealed(null);
     setMessage(null);
+  }
+
+  // Fetch + show (or hide) the saved password for a portal.
+  async function toggleReveal(portalKey: string) {
+    if (revealed !== null) {
+      setRevealed(null);
+      return;
+    }
+    const res = await fetch("/api/portal-accounts/reveal", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ portalKey }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setRevealed(res.ok ? (data.password ?? "") : "");
   }
 
   async function save(portalKey: string) {
@@ -142,7 +160,26 @@ export default function PortalsPage() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor={`pass-${p.key}`}>Heslo k inzerátu</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor={`pass-${p.key}`}>Heslo k inzerátu</Label>
+                    {p.hasPassword && (
+                      <button
+                        type="button"
+                        onClick={() => toggleReveal(p.key)}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                      >
+                        {revealed !== null ? (
+                          <>
+                            <EyeOff className="size-3.5" /> Skryť uložené
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="size-3.5" /> Zobraziť uložené
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
                   <Input
                     id={`pass-${p.key}`}
                     type="password"
@@ -150,6 +187,14 @@ export default function PortalsPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                   />
+                  {revealed !== null && (
+                    <p className="rounded-md border bg-background px-3 py-2 text-sm">
+                      Uložené heslo:{" "}
+                      <span className="font-mono font-medium select-all">
+                        {revealed || "(žiadne)"}
+                      </span>
+                    </p>
+                  )}
                   {p.hasPassword && (
                     <p className="text-xs text-muted-foreground">
                       Heslo je uložené. Nechaj prázdne, ak ho nechceš meniť.
