@@ -494,8 +494,12 @@ export class BazarSkProvider extends BrowserProvider {
         }
         return { live: false, verified: true };
       }
-      // No reliable id — don't change the stored status.
-      await ctx.log("Bazar.sk: stav sa nepodarilo overiť — nechávam bez zmeny.");
+      // No reliable ad id/URL stored — nothing to check. This happens for ads
+      // added before Klikado saved the ad link; re-publishing records it.
+      await ctx.log(
+        "Bazar.sk: k tomuto inzerátu nemám uložený odkaz (bol pridaný pred opravou), tak stav neviem overiť. Pridaj inzerát na Bazar.sk znova — uloží sa odkaz a Klikado ho bude vidieť.",
+        { remoteId },
+      );
       return { live: false, verified: false };
     });
   }
