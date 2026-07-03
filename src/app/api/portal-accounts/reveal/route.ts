@@ -23,7 +23,7 @@ export const POST = route(async (req: Request) => {
 
   let password = "";
   try {
-    password = decrypt(account.passwordEnc);
+    password = decrypt(account.passwordEnc) ?? "";
   } catch {
     throw new HttpError(500, "Heslo sa nepodarilo dešifrovať.");
   }
