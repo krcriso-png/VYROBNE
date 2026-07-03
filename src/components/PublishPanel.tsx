@@ -10,6 +10,7 @@ import {
   MessageSquareLock,
   AlertTriangle,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -136,6 +137,29 @@ export function PublishPanel({
       res.ok
         ? `Topovanie zaradené (${data.queued ?? 0}). Inzerát sa zmaže a nahrá znova.`
         : (data.error ?? "Topovanie zlyhalo."),
+    );
+    router.refresh();
+  }
+
+  async function unpublish() {
+    if (
+      !window.confirm(
+        "Naozaj zmazať inzerát zo všetkých portálov, kde je zverejnený? Túto akciu nemožno vrátiť.",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setMessage(null);
+    const res = await fetch(`/api/listings/${listingId}/unpublish`, {
+      method: "POST",
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    setMessage(
+      res.ok
+        ? "Mazanie zaradené — inzerát sa čoskoro odstráni z portálov."
+        : (data.error ?? "Mazanie zlyhalo."),
     );
     router.refresh();
   }
@@ -322,6 +346,17 @@ export function PublishPanel({
                     title="Overí na portáli, či je inzerát stále zverejnený"
                   >
                     <RefreshCw className="size-4" /> Skontrolovať stav
+                  </Button>
+                )}
+                {hasPublished && (
+                  <Button
+                    className="col-span-2 w-full text-destructive hover:bg-destructive/10"
+                    variant="outline"
+                    onClick={unpublish}
+                    disabled={busy}
+                    title="Zmaže inzerát zo všetkých portálov, kde je zverejnený"
+                  >
+                    <Trash2 className="size-4" /> Zmazať z portálov
                   </Button>
                 )}
               </div>
