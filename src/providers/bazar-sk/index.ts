@@ -275,6 +275,13 @@ export class BazarSkProvider extends BrowserProvider {
 
       await this.debugShot(page, ctx, "form-filled");
 
+      // Bazar.sk requires a VERIFIED phone number before the ad can be posted.
+      // Verify it now (asks the user for the SMS code once) and persist the
+      // session so future posts reuse the verified state and skip the SMS.
+      await this.ensurePhoneVerified(page, ctx, context);
+      // Re-affirm the terms checkbox in case the verification step re-rendered.
+      await this.checkTerms(page, ctx);
+
       // Submit — "DOKONČIŤ PRIDÁVANIE INZERÁTU".
       await this.clickButton(page, /dokon[čc]i|prida[ťt]|odosla[ťt]|pokra[čc]ova/i);
       await page.waitForLoadState("domcontentloaded").catch(() => {});
@@ -1460,6 +1467,119 @@ export class BazarSkProvider extends BrowserProvider {
       .first()
       .click({ timeout: 8000 })
       .catch(() => {});
+  }
+
+  /**
+   * Ensure the advertiser's phone number is verified BEFORE submitting — bazar.sk
+   * blocks the ad otherwise ("Pridávanie inzerátu vyžaduje mať overené telefónne
+   * číslo"). Clicks "Poslať SMS kód", asks the user for the code once, enters it,
+   * and on success persists the session so future posts skip the SMS.
+   */
+  private async ensurePhoneVerified(
+    page: import("playwright").Page,
+    ctx: ProviderContext,
+    context: import("playwright").BrowserContext,
+  ): Promise<void> {
+    const bodyNow = async () =>
+      (await page.locator("body").innerText().catch(() => "")).replace(
+        /\s+/g,
+        " ",
+      );
+    const t0 = await bodyNow();
+    // Verify only when an UNVERIFIED number is flagged or the "send SMS code"
+    // button is present. A reused, already-verified session shows neither.
+    const unverified =
+      /Neoveren[éeě]/i.test(t0) || /posla[ťt]\s+SMS\s+k[óo]d/i.test(t0);
+    if (!unverified) {
+      await ctx.log("Bazar.sk: telefón je overený (alebo overenie netreba).");
+      return;
+    }
+
+    // Click "Poslať SMS kód".
+    const sendBtn = page
+      .locator(
+        'xpath=//*[self::button or self::a or self::input or self::span or self::div]' +
+          '[contains(normalize-space(.),"Poslať SMS") or contains(normalize-space(.),"SMS kód") or contains(@value,"SMS")]',
+      )
+      .filter({ visible: true })
+      .first();
+    if ((await sendBtn.count().catch(() => 0)) > 0) {
+      await sendBtn.click({ timeout: 6000 }).catch(() => {});
+      await ctx.log("Bazar.sk: požiadal som o SMS overovací kód.");
+    } else {
+      await ctx.log("Bazar.sk: tlačidlo 'Poslať SMS kód' som nenašiel.");
+    }
+    await page.waitForTimeout(2500);
+    await this.debugShot(page, ctx, "sms-sent");
+
+    if (!ctx.requestUserInput) {
+      throw new Error(
+        "Bazar.sk vyžaduje overenie telefónu SMS kódom, ale interaktívne zadanie nie je dostupné.",
+      );
+    }
+    const phone = localPhone(ctx.secrets?.verifyPhone || "");
+    const code = await ctx.requestUserInput(
+      `Zadaj SMS overovací kód z Bazar.sk${phone ? " (prišiel na " + phone + ")" : ""}.`,
+    );
+    if (!code) {
+      throw new Error("SMS kód nebol zadaný včas — skús publikovať znova.");
+    }
+
+    // Enter the code into the verification field that appeared, then confirm.
+    const tagged = await page
+      .evaluate(() => {
+        const known = /title|content|param_|Agents|password|video|priceOptions/;
+        const isVis = (el: HTMLElement) => {
+          const r = el.getBoundingClientRect();
+          return r.width > 2 && r.height > 2 && el.offsetParent !== null;
+        };
+        for (const i of Array.from(
+          document.querySelectorAll<HTMLInputElement>("input"),
+        )) {
+          const ty = (i.type || "text").toLowerCase();
+          if (!["text", "tel", "number"].includes(ty)) continue;
+          if (!isVis(i)) continue;
+          if (known.test(i.getAttribute("name") || "")) continue;
+          if (i.value) continue;
+          i.setAttribute("data-klikado-smscode", "1");
+          return true;
+        }
+        return false;
+      })
+      .catch(() => false);
+    if (tagged) {
+      await this.typeReactive(
+        page,
+        page.locator('[data-klikado-smscode="1"]').first(),
+        code,
+      );
+    }
+    await this.clickButton(
+      page,
+      /overi[ťt]|potvrd|zadať|odosla[ťt]|pokra[čc]ova|dokon[čc]i/i,
+    );
+    await page.waitForTimeout(2500);
+    await this.debugShot(page, ctx, "sms-verified");
+
+    const t1 = await bodyNow();
+    if (
+      /nespr[áa]vn\w*\s+k[óo]d|k[óo]d\s+nie\s+je|neplatn\w*\s+k[óo]d|Neoveren[éeě]\s+telef/i.test(
+        t1,
+      )
+    ) {
+      throw new Error(
+        "Bazar.sk: SMS kód sa nepodarilo overiť (nesprávny alebo expirovaný). Skús publikovať znova.",
+      );
+    }
+    await ctx.log("Bazar.sk: telefónne číslo overené ✅");
+    try {
+      await ctx.saveSession?.({ state: await context.storageState() });
+      await ctx.log(
+        "Bazar.sk: overená relácia uložená — ďalšie inzeráty by už SMS nemali pýtať.",
+      );
+    } catch {
+      /* non-fatal */
+    }
   }
 
   /**
