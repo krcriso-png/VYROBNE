@@ -279,13 +279,17 @@ export class BazarSkProvider extends BrowserProvider {
       // Verify it now (asks the user for the SMS code once) and persist the
       // session so future posts reuse the verified state and skip the SMS.
       await this.ensurePhoneVerified(page, ctx, context);
-      // Re-affirm the terms checkbox in case the verification step re-rendered.
+      // Let the form settle after the verification re-render, then re-affirm the
+      // required bits that a re-render can clear (terms + condition/type radios).
+      await page.waitForTimeout(1200);
+      await this.fillRequiredRadios(page, ctx);
       await this.checkTerms(page, ctx);
+      await page.waitForTimeout(400);
 
       // Submit — "DOKONČIŤ PRIDÁVANIE INZERÁTU".
       await this.clickButton(page, /dokon[čc]i|prida[ťt]|odosla[ťt]|pokra[čc]ova/i);
       await page.waitForLoadState("domcontentloaded").catch(() => {});
-      await page.waitForTimeout(1800);
+      await page.waitForTimeout(2500);
       await this.debugShot(page, ctx, "after-submit");
       await this.logStructure(page, ctx);
 
@@ -1523,19 +1527,20 @@ export class BazarSkProvider extends BrowserProvider {
           (best.closest(
             'button, a, input[type="button"], input[type="submit"], [role="button"], [onclick]',
           ) as HTMLElement | null) || best;
+        // Only TAG it — the single click happens once via Playwright below.
+        // (Dispatching a JS click here too caused TWO SMS to be sent.)
         clickable.setAttribute("data-klikado-smssend", "1");
-        clickable.dispatchEvent(new MouseEvent("click", { bubbles: true }));
         return true;
       })
       .catch(() => false);
-    // Also do a real Playwright click on the tagged element (trusted event).
+    // Exactly ONE real click on the tagged element.
     if (clickedSend) {
       await page
         .locator('[data-klikado-smssend="1"]')
         .first()
         .click({ timeout: 5000 })
         .catch(() => {});
-      await ctx.log("Bazar.sk: klik na 'Poslať SMS kód'.");
+      await ctx.log("Bazar.sk: klik na 'Poslať SMS kód' (jeden raz).");
     } else {
       await ctx.log("Bazar.sk: tlačidlo 'Poslať SMS kód' som nenašiel.");
     }
@@ -1640,11 +1645,28 @@ export class BazarSkProvider extends BrowserProvider {
         code,
       );
     }
-    await this.clickButton(
-      page,
-      /overi[ťt]|potvrd|zadať|odosla[ťt]|pokra[čc]ova|dokon[čc]i/i,
-    );
-    await page.waitForTimeout(2500);
+    // Confirm the code — but ONLY via a specific "Overiť/Potvrdiť" control, never
+    // a generic submit (bazar.sk usually verifies on entry; a fallback click
+    // would prematurely press "DOKONČIŤ" and break the flow).
+    const verifyBtn = page
+      .locator(
+        'xpath=//*[self::button or self::a or self::input or self::span][' +
+          'contains(normalize-space(.),"Overiť") or contains(normalize-space(.),"Overit") or ' +
+          'contains(normalize-space(.),"Potvrdiť") or contains(@value,"Overi") or contains(@value,"Potvrd")]',
+      )
+      .filter({ visible: true })
+      .first();
+    if ((await verifyBtn.count().catch(() => 0)) > 0) {
+      await verifyBtn.click({ timeout: 4000 }).catch(() => {});
+    } else {
+      // No explicit button — nudge validation and let the auto-verify run.
+      await page
+        .locator('[data-klikado-smscode="1"]')
+        .first()
+        .press("Enter")
+        .catch(() => {});
+    }
+    await page.waitForTimeout(3000);
     await this.debugShot(page, ctx, "sms-verified");
 
     const t1 = await bodyNow();
