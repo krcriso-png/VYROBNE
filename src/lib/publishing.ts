@@ -183,9 +183,21 @@ export async function recheckListing(
     where: {
       listingId,
       listing: { userId },
-      // Include REMOVED too — those are exactly the ones the user wants to
-      // re-verify. Skip only the in-flight ones.
-      status: { in: ["PUBLISHED", "REMOVED", "ERROR"] },
+      // Re-verify EVERY portal the user tried — including ones stuck in
+      // WAITING_SMS / PUBLISHING / PENDING from an interrupted run (checkStatus
+      // confirms via the portal's "Moje inzeráty" and heals a stuck/ERROR ad to
+      // PUBLISHED if it's really live). Only skip drafts with no portal.
+      status: {
+        in: [
+          "PUBLISHED",
+          "REMOVED",
+          "ERROR",
+          "WAITING_SMS",
+          "PUBLISHING",
+          "UPDATING",
+          "PENDING",
+        ],
+      },
     },
     include: { portal: true },
   });
