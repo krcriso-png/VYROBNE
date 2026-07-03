@@ -179,30 +179,28 @@ export async function recheckListing(
   userId: string,
   listingId: string,
 ): Promise<number> {
-  const pubs = await prisma.publication.findMany({
-    where: {
-      listingId,
-      listing: { userId },
-      // Re-verify EVERY portal the user tried — including ones stuck in
-      // WAITING_SMS / PUBLISHING / PENDING from an interrupted run (checkStatus
-      // confirms via the portal's "Moje inzeráty" and heals a stuck/ERROR ad to
-      // PUBLISHED if it's really live). Only skip drafts with no portal.
-      status: {
-        in: [
-          "PUBLISHED",
-          "REMOVED",
-          "ERROR",
-          "WAITING_SMS",
-          "PUBLISHING",
-          "UPDATING",
-          "PENDING",
-        ],
-      },
-    },
+  // Fetch ALL publications of the listing (any status) so we can both diagnose
+  // and re-verify every portal the user tried — including ones stuck in
+  // WAITING_SMS / PUBLISHING / PENDING from an interrupted run.
+  const allPubs = await prisma.publication.findMany({
+    where: { listingId, listing: { userId } },
     include: { portal: true },
   });
+
+  // Surface exactly which portals exist + their status (so it's obvious in the
+  // log whether a portal like Bazar.sk is missing vs. just in a skipped state).
+  await logActivity({
+    message:
+      "Skontrolovať stav — publikácie inzerátu: " +
+      (allPubs.length
+        ? allPubs.map((p) => `${p.portal.key}:${p.status}`).join(", ")
+        : "žiadne"),
+    userId,
+    listingId,
+  });
+
   let i = 0;
-  for (const pub of pubs) {
+  for (const pub of allPubs) {
     await enqueueTask(
       "check_status",
       {
@@ -215,7 +213,7 @@ export async function recheckListing(
     );
     i++;
   }
-  return pubs.length;
+  return allPubs.length;
 }
 
 /**
