@@ -528,33 +528,60 @@ export async function runDelete(data: BaseJobData): Promise<void> {
     where: { id: data.publicationId },
   });
   await setStatus(data.publicationId, "REMOVING");
+
+  // Give the provider (and the post-delete verification) the listing title +
+  // e-mail + phone so it can find the ad reliably in "Moje inzeráty". Without
+  // this, verification falls back to a direct-URL check that can wrongly look
+  // "removed" and make us claim a deletion that never happened.
+  const listing = await prisma.listing.findUnique({
+    where: { id: data.listingId },
+    select: { title: true, contactEmail: true, phone: true },
+  });
+  ctx.listingTitle = listing?.title;
+  ctx.listingEmail = listing?.contactEmail ?? undefined;
+  ctx.listingPhone = listing?.phone ?? undefined;
+
   if (pub.remoteId) {
-    const { session } = await ensureSession(data.publicationId, data, ctx);
+    const { session, credentials, verifyPhone } = await ensureSession(
+      data.publicationId,
+      data,
+      ctx,
+    );
+    ctx.secrets = {
+      login: credentials.login,
+      password: credentials.password,
+      verifyPhone,
+    };
     const provider = getProvider(data.portalKey);
     await provider.delete(pub.remoteId, session, ctx);
 
-    // Verify the ad is actually gone before reporting it removed — don't tell
-    // the user it was deleted while it's still online on the portal.
-    try {
-      const status = await provider.checkStatus(pub.remoteId, session, ctx);
-      if (status.live) {
-        await ctx.log(
-          "Inzerát je po pokuse o zmazanie stále online — neoznačujem ako zmazaný.",
-        );
-        await prisma.publication.update({
-          where: { id: data.publicationId },
-          data: {
-            status: "ERROR",
-            lastError:
-              "Zmazanie sa nepodarilo overiť — inzerát je pravdepodobne ešte online na portáli. Skús to znova alebo ho zmaž priamo na portáli.",
-          },
-        });
-        return;
-      }
-    } catch {
-      // If the verification itself failed, fall through and mark removed
-      // optimistically (the delete call already succeeded without throwing).
+    // Verify the ad is ACTUALLY gone before reporting it removed. We only mark
+    // REMOVED when the check CONFIRMS it's gone (verified && !live). If it's
+    // still online — or we couldn't verify — we say so honestly and leave the
+    // ad in ERROR, never a false "deleted".
+    const status = await provider
+      .checkStatus(pub.remoteId, session, ctx)
+      .catch(() => null);
+    const confirmedGone = !!status && status.verified === true && !status.live;
+    if (!confirmedGone) {
+      const stillLive = status?.live === true;
+      await ctx.log(
+        stillLive
+          ? "Inzerát je po pokuse o zmazanie stále online — NEOZNAČUJEM ako zmazaný."
+          : "Zmazanie sa nepodarilo overiť — NEOZNAČUJEM ako zmazaný.",
+      );
+      await prisma.publication.update({
+        where: { id: data.publicationId },
+        data: {
+          status: "ERROR",
+          lastError: stillLive
+            ? "Zmazanie sa nepodarilo — inzerát je stále online na portáli. Skús to znova alebo ho zmaž priamo na portáli."
+            : "Zmazanie sa nepodarilo overiť — nevieme potvrdiť, či inzerát zmizol z portálu. Skontroluj to prosím priamo na portáli.",
+        },
+      });
+      return;
     }
+    await ctx.log("Zmazanie overené — inzerát už nie je online. ✅");
   }
   await setStatus(data.publicationId, "REMOVED", {
     remoteId: null,

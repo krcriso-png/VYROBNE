@@ -420,6 +420,11 @@ export class BazarSkProvider extends BrowserProvider {
   }
 
   // ---- delete ------------------------------------------------------------
+  // bazar.sk ads do NOT live at /inzerat/ID, so the ONLY reliable delete path is
+  // "Moje inzeráty": find the ad by title (phone + e-mail), open its "Zmazať"
+  // link, enter the per-ad password, confirm. The worker verifies afterwards and
+  // only marks the ad REMOVED once it's confirmed gone — we never claim a delete
+  // we couldn't prove.
   async delete(
     remoteId: string,
     session: ProviderSession,
@@ -427,32 +432,55 @@ export class BazarSkProvider extends BrowserProvider {
   ): Promise<void> {
     await this.withContext(session, ctx, async (context) => {
       const page = await context.newPage();
-      const url = remoteId.startsWith("http")
-        ? remoteId
-        : `${this.baseUrl}/inzerat/${remoteId}`;
       await ctx.log("Mažem inzerát z Bazar.sk", { remoteId });
-      await page.goto(url, { waitUntil: "domcontentloaded" }).catch(() => {});
+
+      // 1) Locate the ad + its "Zmazať" link in Moje inzeráty (reliable).
+      let deleteHref = "";
+      if (ctx.listingTitle) {
+        const own = await this.resolveOwnAdUrl(page, ctx, ctx.listingTitle);
+        deleteHref = own.match?.deleteHref || "";
+        if (!own.match) {
+          await ctx.log(
+            "Bazar.sk: inzerát v Moje inzeráty nenájdený — možno už nie je online (overí sa kontrolou stavu).",
+          );
+          return;
+        }
+      }
+
+      // 2) Go to the delete action. Prefer the exact "Zmazať" link; otherwise
+      //    click the "Zmazať" text on the current Moje inzeráty page.
+      if (deleteHref) {
+        await page
+          .goto(deleteHref, { waitUntil: "domcontentloaded" })
+          .catch(() => {});
+      } else {
+        const delLink = page
+          .getByText(/(zmaza|odstr[aá]ni|vymaza)[tť]/i)
+          .first();
+        if (await delLink.count()) {
+          await delLink.click().catch(() => {});
+          await page.waitForLoadState("domcontentloaded").catch(() => {});
+        }
+      }
       await this.dismissCookies(page, ctx);
+      await page.waitForTimeout(800);
       await this.debugShot(page, ctx, "delete-open");
 
-      const delLink = page
-        .getByText(/(zmaza|odstr[aá]ni|vymaza)[tť]/i)
-        .first();
-      if (await delLink.count()) {
-        await delLink.click().catch(() => {});
-        await page.waitForLoadState("domcontentloaded").catch(() => {});
-        await page.waitForTimeout(900);
-        // Enter the per-ad password if requested.
-        const pass = ctx.secrets?.password || "";
-        const passField = page.locator('input[type="password"]').first();
-        if ((await passField.count()) && pass) {
-          await passField.fill(pass).catch(() => {});
-        }
-        await this.clickButton(page, /zmaza|odstr[aá]ni|vymaza|potvrd/i);
-        await page.waitForTimeout(900);
+      // 3) The confirmation page usually asks for the per-ad password.
+      const pass = ctx.secrets?.password || "";
+      const passField = page.locator('input[type="password"]').first();
+      if ((await passField.count()) && pass) {
+        await passField.fill(pass).catch(() => {});
       }
+
+      // 4) Confirm the deletion.
+      await this.clickButton(page, /zmaza|odstr[aá]ni|vymaza|potvrd/i);
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      await page.waitForTimeout(1200);
       await this.debugShot(page, ctx, "delete-done");
-      await ctx.log("Pokus o zmazanie dokončený");
+      await ctx.log("Pokus o zmazanie dokončený", {
+        usedDeleteLink: !!deleteHref,
+      });
     });
   }
 
@@ -543,7 +571,12 @@ export class BazarSkProvider extends BrowserProvider {
     ctx: ProviderContext,
     title: string,
   ): Promise<{
-    match: { url: string; id: string; views?: number } | null;
+    match: {
+      url: string;
+      id: string;
+      views?: number;
+      deleteHref?: string;
+    } | null;
     listed: boolean;
   }> {
     const email = ctx.listingEmail || "";
@@ -582,7 +615,12 @@ export class BazarSkProvider extends BrowserProvider {
     phone: string,
     email: string,
   ): Promise<{
-    match: { url: string; id: string; views?: number } | null;
+    match: {
+      url: string;
+      id: string;
+      views?: number;
+      deleteHref?: string;
+    } | null;
     listed: boolean;
   }> {
     await page
@@ -657,6 +695,7 @@ export class BazarSkProvider extends BrowserProvider {
           views?: number;
           active: boolean;
           href: string;
+          deleteHref: string;
           len: number;
         };
         const byId = new Map<string, Ad>();
@@ -675,10 +714,22 @@ export class BazarSkProvider extends BrowserProvider {
           const len = txt.length;
           const prev = byId.get(id);
           if (prev && prev.len <= len) continue; // keep the SMALLEST (tightest) row
-          // The ad's own link is the anchor whose href carries the ad id.
-          const link = Array.from(
+          const anchors = Array.from(
             el.querySelectorAll<HTMLAnchorElement>("a[href]"),
-          ).find((a) => (a.getAttribute("href") || "").includes(id));
+          );
+          // The ad's own link is the anchor whose href carries the ad id.
+          const link = anchors.find((a) =>
+            (a.getAttribute("href") || "").includes(id),
+          );
+          // The "Zmazať" action link — by its text or a delete-ish href. This is
+          // the ONLY reliable way to delete on bazar.sk (ads aren't at /inzerat/).
+          const del = anchors.find(
+            (a) =>
+              /zmaza|odstr[aá]ni|vymaza/i.test(a.textContent || "") ||
+              /(zmaza|vymaz|odstr|delete|zrusit)/i.test(
+                a.getAttribute("href") || "",
+              ),
+          );
           // Title: a heading, else the ad link's text.
           const head = el.querySelector<HTMLElement>("h1, h2, h3, h4");
           const title = (head?.textContent || link?.textContent || "")
@@ -692,6 +743,7 @@ export class BazarSkProvider extends BrowserProvider {
             views: vm ? parseInt(vm[1], 10) : undefined,
             active: /AKT[IÍ]VN/i.test(txt),
             href: link?.href || "",
+            deleteHref: del?.href || "",
             len,
           });
         }
@@ -706,6 +758,7 @@ export class BazarSkProvider extends BrowserProvider {
             views?: number;
             active: boolean;
             href: string;
+            deleteHref: string;
           }[],
       );
 
@@ -729,7 +782,12 @@ export class BazarSkProvider extends BrowserProvider {
     // the "AKTÍVNY" flag is only used for logging, never to gate the match (its
     // walk-up can miss on some layouts).
     const want = norm(title);
-    let best: { url: string; id: string; views?: number } | null = null;
+    let best: {
+      url: string;
+      id: string;
+      views?: number;
+      deleteHref?: string;
+    } | null = null;
     let bestScore = 0;
     for (const a of ads) {
       const hay = norm(`${a.title} ${a.rowText}`);
@@ -740,6 +798,7 @@ export class BazarSkProvider extends BrowserProvider {
           url: a.href || `${this.baseUrl}/inzerat/${a.id}`,
           id: a.id,
           views: a.views,
+          deleteHref: a.deleteHref || undefined,
         };
       }
     }
@@ -753,12 +812,14 @@ export class BazarSkProvider extends BrowserProvider {
         url: a.href || `${this.baseUrl}/inzerat/${a.id}`,
         id: a.id,
         views: a.views,
+        deleteHref: a.deleteHref || undefined,
       };
     }
     await ctx.log("Bazar.sk Moje inzeráty – najlepšia zhoda", {
       bestScore,
       url: best?.url,
       id: best?.id,
+      deleteHref: best?.deleteHref,
     });
 
     return { match: bestScore > 0 ? best : null, listed };
