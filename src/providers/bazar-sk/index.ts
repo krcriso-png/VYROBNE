@@ -189,7 +189,7 @@ export class BazarSkProvider extends BrowserProvider {
         page.locator('form [name="data[Agents][agent][name]"]').first(),
         jmeno,
       );
-      const phone = localPhone(ctx.secrets?.verifyPhone || listing.phone);
+      const phone = localPhone(listing.phone || ctx.secrets?.verifyPhone);
       // The two contact inputs are distinguished by class: input.phone and
       // input.email (their names are dynamic hashes). Phone carries the SMS
       // verification number, so it's the important one.
@@ -553,7 +553,7 @@ export class BazarSkProvider extends BrowserProvider {
 
     // If bazar.sk asks for the e-mail + phone to list guest ads, fill them.
     const email = ctx.listingEmail || "";
-    const phone = localPhone(ctx.secrets?.verifyPhone || ctx.listingPhone || "");
+    const phone = localPhone(ctx.listingPhone || ctx.secrets?.verifyPhone || "");
     const emailInp = page
       .locator('input[type="email"], input[name*="mail" i], input.email')
       .first();
@@ -1838,7 +1838,7 @@ export class BazarSkProvider extends BrowserProvider {
       );
     }
 
-    const phone = localPhone(ctx.secrets?.verifyPhone || "");
+    const phone = localPhone(ctx.listingPhone || ctx.secrets?.verifyPhone || "");
     const code = await ctx.requestUserInput(
       `Zadaj SMS overovací kód z Bazar.sk${phone ? " (prišiel na " + phone + ")" : ""}.`,
     );

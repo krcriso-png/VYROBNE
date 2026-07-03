@@ -583,7 +583,9 @@ export class BazosSkProvider extends BrowserProvider {
       // phone (the SMS number, in the market's local format, no "+"). Fill the
       // "Vypísať/Vypsat inzeráty" form and submit to reveal the user's ads.
       const email = ctx.listingEmail ?? "";
-      const phone = this.myAdsPhone(ctx.secrets?.verifyPhone || ctx.listingPhone);
+      // Use the PER-LISTING phone the ad was posted with (so each ad is looked
+      // up by its own number); the account verify phone is only a fallback.
+      const phone = this.myAdsPhone(ctx.listingPhone || ctx.secrets?.verifyPhone);
       if (email || phone) {
         await ctx.log("Otváram Moje inzeráty (e-mail + telefón)", { email, phone });
         const filled = await page.evaluate(
@@ -702,9 +704,9 @@ export class BazosSkProvider extends BrowserProvider {
     ctx: ProviderContext,
     listing: ListingPayload,
   ): Promise<void> {
-    // Prefer the account's dedicated verification phone (your phone that gets
-    // the SMS), falling back to the listing's contact phone.
-    const rawPhone = ctx.secrets?.verifyPhone || listing.phone || "";
+    // Use the phone the user entered ON THIS listing (the ad's contact + SMS
+    // number). The account's verification phone is only a fallback.
+    const rawPhone = listing.phone || ctx.secrets?.verifyPhone || "";
     const phone = formatPhone(rawPhone, this.phonePrefix);
     if (!phone) {
       throw new Error(

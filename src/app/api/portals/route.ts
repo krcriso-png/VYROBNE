@@ -17,19 +17,37 @@ export const GET = route(async () => {
     },
     orderBy: { name: "asc" },
     include: {
-      accounts: { where: { userId: user.id }, select: { id: true, label: true } },
+      accounts: {
+        where: { userId: user.id },
+        // Return NON-SECRET saved values so the UI can pre-fill them (the
+        // password is never returned — only whether one is stored).
+        select: {
+          id: true,
+          label: true,
+          login: true,
+          verifyPhone: true,
+          passwordEnc: true,
+        },
+      },
     },
   });
 
   return json({
-    portals: portals.map((p) => ({
-      key: p.key,
-      name: p.name,
-      country: p.country,
-      integration: p.integration,
-      supportsRefresh: p.supportsRefresh,
-      hasAccount: p.accounts.length > 0,
-      paused: p.pausedForUsers,
-    })),
+    portals: portals.map((p) => {
+      const acc = p.accounts[0];
+      return {
+        key: p.key,
+        name: p.name,
+        country: p.country,
+        integration: p.integration,
+        supportsRefresh: p.supportsRefresh,
+        hasAccount: p.accounts.length > 0,
+        paused: p.pausedForUsers,
+        // Saved values so the edit form shows what's already there.
+        login: acc?.login ?? "",
+        verifyPhone: acc?.verifyPhone ?? "",
+        hasPassword: !!acc?.passwordEnc,
+      };
+    }),
   });
 });

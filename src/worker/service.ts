@@ -275,6 +275,12 @@ export async function runPublish(data: BaseJobData): Promise<void> {
     });
   };
   const payload = await buildPayload(data.listingId);
+  // Give the provider the listing's own title/e-mail/phone so posting AND the
+  // post-publish "Moje inzeráty" lookup use THIS listing's number (not a profile
+  // one). The phone the user typed on the listing always wins.
+  ctx.listingTitle = payload.title;
+  ctx.listingEmail = payload.email ?? undefined;
+  ctx.listingPhone = payload.phone ?? undefined;
   const provider = getProvider(data.portalKey);
 
   const pub = await prisma.publication.findUniqueOrThrow({
@@ -468,6 +474,9 @@ export async function runRefresh(data: BaseJobData): Promise<void> {
 
     await ctx.log("4) Starý inzerát je preč — publikujem čerstvý inzerát.");
     const payload = await buildPayload(data.listingId);
+    ctx.listingTitle = payload.title;
+    ctx.listingEmail = payload.email ?? undefined;
+    ctx.listingPhone = payload.phone ?? undefined;
     let result;
     try {
       result = await provider.publish(payload, session, ctx);

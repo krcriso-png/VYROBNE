@@ -14,6 +14,9 @@ interface Portal {
   country: string;
   integration: string;
   hasAccount: boolean;
+  login: string;
+  verifyPhone: string;
+  hasPassword: boolean;
 }
 
 // Manage saved portal logins. Credentials are sent once and stored encrypted;
@@ -35,6 +38,22 @@ export default function PortalsPage() {
   useEffect(() => {
     load();
   }, []);
+
+  // Open a portal's editor and pre-fill it with what's already saved, so the
+  // user sees the current values instead of a blank form (and doesn't wipe them
+  // by saving). The password is never returned — left blank, only overwritten
+  // if the user types a new one.
+  function openEditor(p: Portal) {
+    if (active === p.key) {
+      setActive(null);
+      return;
+    }
+    setActive(p.key);
+    setLogin(p.login ?? "");
+    setVerifyPhone(p.verifyPhone ?? "");
+    setPassword("");
+    setMessage(null);
+  }
 
   async function save(portalKey: string) {
     setBusy(true);
@@ -99,7 +118,7 @@ export default function PortalsPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setActive(active === p.key ? null : p.key)}
+                onClick={() => openEditor(p)}
               >
                 {p.hasAccount ? "Upraviť" : "Pripojiť"}
                 <ChevronDown
@@ -127,10 +146,15 @@ export default function PortalsPage() {
                   <Input
                     id={`pass-${p.key}`}
                     type="password"
-                    placeholder="••••••••"
+                    placeholder={p.hasPassword ? "•••••••• (uložené)" : "••••••••"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                   />
+                  {p.hasPassword && (
+                    <p className="text-xs text-muted-foreground">
+                      Heslo je uložené. Nechaj prázdne, ak ho nechceš meniť.
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor={`vphone-${p.key}`}>

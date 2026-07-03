@@ -38,6 +38,19 @@ export const POST = route(async (req: Request) => {
   });
   if (!portal) throw new HttpError(404, "Portál neexistuje");
 
+  const existing = await prisma.portalAccount.findUnique({
+    where: { userId_portalId: { userId: user.id, portalId: portal.id } },
+    select: { login: true },
+  });
+
+  // Only drop the saved (possibly phone-verified) session when the LOGIN or
+  // PASSWORD actually changes. Editing just the verify phone must not force a
+  // fresh SMS verification on the next post.
+  const loginChanged =
+    input.login !== undefined && input.login !== (existing?.login ?? null);
+  const passwordChanged = !!input.password;
+  const invalidateSession = !existing || loginChanged || passwordChanged;
+
   const account = await prisma.portalAccount.upsert({
     where: { userId_portalId: { userId: user.id, portalId: portal.id } },
     create: {
@@ -46,8 +59,7 @@ export const POST = route(async (req: Request) => {
       label: input.label,
       login: input.login,
       verifyPhone: input.verifyPhone,
-      passwordEnc: encrypt(input.password),
-      // Force a fresh login on next use since credentials changed.
+      passwordEnc: input.password ? encrypt(input.password) : null,
       needsReauth: true,
     },
     update: {
@@ -55,9 +67,9 @@ export const POST = route(async (req: Request) => {
       login: input.login,
       verifyPhone: input.verifyPhone,
       ...(input.password ? { passwordEnc: encrypt(input.password) } : {}),
-      needsReauth: true,
-      sessionEnc: null,
-      sessionValidUntil: null,
+      ...(invalidateSession
+        ? { needsReauth: true, sessionEnc: null, sessionValidUntil: null }
+        : {}),
     },
   });
 
