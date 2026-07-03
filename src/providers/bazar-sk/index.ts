@@ -551,68 +551,156 @@ export class BazarSkProvider extends BrowserProvider {
       .catch(() => {});
     await this.dismissCookies(page, ctx);
 
-    // If bazar.sk asks for the e-mail + phone to list guest ads, fill them.
+    // bazar.sk lists a guest's ads WITHOUT login: a "Telefón + E-mail" lookup
+    // form. The phone alone is enough. Tag the two inputs by their labels and
+    // fill them, then submit ("Hľadať").
     const email = ctx.listingEmail || "";
     const phone = localPhone(ctx.listingPhone || ctx.secrets?.verifyPhone || "");
-    const emailInp = page
-      .locator('input[type="email"], input[name*="mail" i], input.email')
-      .first();
-    if ((await emailInp.count().catch(() => 0)) > 0 && email) {
-      await emailInp.fill(email).catch(() => {});
-      const phoneInp = page
-        .locator('input[name*="tel" i], input.phone, input[type="tel"]')
-        .first();
-      if ((await phoneInp.count().catch(() => 0)) > 0 && phone) {
-        await phoneInp.fill(phone).catch(() => {});
-      }
-      await this.clickButton(page, /zobrazi|vyhlada|pokra[čc]ova|prihl/i);
-      await page.waitForLoadState("domcontentloaded").catch(() => {});
-      await page.waitForTimeout(1500);
+    const tagInfo = await page
+      .evaluate(() => {
+        const vis = (i: HTMLInputElement) =>
+          i.offsetParent !== null &&
+          ["text", "tel", "email", "search", ""].includes(
+            (i.type || "").toLowerCase(),
+          );
+        const inputs = Array.from(
+          document.querySelectorAll<HTMLInputElement>("input"),
+        ).filter(vis);
+        const labelInput = (rx: RegExp): HTMLInputElement | null => {
+          for (const el of Array.from(document.querySelectorAll<HTMLElement>("*"))) {
+            const own = Array.from(el.childNodes)
+              .filter((n) => n.nodeType === 3)
+              .map((n) => n.textContent ?? "")
+              .join("")
+              .trim();
+            if (!rx.test(own)) continue;
+            for (const inp of inputs) {
+              if (
+                el.compareDocumentPosition(inp) &
+                Node.DOCUMENT_POSITION_FOLLOWING
+              )
+                return inp;
+            }
+          }
+          return null;
+        };
+        const p = labelInput(/telef/i);
+        const e = labelInput(/mail/i);
+        if (p) p.setAttribute("data-klikado-myphone", "1");
+        if (e) e.setAttribute("data-klikado-myemail", "1");
+        return {
+          phone: !!p,
+          email: !!e,
+          inputs: inputs
+            .map((i) => `${i.name || i.id || "?"}|${i.type}|${i.placeholder || ""}`)
+            .slice(0, 10),
+        };
+      })
+      .catch(() => ({ phone: false, email: false, inputs: [] as string[] }));
+
+    if (phone && tagInfo.phone) {
+      await page
+        .locator('[data-klikado-myphone="1"]')
+        .first()
+        .fill(phone)
+        .catch(() => {});
     }
+    if (email && tagInfo.email) {
+      await page
+        .locator('[data-klikado-myemail="1"]')
+        .first()
+        .fill(email)
+        .catch(() => {});
+    }
+    // Submit the lookup — the button is "Hľadať".
+    await this.clickButton(page, /h[ľl]ada|zobrazi|vyhlada/i);
+    await page.waitForLoadState("domcontentloaded").catch(() => {});
+    await page.waitForTimeout(1800);
     await this.dismissCookies(page, ctx);
     await this.debugShot(page, ctx, "moje-inzeraty");
 
+    // Parse the result rows. Each ad row shows "ID inzerátu: N", the title,
+    // "Počet zobrazení: Nx" and a status ("AKTÍVNY"/…).
+    const ads = await page
+      .evaluate(() => {
+        const out: {
+          id: string;
+          title: string;
+          views?: number;
+          active: boolean;
+          href: string;
+        }[] = [];
+        const seen = new Set<string>();
+        for (const el of Array.from(
+          document.querySelectorAll<HTMLElement>(
+            "div, li, tr, article, section",
+          ),
+        )) {
+          const txt = (el.textContent || "").replace(/\s+/g, " ").trim();
+          if (!/ID\s*inzer[áa]tu/i.test(txt)) continue;
+          if (el.querySelectorAll("*").length > 90) continue; // row-sized only
+          const idm = txt.match(/ID\s*inzer[áa]tu[:\s]*([0-9]+)/i);
+          const id = idm ? idm[1] : "";
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          const vm = txt.match(/zobrazen[ ií]*[:\s]*([0-9]+)/i);
+          const active = /AKT[IÍ]VN/i.test(txt);
+          const adLink =
+            el.querySelector<HTMLAnchorElement>('a[href*="/inzerat/"]');
+          const heading =
+            el.querySelector("h1,h2,h3,strong,b,a") || el;
+          out.push({
+            id,
+            title: (heading.textContent || "").replace(/\s+/g, " ").trim(),
+            views: vm ? parseInt(vm[1], 10) : undefined,
+            active,
+            href: adLink?.href || "",
+          });
+        }
+        return out;
+      })
+      .catch(
+        () =>
+          [] as {
+            id: string;
+            title: string;
+            views?: number;
+            active: boolean;
+            href: string;
+          }[],
+      );
+
     const body = await page.locator("body").innerText().catch(() => "");
-    const links = await page
-      .evaluate(() =>
-        Array.from(
-          document.querySelectorAll<HTMLAnchorElement>('a[href*="/inzerat/"]'),
-        )
-          .map((a) => ({
-            href: a.href,
-            text: (a.textContent || "").replace(/\s+/g, " ").trim(),
-          }))
-          .filter((l) => l.text.length > 1)
-          .slice(0, 60),
-      )
-      .catch(() => [] as { href: string; text: string }[]);
-
-    // Did we actually see the "Moje inzeráty" listing (vs. a login wall)?
-    const listed =
-      /moje\s+inzer[áa]ty|va[šs]e\s+inzer[áa]ty|inzer[áa]t\w*\s+(u[žz][ií]vate|konta)/i.test(
-        body,
-      ) || links.length > 0;
-
-    await ctx.log("Bazar.sk Moje inzeráty – odkazy", {
-      count: links.length,
+    const listed = /Moje\s+inzer[áa]ty/i.test(body) || ads.length > 0;
+    await ctx.log("Bazar.sk Moje inzeráty – nájdené", {
       listed,
-      sample: links.slice(0, 8).map((l) => `${l.text} => ${l.href}`),
+      inputs: tagInfo.inputs,
+      count: ads.length,
+      ads: ads
+        .slice(0, 6)
+        .map((a) => `${a.title} #${a.id} ${a.active ? "AKT" : "neakt"} ${a.views ?? "?"}x`),
     });
 
-    // Best title match among the listed ads.
+    // Best title match among ACTIVE ads.
     const want = norm(title);
     let best: { url: string; id: string; views?: number } | null = null;
-    let bestScore = 0;
-    for (const l of links) {
-      const score = wordOverlap(norm(l.text), want);
+    let bestScore = -1;
+    for (const a of ads) {
+      if (!a.active) continue;
+      const score = wordOverlap(norm(a.title), want);
       if (score > bestScore) {
         bestScore = score;
-        best = { url: l.href, id: extractAdId(l.href) };
+        best = {
+          url: a.href || `${this.baseUrl}/inzerat/${a.id}`,
+          id: a.id,
+          views: a.views,
+        };
       }
     }
     await ctx.log("Bazar.sk Moje inzeráty – najlepšia zhoda", {
       bestScore,
       url: best?.url,
+      id: best?.id,
     });
 
     return { match: bestScore > 0 ? best : null, listed };
