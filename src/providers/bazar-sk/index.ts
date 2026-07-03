@@ -639,10 +639,15 @@ export class BazarSkProvider extends BrowserProvider {
     await this.dismissCookies(page, ctx);
     await this.debugShot(page, ctx, "moje-inzeraty");
 
-    // Parse the result rows. Anchor on each ad's DETAIL link (/inzerat/ID) — its
-    // text is the ad TITLE — then walk UP to the tight enclosing row to read
-    // "ID inzerátu / Počet zobrazení / AKTÍVNY". (Scanning by "ID inzerátu" text
-    // grabbed the whole results column, so the title never landed in rowText.)
+    // Parse the result rows. bazar.sk ad links do NOT use "/inzerat/", so anchor
+    // detection fails — the reliable signal is the "ID inzerátu: N" text. But the
+    // ID and the TITLE sit in different columns, so:
+    //   • the tightest element with just the ID = the status block (no title)
+    //   • the outermost = the whole content column incl. the search form (title
+    //     gets truncated away)
+    // The AD ROW is the SMALLEST element that has BOTH the ID *and* the action
+    // buttons (Upraviť/Zmazať/Zvýhodniť) — those live only in the row, never in
+    // the sort form or the status block. That element contains the title.
     const ads = await page
       .evaluate(() => {
         type Ad = {
@@ -652,40 +657,45 @@ export class BazarSkProvider extends BrowserProvider {
           views?: number;
           active: boolean;
           href: string;
+          len: number;
         };
         const byId = new Map<string, Ad>();
-        for (const a of Array.from(
-          document.querySelectorAll<HTMLAnchorElement>('a[href*="/inzerat/"]'),
+        const ACTIONS = /upravi|zmaza|zv[ýy]hodni/i;
+        for (const el of Array.from(
+          document.querySelectorAll<HTMLElement>(
+            "div, li, tr, article, section, td",
+          ),
         )) {
-          const m = (a.getAttribute("href") || "").match(/\/inzerat\/([0-9]+)/);
-          if (!m) continue;
-          const id = m[1];
-          const title = (a.textContent || "").replace(/\s+/g, " ").trim();
-          // Climb to the nearest ancestor that carries the row metadata.
-          let row: HTMLElement = a;
-          for (let i = 0; i < 6 && row.parentElement; i++) {
-            row = row.parentElement;
-            if (
-              /ID\s*inzer[áa]tu|zobrazen|AKT[IÍ]VN/i.test(row.textContent || "")
-            )
-              break;
-          }
-          const rowText = (row.textContent || "").replace(/\s+/g, " ").trim();
+          const txt = (el.textContent || "").replace(/\s+/g, " ").trim();
+          const ids = txt.match(/ID\s*inzer[áa]tu[:\s]*[0-9]+/gi) || [];
+          if (ids.length !== 1) continue; // a row holds exactly one ad
+          if (!ACTIONS.test(txt)) continue; // must be the ad row, not status/form
+          const id = (ids[0].match(/([0-9]+)/) || [])[1] || "";
+          if (!id) continue;
+          const len = txt.length;
           const prev = byId.get(id);
-          // Prefer the entry that actually has a title (the title link) over a
-          // bare photo/thumbnail link to the same ad.
-          if (prev && prev.title && !title) continue;
-          const vm = rowText.match(/zobrazen[ ií]*[:\s]*([0-9]+)/i);
+          if (prev && prev.len <= len) continue; // keep the SMALLEST (tightest) row
+          // The ad's own link is the anchor whose href carries the ad id.
+          const link = Array.from(
+            el.querySelectorAll<HTMLAnchorElement>("a[href]"),
+          ).find((a) => (a.getAttribute("href") || "").includes(id));
+          // Title: a heading, else the ad link's text.
+          const head = el.querySelector<HTMLElement>("h1, h2, h3, h4");
+          const title = (head?.textContent || link?.textContent || "")
+            .replace(/\s+/g, " ")
+            .trim();
+          const vm = txt.match(/zobrazen[ ií]*[:\s]*([0-9]+)/i);
           byId.set(id, {
             id,
             title,
-            rowText: rowText.slice(0, 300),
+            rowText: txt.slice(0, 400),
             views: vm ? parseInt(vm[1], 10) : undefined,
-            active: /AKT[IÍ]VN/i.test(rowText),
-            href: a.href,
+            active: /AKT[IÍ]VN/i.test(txt),
+            href: link?.href || "",
+            len,
           });
         }
-        return Array.from(byId.values());
+        return Array.from(byId.values()).map(({ len: _len, ...a }) => a);
       })
       .catch(
         () =>
