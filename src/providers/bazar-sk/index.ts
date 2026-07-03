@@ -566,26 +566,13 @@ export class BazarSkProvider extends BrowserProvider {
         const inputs = Array.from(
           document.querySelectorAll<HTMLInputElement>("input"),
         ).filter(vis);
-        const labelInput = (rx: RegExp): HTMLInputElement | null => {
-          for (const el of Array.from(document.querySelectorAll<HTMLElement>("*"))) {
-            const own = Array.from(el.childNodes)
-              .filter((n) => n.nodeType === 3)
-              .map((n) => n.textContent ?? "")
-              .join("")
-              .trim();
-            if (!rx.test(own)) continue;
-            for (const inp of inputs) {
-              if (
-                el.compareDocumentPosition(inp) &
-                Node.DOCUMENT_POSITION_FOLLOWING
-              )
-                return inp;
-            }
-          }
-          return null;
-        };
-        const p = labelInput(/telef/i);
-        const e = labelInput(/mail/i);
+        // Target by PLACEHOLDER ("Telefón …" / "E-mail …") — reliable, and it
+        // stops the e-mail from landing in the phone field (which mangled the
+        // search and returned everything).
+        const byPlaceholder = (rx: RegExp) =>
+          inputs.find((i) => rx.test(i.placeholder || "")) || null;
+        const p = byPlaceholder(/telef|mobil|tel\./i);
+        const e = byPlaceholder(/mail|e-?mail/i);
         if (p) p.setAttribute("data-klikado-myphone", "1");
         if (e) e.setAttribute("data-klikado-myemail", "1");
         return {
@@ -625,7 +612,7 @@ export class BazarSkProvider extends BrowserProvider {
       .evaluate(() => {
         const out: {
           id: string;
-          title: string;
+          rowText: string;
           views?: number;
           active: boolean;
           href: string;
@@ -637,21 +624,20 @@ export class BazarSkProvider extends BrowserProvider {
           ),
         )) {
           const txt = (el.textContent || "").replace(/\s+/g, " ").trim();
-          if (!/ID\s*inzer[áa]tu/i.test(txt)) continue;
-          if (el.querySelectorAll("*").length > 90) continue; // row-sized only
-          const idm = txt.match(/ID\s*inzer[áa]tu[:\s]*([0-9]+)/i);
-          const id = idm ? idm[1] : "";
+          // A single ad row contains EXACTLY one "ID inzerátu" (the whole list
+          // container has many — skip it).
+          const ids = txt.match(/ID\s*inzer[áa]tu[:\s]*[0-9]+/gi) || [];
+          if (ids.length !== 1) continue;
+          const id = (ids[0].match(/([0-9]+)/) || [])[1] || "";
           if (!id || seen.has(id)) continue;
           seen.add(id);
           const vm = txt.match(/zobrazen[ ií]*[:\s]*([0-9]+)/i);
           const active = /AKT[IÍ]VN/i.test(txt);
           const adLink =
             el.querySelector<HTMLAnchorElement>('a[href*="/inzerat/"]');
-          const heading =
-            el.querySelector("h1,h2,h3,strong,b,a") || el;
           out.push({
             id,
-            title: (heading.textContent || "").replace(/\s+/g, " ").trim(),
+            rowText: txt.slice(0, 200),
             views: vm ? parseInt(vm[1], 10) : undefined,
             active,
             href: adLink?.href || "",
@@ -663,7 +649,7 @@ export class BazarSkProvider extends BrowserProvider {
         () =>
           [] as {
             id: string;
-            title: string;
+            rowText: string;
             views?: number;
             active: boolean;
             href: string;
@@ -678,16 +664,22 @@ export class BazarSkProvider extends BrowserProvider {
       count: ads.length,
       ads: ads
         .slice(0, 6)
-        .map((a) => `${a.title} #${a.id} ${a.active ? "AKT" : "neakt"} ${a.views ?? "?"}x`),
+        .map(
+          (a) =>
+            `#${a.id} ${a.active ? "AKT" : "neakt"} ${a.views ?? "?"}x — ${a.rowText.slice(0, 40)}`,
+        ),
     });
 
-    // Best title match among ACTIVE ads.
+    // Match the ad by its TITLE appearing in the row text (whole normalized row
+    // contains the listing title). Prefer an exact substring match; fall back to
+    // shared-word overlap. Only ACTIVE ads count as live.
     const want = norm(title);
     let best: { url: string; id: string; views?: number } | null = null;
-    let bestScore = -1;
+    let bestScore = 0;
     for (const a of ads) {
       if (!a.active) continue;
-      const score = wordOverlap(norm(a.title), want);
+      const row = norm(a.rowText);
+      const score = row.includes(want) ? 1000 : wordOverlap(row, want);
       if (score > bestScore) {
         bestScore = score;
         best = {
