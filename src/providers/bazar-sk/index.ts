@@ -464,8 +464,37 @@ export class BazarSkProvider extends BrowserProvider {
   ): Promise<StatusResult> {
     return this.withContext(session, ctx, async (context) => {
       const page = await context.newPage();
-      const isAdRef =
-        /\/inzerat\//.test(remoteId) || /^\d+$/.test(remoteId);
+
+      // PRIMARY — verify against bazar.sk "Moje inzeráty" by title, exactly like
+      // Bazoš: it's the source of truth for whether the ad is really live, and
+      // it back-fills the real ad URL even for ads added before we saved one.
+      if (ctx.listingTitle) {
+        const own = await this.resolveOwnAdUrl(page, ctx, ctx.listingTitle);
+        if (own.match) {
+          await ctx.log("Bazar.sk: inzerát potvrdený cez Moje inzeráty", {
+            remoteId: own.match.id,
+            url: own.match.url,
+            views: own.match.views,
+          });
+          return {
+            live: true,
+            verified: true,
+            remoteId: own.match.id,
+            remoteUrl: own.match.url,
+            views: own.match.views,
+          };
+        }
+        // The list genuinely loaded but our ad isn't in it → removed.
+        if (own.listed) {
+          await ctx.log(
+            "Bazar.sk: inzerát sa v Moje inzeráty nenašiel — považujem za odstránený.",
+          );
+          return { live: false, verified: true };
+        }
+      }
+
+      // FALLBACK — a stored direct ad URL.
+      const isAdRef = /\/inzerat\//.test(remoteId) || /^\d+$/.test(remoteId);
       if (isAdRef) {
         const url = remoteId.startsWith("http")
           ? remoteId
@@ -494,14 +523,99 @@ export class BazarSkProvider extends BrowserProvider {
         }
         return { live: false, verified: true };
       }
-      // No reliable ad id/URL stored — nothing to check. This happens for ads
-      // added before Klikado saved the ad link; re-publishing records it.
+
       await ctx.log(
-        "Bazar.sk: k tomuto inzerátu nemám uložený odkaz (bol pridaný pred opravou), tak stav neviem overiť. Pridaj inzerát na Bazar.sk znova — uloží sa odkaz a Klikado ho bude vidieť.",
+        "Bazar.sk: stav sa nepodarilo overiť (Moje inzeráty sa neotvorili a nemám uložený odkaz) — nechávam bez zmeny.",
         { remoteId },
       );
       return { live: false, verified: false };
     });
+  }
+
+  /**
+   * Find the user's ad in bazar.sk "Moje inzeráty" by title. bazar.sk lists a
+   * guest's ads by the ad's e-mail + verified phone (like Bazoš). Returns the
+   * best-matching ad (URL/id/views) and whether the list actually loaded (so the
+   * caller can tell "removed" apart from "couldn't open the list").
+   */
+  private async resolveOwnAdUrl(
+    page: import("playwright").Page,
+    ctx: ProviderContext,
+    title: string,
+  ): Promise<{
+    match: { url: string; id: string; views?: number } | null;
+    listed: boolean;
+  }> {
+    await page
+      .goto(`${this.baseUrl}/moje-inzeraty/`, { waitUntil: "domcontentloaded" })
+      .catch(() => {});
+    await this.dismissCookies(page, ctx);
+
+    // If bazar.sk asks for the e-mail + phone to list guest ads, fill them.
+    const email = ctx.listingEmail || "";
+    const phone = localPhone(ctx.secrets?.verifyPhone || ctx.listingPhone || "");
+    const emailInp = page
+      .locator('input[type="email"], input[name*="mail" i], input.email')
+      .first();
+    if ((await emailInp.count().catch(() => 0)) > 0 && email) {
+      await emailInp.fill(email).catch(() => {});
+      const phoneInp = page
+        .locator('input[name*="tel" i], input.phone, input[type="tel"]')
+        .first();
+      if ((await phoneInp.count().catch(() => 0)) > 0 && phone) {
+        await phoneInp.fill(phone).catch(() => {});
+      }
+      await this.clickButton(page, /zobrazi|vyhlada|pokra[čc]ova|prihl/i);
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      await page.waitForTimeout(1500);
+    }
+    await this.dismissCookies(page, ctx);
+    await this.debugShot(page, ctx, "moje-inzeraty");
+
+    const body = await page.locator("body").innerText().catch(() => "");
+    const links = await page
+      .evaluate(() =>
+        Array.from(
+          document.querySelectorAll<HTMLAnchorElement>('a[href*="/inzerat/"]'),
+        )
+          .map((a) => ({
+            href: a.href,
+            text: (a.textContent || "").replace(/\s+/g, " ").trim(),
+          }))
+          .filter((l) => l.text.length > 1)
+          .slice(0, 60),
+      )
+      .catch(() => [] as { href: string; text: string }[]);
+
+    // Did we actually see the "Moje inzeráty" listing (vs. a login wall)?
+    const listed =
+      /moje\s+inzer[áa]ty|va[šs]e\s+inzer[áa]ty|inzer[áa]t\w*\s+(u[žz][ií]vate|konta)/i.test(
+        body,
+      ) || links.length > 0;
+
+    await ctx.log("Bazar.sk Moje inzeráty – odkazy", {
+      count: links.length,
+      listed,
+      sample: links.slice(0, 8).map((l) => `${l.text} => ${l.href}`),
+    });
+
+    // Best title match among the listed ads.
+    const want = norm(title);
+    let best: { url: string; id: string; views?: number } | null = null;
+    let bestScore = 0;
+    for (const l of links) {
+      const score = wordOverlap(norm(l.text), want);
+      if (score > bestScore) {
+        bestScore = score;
+        best = { url: l.href, id: extractAdId(l.href) };
+      }
+    }
+    await ctx.log("Bazar.sk Moje inzeráty – najlepšia zhoda", {
+      bestScore,
+      url: best?.url,
+    });
+
+    return { match: bestScore > 0 ? best : null, listed };
   }
 
   // ---- helpers (instance) ------------------------------------------------
