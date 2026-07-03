@@ -533,10 +533,10 @@ export class BazarSkProvider extends BrowserProvider {
   }
 
   /**
-   * Find the user's ad in bazar.sk "Moje inzeráty" by title. bazar.sk lists a
-   * guest's ads by the ad's e-mail + verified phone (like Bazoš). Returns the
-   * best-matching ad (URL/id/views) and whether the list actually loaded (so the
-   * caller can tell "removed" apart from "couldn't open the list").
+   * Find the user's ad in bazar.sk "Moje inzeráty" by title. bazar.sk needs BOTH
+   * the phone AND the e-mail to match — and an OLD ad may have been posted with a
+   * different phone than the listing now carries. So try the listing phone, the
+   * account verify phone, then e-mail only, until the ad shows up.
    */
   private async resolveOwnAdUrl(
     page: import("playwright").Page,
@@ -546,16 +546,49 @@ export class BazarSkProvider extends BrowserProvider {
     match: { url: string; id: string; views?: number } | null;
     listed: boolean;
   }> {
+    const email = ctx.listingEmail || "";
+    const phones = Array.from(
+      new Set(
+        [
+          localPhone(ctx.listingPhone || ""),
+          localPhone(ctx.secrets?.verifyPhone || ""),
+        ].filter(Boolean),
+      ),
+    );
+    const attempts: { phone: string; email: string }[] = [
+      ...phones.map((p) => ({ phone: p, email })),
+      { phone: "", email }, // last resort: e-mail only
+    ];
+    let listed = false;
+    for (const att of attempts) {
+      const r = await this.mojeInzeratyLookup(
+        page,
+        ctx,
+        title,
+        att.phone,
+        att.email,
+      );
+      listed = listed || r.listed;
+      if (r.match) return { match: r.match, listed: true };
+    }
+    return { match: null, listed };
+  }
+
+  /** One "Moje inzeráty" lookup with a specific phone + e-mail. */
+  private async mojeInzeratyLookup(
+    page: import("playwright").Page,
+    ctx: ProviderContext,
+    title: string,
+    phone: string,
+    email: string,
+  ): Promise<{
+    match: { url: string; id: string; views?: number } | null;
+    listed: boolean;
+  }> {
     await page
       .goto(`${this.baseUrl}/moje-inzeraty/`, { waitUntil: "domcontentloaded" })
       .catch(() => {});
     await this.dismissCookies(page, ctx);
-
-    // bazar.sk lists a guest's ads WITHOUT login: a "Telefón + E-mail" lookup
-    // form. The phone alone is enough. Tag the two inputs by their labels and
-    // fill them, then submit ("Hľadať").
-    const email = ctx.listingEmail || "";
-    const phone = localPhone(ctx.listingPhone || ctx.secrets?.verifyPhone || "");
     const tagInfo = await page
       .evaluate(() => {
         const vis = (i: HTMLInputElement) =>
