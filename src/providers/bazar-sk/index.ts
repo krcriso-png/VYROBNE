@@ -714,12 +714,14 @@ export class BazarSkProvider extends BrowserProvider {
     });
 
     // Match the ad by its TITLE (the ad's detail-link text) — fall back to the
-    // whole row text, then shared-word overlap. Only ACTIVE ads count as live.
+    // whole row text, then shared-word overlap. The "Moje inzeráty" list is
+    // already scoped to THIS user's phone + e-mail, so every returned ad is his;
+    // the "AKTÍVNY" flag is only used for logging, never to gate the match (its
+    // walk-up can miss on some layouts).
     const want = norm(title);
-    const activeAds = ads.filter((a) => a.active);
     let best: { url: string; id: string; views?: number } | null = null;
     let bestScore = 0;
-    for (const a of activeAds) {
+    for (const a of ads) {
       const hay = norm(`${a.title} ${a.rowText}`);
       const score = hay.includes(want) ? 1000 : wordOverlap(hay, want);
       if (score > bestScore) {
@@ -731,12 +733,11 @@ export class BazarSkProvider extends BrowserProvider {
         };
       }
     }
-    // Safe fallback: the "Moje inzeráty" lookup already matched on phone + e-mail,
-    // so every returned ad belongs to THIS user. If there's exactly one active ad
-    // we still couldn't title-match (e.g. an empty title link), accept it — it's
-    // unambiguously the user's ad on this contact.
-    if (!best && activeAds.length === 1) {
-      const a = activeAds[0];
+    // Safe fallback: exactly one ad is returned for this phone + e-mail, but the
+    // title didn't line up (e.g. an empty title link, or the row text didn't
+    // capture it). It's unambiguously the user's ad on this contact — accept it.
+    if (!best && ads.length === 1) {
+      const a = ads[0];
       bestScore = 1;
       best = {
         url: a.href || `${this.baseUrl}/inzerat/${a.id}`,
