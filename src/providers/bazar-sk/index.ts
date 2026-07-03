@@ -360,31 +360,58 @@ export class BazarSkProvider extends BrowserProvider {
         .locator("body")
         .innerText()
         .catch(() => "");
+
+      // Success = bazar.sk's step-3 confirmation ("Inzerát ste úspešne pridali"
+      // / "Váš inzerát je aktuálne na … pozícii"). The confirmation page is NOT
+      // the ad itself, so we take the ad URL from its "Zobraziť inzerát" link.
+      const success =
+        /inzer[áa]t\s+ste\b[^.]{0,25}pridal|[úu]spe[šs]ne\s+pridal|V[áa][šs]\s+inzer[áa]t\s+je\s+aktu[áa]lne/i.test(
+          text,
+        );
       const rejected =
         /(nebol|nebola|nepodaril)\w*\s+(prida|vlož|zverejn|ulož)/i.test(text) ||
-        /chyba|povinn[ée]\s+pole|nevyplnen/i.test(text);
+        /nevyplnen|povinn[ée]\s+pole/i.test(text);
 
-      const adLink = await page
-        .locator('a[href*="/inzerat/"]')
-        .first()
-        .getAttribute("href")
-        .catch(() => null);
+      // Resolve the real ad URL: the "Zobraziť inzerát" link, else any ad link.
+      let adHref: string | null = null;
+      for (const loc of [
+        page.getByRole("link", { name: /zobrazi[ťt]\s+inzer[áa]t/i }).first(),
+        page.locator('a:has-text("Zobraziť inzerát")').first(),
+        page.locator('a[href*="/inzerat/"]').first(),
+      ]) {
+        adHref = await loc.getAttribute("href").catch(() => null);
+        if (adHref) break;
+      }
       const urlIsAd = /\/inzerat\//.test(url);
+      const remoteUrl = adHref
+        ? absolute(adHref)
+        : urlIsAd
+          ? url
+          : "";
 
-      // Declare success ONLY with a real ad link — never on vague page text.
-      // If we didn't land on a real ad, it did NOT publish (e.g. the flow ended
-      // on the homepage / search), so report a clear error instead of lying.
-      const remoteUrl = urlIsAd ? url : adLink ? absolute(adLink) : "";
-      if (!remoteUrl || rejected) {
+      // Only fail if there's NO confirmation AND no ad URL — otherwise it's live.
+      if ((!success && !remoteUrl) || rejected) {
         const hint = text.replace(/\s+/g, " ").slice(0, 300);
         throw new Error(
-          `Bazar.sk: inzerát sa nepodarilo zverejniť (nedostali sme odkaz na inzerát; skončili sme na ${url}). ${hint}`,
+          `Bazar.sk: inzerát sa nepodarilo zverejniť (skončili sme na ${url}). ${hint}`,
         );
       }
-      const remoteId = extractAdId(remoteUrl);
+      // Fall back to a stable synthetic id only if bazar.sk didn't expose a URL
+      // (rare) — still a success, but delete/status will need the URL later.
+      const remoteId = remoteUrl
+        ? extractAdId(remoteUrl)
+        : `bazar-${Date.now()}`;
 
-      await ctx.log("Inzerát zverejnený na Bazar.sk ✅", { remoteId, remoteUrl });
-      return { remoteId, remoteUrl, session: await this.snapshot(context) };
+      await ctx.log("Inzerát zverejnený na Bazar.sk ✅", {
+        remoteId,
+        remoteUrl: remoteUrl || "(bez odkazu)",
+        success,
+      });
+      return {
+        remoteId,
+        remoteUrl: remoteUrl || url,
+        session: await this.snapshot(context),
+      };
     });
   }
 
@@ -1753,6 +1780,20 @@ export class BazarSkProvider extends BrowserProvider {
     page: import("playwright").Page,
     ctx: ProviderContext,
   ): Promise<void> {
+    // If we're already on the success/confirmation page, there's nothing to do
+    // (phone was verified before submit). Never misread the upsell page.
+    const donePage = await page
+      .locator("body")
+      .innerText()
+      .catch(() => "");
+    if (
+      /inzer[áa]t\s+ste\b[^.]{0,25}pridal|[úu]spe[šs]ne\s+pridal|V[áa][šs]\s+inzer[áa]t\s+je\s+aktu[áa]lne/i.test(
+        donePage,
+      )
+    ) {
+      return;
+    }
+
     // CRITICAL: if the ad form is still on the page, the submit did NOT go
     // through (e.g. a missing required field). The contact section literally
     // says "...slúži ako kontakt a pre zaslanie overovacieho kódu", so the word
