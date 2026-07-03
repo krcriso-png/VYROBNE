@@ -432,51 +432,94 @@ export class BazarSkProvider extends BrowserProvider {
   ): Promise<void> {
     await this.withContext(session, ctx, async (context) => {
       const page = await context.newPage();
+      // bazar.sk "Zmazať" fires a native confirm() dialog. Playwright AUTO-
+      // DISMISSES dialogs by default, which silently cancels the delete — so we
+      // must explicitly ACCEPT them.
+      page.on("dialog", (d) => {
+        d.accept().catch(() => {});
+      });
       await ctx.log("Mažem inzerát z Bazar.sk", { remoteId });
 
-      // 1) Locate the ad + its "Zmazať" link in Moje inzeráty (reliable).
-      let deleteHref = "";
-      if (ctx.listingTitle) {
-        const own = await this.resolveOwnAdUrl(page, ctx, ctx.listingTitle);
-        deleteHref = own.match?.deleteHref || "";
-        if (!own.match) {
-          await ctx.log(
-            "Bazar.sk: inzerát v Moje inzeráty nenájdený — možno už nie je online (overí sa kontrolou stavu).",
-          );
-          return;
-        }
+      if (!ctx.listingTitle) {
+        await ctx.log(
+          "Bazar.sk: chýba názov inzerátu — neviem bezpečne nájsť inzerát na zmazanie.",
+        );
+        return;
       }
 
-      // 2) Go to the delete action. Prefer the exact "Zmazať" link; otherwise
-      //    click the "Zmazať" text on the current Moje inzeráty page.
+      // 1) Find the ad in Moje inzeráty (this also LANDS the page on the list
+      //    showing exactly this ad, with the right phone).
+      const own = await this.resolveOwnAdUrl(page, ctx, ctx.listingTitle);
+      if (!own.match) {
+        await ctx.log(
+          "Bazar.sk: inzerát v Moje inzeráty nenájdený — možno už nie je online (overí sa kontrolou stavu).",
+        );
+        return;
+      }
+      const adId = own.match.id;
+
+      // 2) Diagnostics: dump the row's action controls (link OR button OR
+      //    onclick) so we can see exactly what "Zmazať" is if this fails.
+      const controls = await page
+        .evaluate(() => {
+          const out: {
+            tag: string;
+            text: string;
+            href: string;
+            onclick: boolean;
+          }[] = [];
+          for (const el of Array.from(
+            document.querySelectorAll<HTMLElement>("a, button, [onclick]"),
+          )) {
+            const text = (el.textContent || "")
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(0, 30);
+            const href = el.getAttribute("href") || "";
+            if (
+              !/zmaza|upravi|zv[ýy]hodni|odstr|vymaza/i.test(text) &&
+              !/zmaza|vymaz|odstr|delete|zrusit/i.test(href)
+            )
+              continue;
+            out.push({
+              tag: el.tagName.toLowerCase(),
+              text,
+              href,
+              onclick: !!el.getAttribute("onclick"),
+            });
+          }
+          return out.slice(0, 12);
+        })
+        .catch(() => [] as { tag: string; text: string; href: string; onclick: boolean }[]);
+      await ctx.log("Bazar.sk: akčné prvky riadku inzerátu", { adId, controls });
+
+      // 3) If the parser found a real delete link, follow it; otherwise click
+      //    the "Zmazať" control on the current page (dialog gets accepted).
+      const deleteHref = own.match.deleteHref || "";
       if (deleteHref) {
         await page
           .goto(deleteHref, { waitUntil: "domcontentloaded" })
           .catch(() => {});
       } else {
-        const delLink = page
-          .getByText(/(zmaza|odstr[aá]ni|vymaza)[tť]/i)
-          .first();
-        if (await delLink.count()) {
-          await delLink.click().catch(() => {});
-          await page.waitForLoadState("domcontentloaded").catch(() => {});
+        const del = page.getByText(/zmaza[tť]/i).first();
+        if (await del.count()) {
+          await del.click().catch(() => {});
         }
       }
+      await page.waitForTimeout(1400);
       await this.dismissCookies(page, ctx);
-      await page.waitForTimeout(800);
       await this.debugShot(page, ctx, "delete-open");
 
-      // 3) The confirmation page usually asks for the per-ad password.
+      // 4) A confirmation page/modal may ask for the per-ad password.
       const pass = ctx.secrets?.password || "";
       const passField = page.locator('input[type="password"]').first();
       if ((await passField.count()) && pass) {
         await passField.fill(pass).catch(() => {});
       }
 
-      // 4) Confirm the deletion.
+      // 5) Confirm the deletion (button/submit), if a confirm step exists.
       await this.clickButton(page, /zmaza|odstr[aá]ni|vymaza|potvrd/i);
-      await page.waitForLoadState("domcontentloaded").catch(() => {});
-      await page.waitForTimeout(1200);
+      await page.waitForTimeout(1400);
       await this.debugShot(page, ctx, "delete-done");
       await ctx.log("Pokus o zmazanie dokončený", {
         usedDeleteLink: !!deleteHref,
