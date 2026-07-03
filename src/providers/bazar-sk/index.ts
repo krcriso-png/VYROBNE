@@ -286,8 +286,63 @@ export class BazarSkProvider extends BrowserProvider {
       await this.checkTerms(page, ctx);
       await page.waitForTimeout(400);
 
-      // Submit — "DOKONČIŤ PRIDÁVANIE INZERÁTU".
-      await this.clickButton(page, /dokon[čc]i|prida[ťt]|odosla[ťt]|pokra[čc]ova/i);
+      // Submit — "DOKONČIŤ PRIDÁVANIE INZERÁTU". It's an <a>/<button> driven by
+      // JS (not a plain submit input), so target it by text (any tag), scroll to
+      // it and really click it; also submit the form directly as a backstop.
+      const submitted = await page
+        .evaluate(() => {
+          const re = /dokon[čc]i|dokonc|prida[ťt]\s+inzer/i;
+          const nodes = Array.from(
+            document.querySelectorAll<HTMLElement>(
+              'button, a, input[type="submit"], input[type="button"], [role="button"], span, div',
+            ),
+          );
+          let best: HTMLElement | null = null;
+          for (const el of nodes) {
+            const txt =
+              (el.textContent || "") + " " + ((el as HTMLInputElement).value || "");
+            if (!re.test(txt)) continue;
+            const r = el.getBoundingClientRect();
+            if (r.width < 6 || r.height < 6) continue;
+            if (
+              !best ||
+              el.querySelectorAll("*").length < best.querySelectorAll("*").length
+            )
+              best = el;
+          }
+          if (!best) return false;
+          const target =
+            (best.closest(
+              'button, a, input[type="submit"], [role="button"], [onclick]',
+            ) as HTMLElement | null) || best;
+          target.setAttribute("data-klikado-submit", "1");
+          return true;
+        })
+        .catch(() => false);
+      if (submitted) {
+        const btn = page.locator('[data-klikado-submit="1"]').first();
+        await btn.scrollIntoViewIfNeeded().catch(() => {});
+        await btn.click({ timeout: 8000 }).catch(() => {});
+        await ctx.log("Bazar.sk: klik na DOKONČIŤ PRIDÁVANIE INZERÁTU.");
+      } else {
+        await ctx.log("Bazar.sk: tlačidlo DOKONČIŤ som nenašiel — skúšam generický submit.");
+        await this.clickButton(page, /dokon[čc]i|prida[ťt]|odosla[ťt]|pokra[čc]ova/i);
+      }
+      // Backstop: if still on the form, submit the edit form directly via JS.
+      await page.waitForTimeout(1500);
+      if (await this.hasField(page, "Nadpis")) {
+        await page
+          .evaluate(() => {
+            const f = document.querySelector<HTMLFormElement>(
+              "form.edit-form, form.add, form",
+            );
+            if (f) {
+              if (typeof f.requestSubmit === "function") f.requestSubmit();
+              else f.submit();
+            }
+          })
+          .catch(() => {});
+      }
       await page.waitForLoadState("domcontentloaded").catch(() => {});
       await page.waitForTimeout(2500);
       await this.debugShot(page, ctx, "after-submit");
@@ -1710,29 +1765,61 @@ export class BazarSkProvider extends BrowserProvider {
       // and/or an inline .error message) so we know EXACTLY what's still missing.
       const invalid = await page
         .evaluate(() => {
-          const out: string[] = [];
+          const isVis = (el: HTMLElement) => {
+            const r = el.getBoundingClientRect();
+            return r.width > 2 && r.height > 2 && el.offsetParent !== null;
+          };
+          // bazar.sk's own status boxes: .error-box / .warning / .price-type-box.
+          // They carry a "hide" class until a problem is shown.
+          const boxes: string[] = [];
           for (const el of Array.from(
             document.querySelectorAll<HTMLElement>(
-              'form .error,[class*="error"],[class*="invalid"],[class*="red"],[class*="required-"],.msg-box:not(.hide)',
+              ".msg-box, .error-box, .alert, [class*='price-type']",
             ),
           )) {
-            if (el.closest("header,nav,footer")) continue;
-            const r = el.getBoundingClientRect();
-            if (r.width < 2 || r.height < 2) continue;
+            if (el.classList.contains("hide")) continue;
+            if (!isVis(el)) continue;
             const txt = (el.textContent || "").replace(/\s+/g, " ").trim();
-            const near =
-              el.closest("[class]")?.className?.toString().slice(0, 40) || "";
-            if (txt) out.push(`${near}: ${txt.slice(0, 60)}`);
+            if (txt) boxes.push(txt.slice(0, 120));
+          }
+          // Fields highlighted as invalid (skip the photo "Zmazať" link, which
+          // just uses a red class). Report the field's row label.
+          const fields: string[] = [];
+          for (const el of Array.from(
+            document.querySelectorAll<HTMLElement>(
+              "form .error, form [class*='invalid'], form [class*='is-error'], form [aria-invalid='true'], form .highlight, form .yellow",
+            ),
+          )) {
+            if (!isVis(el)) continue;
+            if (el.closest(".delete-photo, .photo, [class*='photo']")) continue;
+            const row = el.closest("tr,.row,.form-row,div");
+            const label = (row?.textContent || el.textContent || "")
+              .replace(/\s+/g, " ")
+              .trim();
+            if (label) fields.push(label.slice(0, 70));
           }
           const priceOpt = document.querySelector<HTMLSelectElement>(
             '[name="data[priceOptions]"]',
           );
+          // Any required <select> still on its placeholder value.
+          const emptySelects = Array.from(
+            document.querySelectorAll<HTMLSelectElement>("form select"),
+          )
+            .filter((s) => !s.value || s.value === "0")
+            .map((s) => s.getAttribute("name") || "?");
           return {
-            invalid: Array.from(new Set(out)).slice(0, 15),
+            statusBoxes: Array.from(new Set(boxes)).slice(0, 6),
+            invalidFields: Array.from(new Set(fields)).slice(0, 10),
             priceOptions: priceOpt ? priceOpt.value : "n/a",
+            emptySelects,
           };
         })
-        .catch(() => ({ invalid: [] as string[], priceOptions: "n/a" }));
+        .catch(() => ({
+          statusBoxes: [] as string[],
+          invalidFields: [] as string[],
+          priceOptions: "n/a",
+          emptySelects: [] as string[],
+        }));
       await ctx.log("Neodoslané – chybné polia", invalid);
       const t = (
         await page
