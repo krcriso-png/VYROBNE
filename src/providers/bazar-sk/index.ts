@@ -1495,60 +1495,91 @@ export class BazarSkProvider extends BrowserProvider {
       return;
     }
 
-    // Click "Poslať SMS kód".
-    const sendBtn = page
-      .locator(
-        'xpath=//*[self::button or self::a or self::input or self::span or self::div]' +
-          '[contains(normalize-space(.),"Poslať SMS") or contains(normalize-space(.),"SMS kód") or contains(@value,"SMS")]',
-      )
-      .filter({ visible: true })
-      .first();
-    let clickedSend = false;
-    if ((await sendBtn.count().catch(() => 0)) > 0) {
-      await sendBtn.click({ timeout: 6000 }).catch(() => {});
-      clickedSend = true;
+    // Click "Poslať SMS kód" — precisely on the real control (a button/link/
+    // input carrying that text), and also fire a JS click on its interactive
+    // ancestor in case the visible red button is a styled wrapper.
+    const clickedSend = await page
+      .evaluate(() => {
+        const wanted = /posla[ťt]\s+sms/i;
+        const nodes = Array.from(
+          document.querySelectorAll<HTMLElement>(
+            'button, a, input[type="button"], input[type="submit"], [role="button"], span, div',
+          ),
+        );
+        // Prefer the smallest element whose own text is the button label.
+        let best: HTMLElement | null = null;
+        for (const el of nodes) {
+          const txt = (el.textContent || "").replace(/\s+/g, " ").trim();
+          const val = (el as HTMLInputElement).value || "";
+          if (!wanted.test(txt) && !wanted.test(val)) continue;
+          const r = el.getBoundingClientRect();
+          if (r.width < 4 || r.height < 4) continue;
+          if (!best || el.querySelectorAll("*").length < best.querySelectorAll("*").length) {
+            best = el;
+          }
+        }
+        if (!best) return false;
+        const clickable =
+          (best.closest(
+            'button, a, input[type="button"], input[type="submit"], [role="button"], [onclick]',
+          ) as HTMLElement | null) || best;
+        clickable.setAttribute("data-klikado-smssend", "1");
+        clickable.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        return true;
+      })
+      .catch(() => false);
+    // Also do a real Playwright click on the tagged element (trusted event).
+    if (clickedSend) {
+      await page
+        .locator('[data-klikado-smssend="1"]')
+        .first()
+        .click({ timeout: 5000 })
+        .catch(() => {});
       await ctx.log("Bazar.sk: klik na 'Poslať SMS kód'.");
     } else {
       await ctx.log("Bazar.sk: tlačidlo 'Poslať SMS kód' som nenašiel.");
     }
-    await page.waitForTimeout(3000);
-    await this.debugShot(page, ctx, "sms-sent");
 
-    // Read what bazar.sk shows after the click so we NEVER ask the user for a
-    // code that was never actually sent. Look for a "code sent / enter code"
-    // state (or the appearance of a code input) vs. an error.
-    const state = await page
-      .evaluate(() => {
-        const isVis = (el: HTMLElement) => {
-          const r = el.getBoundingClientRect();
-          return r.width > 2 && r.height > 2 && el.offsetParent !== null;
-        };
-        const known = /title|content|param_|Agents|password|video|priceOptions/;
-        let codeInput = false;
-        for (const i of Array.from(
-          document.querySelectorAll<HTMLInputElement>("input"),
-        )) {
-          const ty = (i.type || "text").toLowerCase();
-          if (!["text", "tel", "number"].includes(ty)) continue;
-          if (!isVis(i)) continue;
-          if (known.test(i.getAttribute("name") || "")) continue;
-          if (i.value) continue;
-          codeInput = true;
-          break;
-        }
-        // Text of the phone-verification block (has an .s-shield style icon in
-        // the original markup); fall back to whole body.
-        const t = (document.body?.innerText || "").replace(/\s+/g, " ");
-        const snippet =
-          t.match(
-            /[^.]*?(SMS|overovac\w+ k[óo]d|k[óo]d sme|odoslali|zadajte k[óo]d|nepodarilo|chyb\w+|neplatn\w+|nespr[áa]vn\w+|po[čc]et pokusov|denn\w+ limit|zablokovan\w+)[^.]*\./gi,
-          )?.slice(0, 6) ?? [];
-        return { codeInput, snippet };
-      })
-      .catch(() => ({ codeInput: false, snippet: [] as string[] }));
+    // Poll up to ~10s for the code field / a "sent" confirmation to appear.
+    const readState = () =>
+      page
+        .evaluate(() => {
+          const isVis = (el: HTMLElement) => {
+            const r = el.getBoundingClientRect();
+            return r.width > 2 && r.height > 2 && el.offsetParent !== null;
+          };
+          const known = /title|content|param_|Agents|password|video|priceOptions/;
+          let codeInput = false;
+          for (const i of Array.from(
+            document.querySelectorAll<HTMLInputElement>("input"),
+          )) {
+            const ty = (i.type || "text").toLowerCase();
+            if (!["text", "tel", "number"].includes(ty)) continue;
+            if (!isVis(i)) continue;
+            if (known.test(i.getAttribute("name") || "")) continue;
+            if (i.value) continue;
+            codeInput = true;
+            break;
+          }
+          const t = (document.body?.innerText || "").replace(/\s+/g, " ");
+          const snippet =
+            t.match(
+              /[^.]*?(k[óo]d sme|sme odoslali|zadajte k[óo]d|zadaj\w* k[óo]d|opí[šs]te|nepodaril|chyb\w+|neplatn\w+|nespr[áa]vn\w+|po[čc]et pokusov|limit|zablokovan\w+|robot|overenie)[^.]*\./gi,
+            )?.slice(0, 6) ?? [];
+          return { codeInput, snippet, sent: /k[óo]d sme|sme odoslali|zadajte k[óo]d|opí[šs]te/i.test(t) };
+        })
+        .catch(() => ({ codeInput: false, snippet: [] as string[], sent: false }));
+
+    let state = await readState();
+    for (let i = 0; i < 5 && !state.codeInput && !state.sent; i++) {
+      await page.waitForTimeout(1600);
+      state = await readState();
+    }
+    await this.debugShot(page, ctx, "sms-sent");
     await ctx.log("Bazar.sk – stav po žiadosti o SMS", {
       clickedSend,
       codeInputVisible: state.codeInput,
+      sent: state.sent,
       hlásenia: state.snippet,
     });
 
@@ -1558,17 +1589,17 @@ export class BazarSkProvider extends BrowserProvider {
       );
     }
 
-    // If bazar.sk reported an error (or no code field ever appeared), the SMS
-    // was NOT sent — don't ask the user for a phantom code; surface the reason.
+    // A reported error → surface it. No code field AND no "sent" confirmation →
+    // the SMS did not go out; don't wait for a phantom code.
     const errorHit = state.snippet.find((s) =>
-      /nepodaril|chyb|neplatn|nespr[áa]vn|po[čc]et pokusov|limit|zablokovan/i.test(s),
+      /nepodaril|chyb|neplatn|nespr[áa]vn|po[čc]et pokusov|limit|zablokovan|robot/i.test(s),
     );
     if (errorHit) {
       throw new Error(`Bazar.sk: SMS kód sa nepodarilo odoslať – ${errorHit.trim()}`);
     }
-    if (!clickedSend && !state.codeInput) {
+    if (!state.codeInput && !state.sent) {
       throw new Error(
-        "Bazar.sk: nenašiel som tlačidlo na odoslanie SMS kódu ani políčko na jeho zadanie – pozri screenshot 'sms-sent'.",
+        "Bazar.sk: po kliknutí na 'Poslať SMS kód' sa neobjavilo políčko na kód ani potvrdenie o odoslaní – SMS pravdepodobne neodišla (Bazar.sk môže blokovať automatický prehliadač). Pozri screenshot 'sms-sent'.",
       );
     }
 

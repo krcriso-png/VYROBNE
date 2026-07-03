@@ -30,6 +30,11 @@ import { putObject } from "../lib/storage";
 const BLOCKED_RESOURCE_RE =
   /doubleclick\.net|googlesyndication|googletagservices|googletagmanager|google-analytics|analytics\.google|pagead2|pubmatic\.com|gemius|azet\.sk\/livemonitor|tracker\.azet|adservice|adsystem|amazon-adsystem|criteo|rubiconproject|adnxs|casalemedia|smartadserver|scorecardresearch|outbrain|taboola|hotjar|cookielaw|onetrust|facebook\.net|connect\.facebook|\/ads\/|adsafeprotected|moatads|teads|yieldlab|quantserve/i;
 
+// Portal-owned hosts whose requests must always go through (form/SMS AJAX,
+// login, image uploads). These override the ad-block list above.
+const FIRST_PARTY_RE =
+  /(^|\/\/|\.)(bazar\.sk|azet\.sk|aimg\.sk|unitedclassifieds\.sk|bazos\.sk|bazos\.cz|sbazar\.cz)(\/|:|$)/i;
+
 /** Default unsupported behaviour so partial providers still satisfy the type. */
 export abstract class BaseProvider implements Provider {
   abstract readonly key: string;
@@ -133,7 +138,9 @@ export abstract class BrowserProvider extends BaseProvider {
       await context
         .route("**/*", (route) => {
           const url = route.request().url();
-          if (BLOCKED_RESOURCE_RE.test(url)) {
+          // NEVER block the portal's own requests (e.g. bazar.sk's SMS-code /
+          // form AJAX). Only block clearly third-party ad/tracker hosts.
+          if (!FIRST_PARTY_RE.test(url) && BLOCKED_RESOURCE_RE.test(url)) {
             route.abort().catch(() => route.continue().catch(() => {}));
           } else {
             route.continue().catch(() => {});
