@@ -1503,20 +1503,75 @@ export class BazarSkProvider extends BrowserProvider {
       )
       .filter({ visible: true })
       .first();
+    let clickedSend = false;
     if ((await sendBtn.count().catch(() => 0)) > 0) {
       await sendBtn.click({ timeout: 6000 }).catch(() => {});
-      await ctx.log("Bazar.sk: požiadal som o SMS overovací kód.");
+      clickedSend = true;
+      await ctx.log("Bazar.sk: klik na 'Poslať SMS kód'.");
     } else {
       await ctx.log("Bazar.sk: tlačidlo 'Poslať SMS kód' som nenašiel.");
     }
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(3000);
     await this.debugShot(page, ctx, "sms-sent");
+
+    // Read what bazar.sk shows after the click so we NEVER ask the user for a
+    // code that was never actually sent. Look for a "code sent / enter code"
+    // state (or the appearance of a code input) vs. an error.
+    const state = await page
+      .evaluate(() => {
+        const isVis = (el: HTMLElement) => {
+          const r = el.getBoundingClientRect();
+          return r.width > 2 && r.height > 2 && el.offsetParent !== null;
+        };
+        const known = /title|content|param_|Agents|password|video|priceOptions/;
+        let codeInput = false;
+        for (const i of Array.from(
+          document.querySelectorAll<HTMLInputElement>("input"),
+        )) {
+          const ty = (i.type || "text").toLowerCase();
+          if (!["text", "tel", "number"].includes(ty)) continue;
+          if (!isVis(i)) continue;
+          if (known.test(i.getAttribute("name") || "")) continue;
+          if (i.value) continue;
+          codeInput = true;
+          break;
+        }
+        // Text of the phone-verification block (has an .s-shield style icon in
+        // the original markup); fall back to whole body.
+        const t = (document.body?.innerText || "").replace(/\s+/g, " ");
+        const snippet =
+          t.match(
+            /[^.]*?(SMS|overovac\w+ k[óo]d|k[óo]d sme|odoslali|zadajte k[óo]d|nepodarilo|chyb\w+|neplatn\w+|nespr[áa]vn\w+|po[čc]et pokusov|denn\w+ limit|zablokovan\w+)[^.]*\./gi,
+          )?.slice(0, 6) ?? [];
+        return { codeInput, snippet };
+      })
+      .catch(() => ({ codeInput: false, snippet: [] as string[] }));
+    await ctx.log("Bazar.sk – stav po žiadosti o SMS", {
+      clickedSend,
+      codeInputVisible: state.codeInput,
+      hlásenia: state.snippet,
+    });
 
     if (!ctx.requestUserInput) {
       throw new Error(
         "Bazar.sk vyžaduje overenie telefónu SMS kódom, ale interaktívne zadanie nie je dostupné.",
       );
     }
+
+    // If bazar.sk reported an error (or no code field ever appeared), the SMS
+    // was NOT sent — don't ask the user for a phantom code; surface the reason.
+    const errorHit = state.snippet.find((s) =>
+      /nepodaril|chyb|neplatn|nespr[áa]vn|po[čc]et pokusov|limit|zablokovan/i.test(s),
+    );
+    if (errorHit) {
+      throw new Error(`Bazar.sk: SMS kód sa nepodarilo odoslať – ${errorHit.trim()}`);
+    }
+    if (!clickedSend && !state.codeInput) {
+      throw new Error(
+        "Bazar.sk: nenašiel som tlačidlo na odoslanie SMS kódu ani políčko na jeho zadanie – pozri screenshot 'sms-sent'.",
+      );
+    }
+
     const phone = localPhone(ctx.secrets?.verifyPhone || "");
     const code = await ctx.requestUserInput(
       `Zadaj SMS overovací kód z Bazar.sk${phone ? " (prišiel na " + phone + ")" : ""}.`,
