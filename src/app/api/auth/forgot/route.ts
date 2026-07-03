@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { route, json } from "@/lib/api";
 import { forgotPasswordSchema } from "@/lib/validation";
 import { sendEmail, renderBrandedEmail } from "@/lib/email";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 
 // POST /api/auth/forgot — start a password reset.
 // Body: { email }. Always responds { ok: true } (never reveals whether the
@@ -10,6 +11,8 @@ import { sendEmail, renderBrandedEmail } from "@/lib/email";
 // reset link is e-mailed. Reset tokens live in the VerificationToken table
 // (unused otherwise, since we sign in with JWT sessions).
 export const POST = route(async (req: Request) => {
+  // Throttle per IP so the reset endpoint can't be used to spam inboxes.
+  rateLimit(`forgot:${clientIp(req)}`, 5, 15 * 60 * 1000);
   const { email: rawEmail } = forgotPasswordSchema.parse(await req.json());
   const email = rawEmail.toLowerCase().trim();
 

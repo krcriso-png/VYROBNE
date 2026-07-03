@@ -3,12 +3,16 @@ import { prisma } from "@/lib/db";
 import { route, json, HttpError } from "@/lib/api";
 import { registerSchema } from "@/lib/validation";
 import { normalizePhone } from "@/lib/phone";
+import { rateLimit, clientIp, honeypot } from "@/lib/rate-limit";
 
 // POST /api/register — email+password sign-up.
 // Creates the user, a FREE subscription, and (in a full deployment) sends an
 // email-verification token. OAuth sign-ups go through Auth.js instead.
 export const POST = route(async (req: Request) => {
+  // Throttle sign-ups per IP and drop obvious bots (honeypot) before any work.
+  rateLimit(`register:${clientIp(req)}`, 5, 10 * 60 * 1000);
   const body = await req.json();
+  honeypot((body as { company?: unknown })?.company);
   const parsed = registerSchema.parse(body);
   // Store emails lowercased so login matches regardless of capitalisation.
   const email = parsed.email.toLowerCase().trim();

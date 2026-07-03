@@ -13,6 +13,8 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  // Honeypot: hidden from humans; only bots that fill every field set it.
+  const [company, setCompany] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
@@ -30,7 +32,7 @@ export default function RegisterPage() {
     const res = await fetch("/api/register", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, password, name, phone }),
+      body: JSON.stringify({ email, password, name, phone, company }),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -76,6 +78,23 @@ export default function RegisterPage() {
           )}
 
           <form onSubmit={onSubmit} className={"space-y-4" + (googleEnabled ? "" : " mt-6")}>
+            {/* Honeypot — visually hidden, ignored by humans, tempts bots. */}
+            <input
+              type="text"
+              name="company"
+              tabIndex={-1}
+              autoComplete="off"
+              aria-hidden="true"
+              value={company}
+              onChange={(e) => setCompany(e.target.value)}
+              style={{
+                position: "absolute",
+                left: "-9999px",
+                width: 1,
+                height: 1,
+                opacity: 0,
+              }}
+            />
             <div className="space-y-1.5">
               <Label htmlFor="name">Meno</Label>
               <Input
