@@ -639,49 +639,59 @@ export class BazarSkProvider extends BrowserProvider {
     await this.dismissCookies(page, ctx);
     await this.debugShot(page, ctx, "moje-inzeraty");
 
-    // Parse the result rows. Each ad row shows "ID inzerátu: N", the title,
-    // "Počet zobrazení: Nx" and a status ("AKTÍVNY"/…).
+    // Parse the result rows. Anchor on each ad's DETAIL link (/inzerat/ID) — its
+    // text is the ad TITLE — then walk UP to the tight enclosing row to read
+    // "ID inzerátu / Počet zobrazení / AKTÍVNY". (Scanning by "ID inzerátu" text
+    // grabbed the whole results column, so the title never landed in rowText.)
     const ads = await page
       .evaluate(() => {
-        const out: {
+        type Ad = {
           id: string;
+          title: string;
           rowText: string;
           views?: number;
           active: boolean;
           href: string;
-        }[] = [];
-        const seen = new Set<string>();
-        for (const el of Array.from(
-          document.querySelectorAll<HTMLElement>(
-            "div, li, tr, article, section",
-          ),
+        };
+        const byId = new Map<string, Ad>();
+        for (const a of Array.from(
+          document.querySelectorAll<HTMLAnchorElement>('a[href*="/inzerat/"]'),
         )) {
-          const txt = (el.textContent || "").replace(/\s+/g, " ").trim();
-          // A single ad row contains EXACTLY one "ID inzerátu" (the whole list
-          // container has many — skip it).
-          const ids = txt.match(/ID\s*inzer[áa]tu[:\s]*[0-9]+/gi) || [];
-          if (ids.length !== 1) continue;
-          const id = (ids[0].match(/([0-9]+)/) || [])[1] || "";
-          if (!id || seen.has(id)) continue;
-          seen.add(id);
-          const vm = txt.match(/zobrazen[ ií]*[:\s]*([0-9]+)/i);
-          const active = /AKT[IÍ]VN/i.test(txt);
-          const adLink =
-            el.querySelector<HTMLAnchorElement>('a[href*="/inzerat/"]');
-          out.push({
+          const m = (a.getAttribute("href") || "").match(/\/inzerat\/([0-9]+)/);
+          if (!m) continue;
+          const id = m[1];
+          const title = (a.textContent || "").replace(/\s+/g, " ").trim();
+          // Climb to the nearest ancestor that carries the row metadata.
+          let row: HTMLElement = a;
+          for (let i = 0; i < 6 && row.parentElement; i++) {
+            row = row.parentElement;
+            if (
+              /ID\s*inzer[áa]tu|zobrazen|AKT[IÍ]VN/i.test(row.textContent || "")
+            )
+              break;
+          }
+          const rowText = (row.textContent || "").replace(/\s+/g, " ").trim();
+          const prev = byId.get(id);
+          // Prefer the entry that actually has a title (the title link) over a
+          // bare photo/thumbnail link to the same ad.
+          if (prev && prev.title && !title) continue;
+          const vm = rowText.match(/zobrazen[ ií]*[:\s]*([0-9]+)/i);
+          byId.set(id, {
             id,
-            rowText: txt.slice(0, 200),
+            title,
+            rowText: rowText.slice(0, 300),
             views: vm ? parseInt(vm[1], 10) : undefined,
-            active,
-            href: adLink?.href || "",
+            active: /AKT[IÍ]VN/i.test(rowText),
+            href: a.href,
           });
         }
-        return out;
+        return Array.from(byId.values());
       })
       .catch(
         () =>
           [] as {
             id: string;
+            title: string;
             rowText: string;
             views?: number;
             active: boolean;
@@ -699,20 +709,19 @@ export class BazarSkProvider extends BrowserProvider {
         .slice(0, 6)
         .map(
           (a) =>
-            `#${a.id} ${a.active ? "AKT" : "neakt"} ${a.views ?? "?"}x — ${a.rowText.slice(0, 40)}`,
+            `#${a.id} ${a.active ? "AKT" : "neakt"} ${a.views ?? "?"}x — ${(a.title || a.rowText).slice(0, 40)}`,
         ),
     });
 
-    // Match the ad by its TITLE appearing in the row text (whole normalized row
-    // contains the listing title). Prefer an exact substring match; fall back to
-    // shared-word overlap. Only ACTIVE ads count as live.
+    // Match the ad by its TITLE (the ad's detail-link text) — fall back to the
+    // whole row text, then shared-word overlap. Only ACTIVE ads count as live.
     const want = norm(title);
+    const activeAds = ads.filter((a) => a.active);
     let best: { url: string; id: string; views?: number } | null = null;
     let bestScore = 0;
-    for (const a of ads) {
-      if (!a.active) continue;
-      const row = norm(a.rowText);
-      const score = row.includes(want) ? 1000 : wordOverlap(row, want);
+    for (const a of activeAds) {
+      const hay = norm(`${a.title} ${a.rowText}`);
+      const score = hay.includes(want) ? 1000 : wordOverlap(hay, want);
       if (score > bestScore) {
         bestScore = score;
         best = {
@@ -721,6 +730,19 @@ export class BazarSkProvider extends BrowserProvider {
           views: a.views,
         };
       }
+    }
+    // Safe fallback: the "Moje inzeráty" lookup already matched on phone + e-mail,
+    // so every returned ad belongs to THIS user. If there's exactly one active ad
+    // we still couldn't title-match (e.g. an empty title link), accept it — it's
+    // unambiguously the user's ad on this contact.
+    if (!best && activeAds.length === 1) {
+      const a = activeAds[0];
+      bestScore = 1;
+      best = {
+        url: a.href || `${this.baseUrl}/inzerat/${a.id}`,
+        id: a.id,
+        views: a.views,
+      };
     }
     await ctx.log("Bazar.sk Moje inzeráty – najlepšia zhoda", {
       bestScore,
