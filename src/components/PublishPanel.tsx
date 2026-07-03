@@ -74,6 +74,9 @@ export function PublishPanel({
   });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  // "Už mám inzerát na portáli" (adopt an existing ad by URL).
+  const [adoptPortal, setAdoptPortal] = useState("");
+  const [adoptUrl, setAdoptUrl] = useState("");
 
   // Auto-refresh while anything is in flight (so WAITING_SMS / PUBLISHED appear
   // without a manual reload).
@@ -161,6 +164,29 @@ export function PublishPanel({
         ? "Mazanie zaradené — inzerát sa čoskoro odstráni z portálov."
         : (data.error ?? "Mazanie zlyhalo."),
     );
+    router.refresh();
+  }
+
+  async function adopt() {
+    if (!adoptPortal || !/^https?:\/\/.+/i.test(adoptUrl.trim())) {
+      setMessage("Vyber portál a vlož platný odkaz na inzerát (https://…).");
+      return;
+    }
+    setBusy(true);
+    setMessage(null);
+    const res = await fetch(`/api/listings/${listingId}/adopt`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ portalKey: adoptPortal, url: adoptUrl.trim() }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (res.ok) {
+      setAdoptUrl("");
+      setMessage("Inzerát priradený — overujem, či je online.");
+    } else {
+      setMessage(data.error ?? "Priradenie zlyhalo.");
+    }
     router.refresh();
   }
 
@@ -360,6 +386,46 @@ export function PublishPanel({
                   </Button>
                 )}
               </div>
+            )}
+
+            {/* Adopt an ad the user already posted on a portal (by URL). */}
+            {portals.length > 0 && (
+              <details className="rounded-lg border bg-muted/30 px-3 py-2 text-sm">
+                <summary className="cursor-pointer list-none font-medium text-muted-foreground">
+                  Už mám inzerát na portáli?
+                </summary>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Vlož odkaz na existujúci inzerát a Klikado ho prevezme pod
+                  správu (topovanie, kontrola stavu, mazanie).
+                </p>
+                <div className="mt-3 space-y-2">
+                  <select
+                    value={adoptPortal}
+                    onChange={(e) => setAdoptPortal(e.target.value)}
+                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                  >
+                    <option value="">Vyber portál…</option>
+                    {portals.map((p) => (
+                      <option key={p.key} value={p.key}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Input
+                    placeholder="https://…/inzerat/…"
+                    value={adoptUrl}
+                    onChange={(e) => setAdoptUrl(e.target.value)}
+                  />
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={adopt}
+                    disabled={busy}
+                  >
+                    Priradiť inzerát
+                  </Button>
+                </div>
+              </details>
             )}
           </div>
         </CardContent>

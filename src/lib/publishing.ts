@@ -117,6 +117,81 @@ export async function syncListing(
   }
 }
 
+/**
+ * Adopt an ad the user already posted on a portal (by URL) so Klikado manages
+ * it — used to recover ads posted outside the app, or ones whose link wasn't
+ * saved. Marks the publication PUBLISHED optimistically and enqueues a status
+ * check that confirms it's really live (and flips it to REMOVED if the URL is
+ * dead). The URL doubles as the remoteId for the direct-URL status check.
+ */
+export async function adoptListing(
+  userId: string,
+  listingId: string,
+  portalKey: string,
+  url: string,
+): Promise<void> {
+  await prisma.listing.findFirstOrThrow({ where: { id: listingId, userId } });
+  const portal = await prisma.portal.findFirst({
+    where: { key: portalKey, enabled: true },
+  });
+  if (!portal) throw new Error("Neznámy alebo vypnutý portál");
+
+  const clean = url.trim();
+  // The user may (optionally) have a saved account for this portal.
+  const account = await prisma.portalAccount.findUnique({
+    where: { userId_portalId: { userId, portalId: portal.id } },
+  });
+
+  const provider = getProvider(portal.key);
+  // Schedule the first auto-topovanie if this portal supports it and the listing
+  // has an interval set.
+  const l = await prisma.listing.findUnique({
+    where: { id: listingId },
+    select: { renewIntervalHours: true },
+  });
+  const nextRefreshAt =
+    provider.supportsRefresh && l?.renewIntervalHours
+      ? new Date(Date.now() + l.renewIntervalHours * 60 * 60 * 1000)
+      : null;
+
+  await prisma.publication.upsert({
+    where: { listingId_portalId: { listingId, portalId: portal.id } },
+    create: {
+      listingId,
+      portalId: portal.id,
+      portalAccountId: account?.id ?? null,
+      status: "PUBLISHED",
+      remoteId: clean,
+      remoteUrl: clean,
+      publishedAt: new Date(),
+      lastError: null,
+      statusNote: "Priradený existujúci inzerát — overujem stav…",
+      nextRefreshAt,
+    },
+    update: {
+      status: "PUBLISHED",
+      remoteId: clean,
+      remoteUrl: clean,
+      publishedAt: new Date(),
+      lastError: null,
+      statusNote: "Priradený existujúci inzerát — overujem stav…",
+    },
+  });
+
+  const pub = await prisma.publication.findUnique({
+    where: { listingId_portalId: { listingId, portalId: portal.id } },
+    select: { id: true },
+  });
+  if (pub) {
+    await enqueueTask("check_status", {
+      publicationId: pub.id,
+      userId,
+      listingId,
+      portalKey: portal.key,
+    });
+  }
+}
+
 /** Remove a listing from a single portal (or all when portalId is omitted). */
 export async function unpublishListing(
   userId: string,
