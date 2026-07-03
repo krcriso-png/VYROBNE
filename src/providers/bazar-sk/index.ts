@@ -98,17 +98,20 @@ export class BazarSkProvider extends BrowserProvider {
       await ctx.log("Vypĺňam formulár inzerátu na Bazar.sk");
       await this.logStructure(page, ctx);
 
-      // Title + description — fill by the real United Classifieds field names
-      // (data[title] / data[content]); fall back to the label if markup changes.
-      await this.fillByNameOrLabel(page, 'data[title]', "Nadpis", listing.title);
+      // Title + description. bazar.sk counts characters on real key events, so
+      // a plain value-set leaves its "Napísaných 0 znakov (min. 20)" counter at
+      // zero and rejects the ad — type them for real.
+      await this.typeReactive(
+        page,
+        page.locator('form [name="data[title]"]').first(),
+        listing.title,
+      );
       // Bazar.sk requires at least 20 characters of body text.
       const body = ensureMinLength(listing.description, listing.title, 20);
-      await this.fillByNameOrLabel(
+      await this.typeReactive(
         page,
-        'data[content]',
-        "Text",
+        page.locator('form [name="data[content]"]').first(),
         body,
-        "textarea",
       );
 
       // Price — the amount field is the form input with class "price"
@@ -117,7 +120,7 @@ export class BazarSkProvider extends BrowserProvider {
       if (listing.price != null) {
         const priceInput = page.locator("form input.price").first();
         if ((await priceInput.count().catch(() => 0)) > 0) {
-          await priceInput.fill(String(listing.price)).catch(() => {});
+          await this.typeReactive(page, priceInput, String(listing.price));
         } else {
           await this.fillLabeled(page, "Cena", String(listing.price));
         }
@@ -177,10 +180,9 @@ export class BazarSkProvider extends BrowserProvider {
         listing.contactName ||
         listing.email?.split("@")[0] ||
         "Inzerent";
-      await this.fillByNameOrLabel(
+      await this.typeReactive(
         page,
-        "data[Agents][agent][name]",
-        "Meno",
+        page.locator('form [name="data[Agents][agent][name]"]').first(),
         jmeno,
       );
       const phone = localPhone(ctx.secrets?.verifyPhone || listing.phone);
@@ -188,24 +190,23 @@ export class BazarSkProvider extends BrowserProvider {
       // input.email (their names are dynamic hashes). Phone carries the SMS
       // verification number, so it's the important one.
       if (phone) {
-        const phoneInput = page.locator("form input.phone").first();
-        if ((await phoneInput.count().catch(() => 0)) > 0) {
-          await phoneInput.fill(phone).catch(() => {});
-        } else {
-          await this.fillLabeled(page, "Telefón", phone);
-        }
+        await this.typeReactive(page, page.locator("form input.phone").first(), phone);
       }
       if (listing.email) {
-        const emailInput = page.locator("form input.email").first();
-        if ((await emailInput.count().catch(() => 0)) > 0) {
-          await emailInput.fill(listing.email).catch(() => {});
-        } else {
-          await this.fillLabeled(page, "E-mail", listing.email);
-        }
+        await this.typeReactive(
+          page,
+          page.locator("form input.email").first(),
+          listing.email,
+        );
       }
-      // Per-ad password (min 7 chars) — lets us edit/delete later.
+      // Per-ad password (min 7 chars). Its "Ešte min. 7 znakov" validator counts
+      // on key events, so type it for real.
       const adPass = sevenPlus(ctx.secrets?.password);
-      await this.fillByNameOrLabel(page, "data[password]", "Heslo", adPass);
+      await this.typeReactive(
+        page,
+        page.locator('form [name="data[password]"]').first(),
+        adPass,
+      );
 
       // Agree to the listing terms (required checkbox before "podmienkami inzercie").
       await this.checkTerms(page, ctx);
@@ -502,6 +503,37 @@ export class BazarSkProvider extends BrowserProvider {
         .count()
         .catch(() => 0)) > 0
     );
+  }
+
+  /**
+   * Fill a field the way bazar.sk's live validators/counters expect: real key
+   * events. A plain value-set (.fill) doesn't fire keyup, so its character
+   * counters stay at 0 and required-length checks fail ("Napísaných 0 znakov",
+   * "Ešte min. 7 znakov"). We clear it, type it, then nudge input/keyup/change.
+   */
+  private async typeReactive(
+    page: import("playwright").Page,
+    loc: import("playwright").Locator,
+    value: string,
+  ): Promise<boolean> {
+    if ((await loc.count().catch(() => 0)) === 0) return false;
+    await loc.scrollIntoViewIfNeeded().catch(() => {});
+    await loc.click({ timeout: 3000 }).catch(() => {});
+    await loc.fill("").catch(() => {});
+    let typed = true;
+    await loc.pressSequentially(value, { delay: 12 }).catch(() => {
+      typed = false;
+    });
+    if (!typed) await loc.fill(value).catch(() => {});
+    // Nudge any validator that listens for keyup/change/blur specifically.
+    await loc
+      .evaluate((el) => {
+        for (const t of ["input", "keyup", "keydown", "change", "blur"]) {
+          el.dispatchEvent(new Event(t, { bubbles: true }));
+        }
+      })
+      .catch(() => {});
+    return true;
   }
 
   /** Fill the input/textarea that follows a label caption (e.g. "Nadpis"). */
@@ -1341,45 +1373,63 @@ export class BazarSkProvider extends BrowserProvider {
     return true;
   }
 
-  /** Tick the "Súhlasím s podmienkami inzercie" checkbox. */
+  /**
+   * Tick the required "Súhlasím s podmienkami inzercie" checkbox
+   * (data[agreementChk]). A real click fires bazar.sk's own handler; a plain
+   * JS .checked=true left the box visually unchecked and the ad was rejected.
+   */
   private async checkTerms(
     page: import("playwright").Page,
     ctx: ProviderContext,
   ): Promise<void> {
-    const cb = page
-      .locator(
-        'xpath=//*[contains(normalize-space(.),"podmienkami inzercie")]/preceding::input[@type="checkbox"][1]',
-      )
-      .first();
-    const ensureChecked = async (
-      box: import("playwright").Locator,
-    ): Promise<boolean> => {
-      // The real checkbox is often hidden behind a styled label, so a plain
-      // check() can fail — try normal, forced, then set it directly via JS.
-      await box.check().catch(() => {});
-      if (await box.isChecked().catch(() => false)) return true;
-      await box.check({ force: true }).catch(() => {});
-      if (await box.isChecked().catch(() => false)) return true;
-      await box
-        .evaluate((el) => {
-          const i = el as HTMLInputElement;
-          i.checked = true;
-          i.dispatchEvent(new Event("change", { bubbles: true }));
-          i.dispatchEvent(new Event("click", { bubbles: true }));
-        })
-        .catch(() => {});
-      return box.isChecked().catch(() => false);
-    };
+    const box = page.locator('form input[name="data[agreementChk]"]').first();
+    const isOn = () => box.isChecked().catch(() => false);
+    let ok = false;
 
-    if (await cb.count().catch(() => 0)) {
-      const ok = await ensureChecked(cb);
-      await ctx.log(`Súhlas s podmienkami: ${ok ? "zaškrtnutý" : "NEzaškrtnutý"}`);
-      if (ok) return;
+    if ((await box.count().catch(() => 0)) > 0) {
+      const id = await box.getAttribute("id").catch(() => null);
+      // 1) A real click on the checkbox (fires the site's change handler).
+      await box.click({ timeout: 3000 }).catch(() => {});
+      ok = await isOn();
+      // 2) Click its <label for=id>.
+      if (!ok && id) {
+        await page
+          .locator(`label[for="${id}"]`)
+          .first()
+          .click({ timeout: 2500 })
+          .catch(() => {});
+        ok = await isOn();
+      }
+      // 3) Click the visible "Súhlasím … podmienkami" text.
+      if (!ok) {
+        await page
+          .locator(
+            'xpath=//*[contains(normalize-space(.),"hlas") and contains(normalize-space(.),"podmienkami")]',
+          )
+          .last()
+          .click({ timeout: 2500 })
+          .catch(() => {});
+        ok = await isOn();
+      }
+      // 4) Force-click, then a full JS event set as last resort.
+      if (!ok) {
+        await box.check({ force: true }).catch(() => {});
+        ok = await isOn();
+      }
+      if (!ok) {
+        await box
+          .evaluate((el) => {
+            const i = el as HTMLInputElement;
+            i.checked = true;
+            for (const t of ["click", "input", "change"]) {
+              i.dispatchEvent(new Event(t, { bubbles: true }));
+            }
+          })
+          .catch(() => {});
+        ok = await isOn();
+      }
     }
-    // Fallback: the last checkbox on the form is usually the terms box.
-    const all = page.locator('form input[type="checkbox"]');
-    const n = await all.count().catch(() => 0);
-    if (n > 0) await ensureChecked(all.nth(n - 1));
+    await ctx.log(`Súhlas s podmienkami: ${ok ? "zaškrtnutý" : "NEzaškrtnutý"}`);
   }
 
   /** Click a button/submit whose label matches a regex. */
