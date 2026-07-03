@@ -380,25 +380,65 @@ export async function runRefresh(data: BaseJobData): Promise<void> {
   const provider = getProvider(data.portalKey);
 
   if (provider.refreshStrategy === "repost") {
-    // "Topovať" = delete the old ad and publish a fresh one.
-    await ctx.log("Topujem inzerát (zmazať + nahrať znova)");
-    let deleteOk = true;
+    // "Topovať" = re-post for a fresh date. STRICT order (duplicate = ban risk):
+    //   1) check if the old ad still exists
+    //   2) if so, delete it
+    //   3) confirm it's really gone
+    //   4) only THEN publish the fresh ad
+    await ctx.log(
+      "Topujem inzerát: 1) skontrolujem existujúci → 2) zmažem → 3) overím, že je preč → 4) až potom publikujem.",
+    );
+
+    // Step 1 — is the old ad still online?
+    let stillLive = true;
+    let checkedBefore = false;
     try {
-      await provider.delete(pub.remoteId, session, ctx);
-    } catch (err) {
-      deleteOk = false;
-      await ctx.log("Mazanie pri topovaní zlyhalo: " + String(err));
+      const before = await provider.checkStatus(pub.remoteId, session, ctx);
+      checkedBefore = before.verified !== false;
+      stillLive = before.live;
+      await ctx.log(
+        `1) Existujúci inzerát: ${
+          stillLive
+            ? "je online → idem ho zmazať"
+            : checkedBefore
+              ? "už nie je online"
+              : "stav sa nepodarilo overiť"
+        }.`,
+      );
+    } catch {
+      await ctx.log(
+        "1) Stav existujúceho inzerátu sa nepodarilo overiť — pre istotu sa ho pokúsim zmazať.",
+      );
     }
 
-    // NEVER re-post unless we're confident the old ad is gone — a duplicate can
-    // get the portal account BANNED. Rule: still live → skip; confirmed removed
-    // → repost; couldn't verify → repost ONLY if the delete itself succeeded.
+    // Step 2 — delete it if it might still be there.
+    let deleteOk = true;
+    if (stillLive || !checkedBefore) {
+      try {
+        await provider.delete(pub.remoteId, session, ctx);
+        await ctx.log("2) Zmazanie pôvodného inzerátu odoslané.");
+      } catch (err) {
+        deleteOk = false;
+        await ctx.log("2) Mazanie pri topovaní zlyhalo: " + String(err));
+      }
+    } else {
+      await ctx.log("2) Netreba mazať — inzerát už nie je online.");
+    }
+
+    // Step 3 — CONFIRM the old ad is gone before re-posting. Still live → skip;
+    // confirmed removed → repost; couldn't verify → repost ONLY if the delete
+    // itself succeeded.
     let safeToRepost: boolean;
     try {
-      const check = await provider.checkStatus(pub.remoteId, session, ctx);
-      if (check.live) safeToRepost = false;
-      else if (check.verified) safeToRepost = true;
+      const after = await provider.checkStatus(pub.remoteId, session, ctx);
+      if (after.live) safeToRepost = false;
+      else if (after.verified) safeToRepost = true;
       else safeToRepost = deleteOk;
+      await ctx.log(
+        `3) Overenie po zmazaní: ${
+          after.live ? "STÁLE ONLINE — nepublikujem (ochrana pred duplikátom)" : "inzerát je preč ✅"
+        }.`,
+      );
     } catch {
       safeToRepost = deleteOk;
     }
@@ -426,6 +466,7 @@ export async function runRefresh(data: BaseJobData): Promise<void> {
       return;
     }
 
+    await ctx.log("4) Starý inzerát je preč — publikujem čerstvý inzerát.");
     const payload = await buildPayload(data.listingId);
     let result;
     try {

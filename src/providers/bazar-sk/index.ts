@@ -30,7 +30,11 @@ export class BazarSkProvider extends BrowserProvider {
   readonly key = "bazar-sk";
   readonly name = "Bazar.sk";
   readonly country = "SK";
-  readonly supportsRefresh = false;
+  // Topovať = delete the old ad, CONFIRM it's gone, then re-post (the worker's
+  // repost flow enforces that order so a duplicate can never get us banned).
+  // Re-posting reuses the saved verified session, so it won't re-ask for SMS.
+  readonly supportsRefresh = true;
+  readonly refreshStrategy = "repost" as const;
 
   protected baseUrl = BASE_URL;
 
