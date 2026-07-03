@@ -175,4 +175,12 @@ export interface Provider {
     session: ProviderSession,
     ctx: ProviderContext,
   ): Promise<StatusResult>;
+
+  /**
+   * "Canary": open the portal's add/list page and confirm its structure is
+   * intact (key selectors present), WITHOUT posting anything. Lets us detect a
+   * portal DOM change before customers hit a broken flow. Optional — providers
+   * that don't implement it are skipped by the monitor.
+   */
+  healthCheck?(ctx: ProviderContext): Promise<{ ok: boolean; detail: string }>;
 }

@@ -84,6 +84,38 @@ export class BazosSkProvider extends BrowserProvider {
     return this.myAdsPhonePrefix + d;
   }
 
+  // ---- healthCheck (canary) ---------------------------------------------
+  async healthCheck(
+    ctx: ProviderContext,
+  ): Promise<{ ok: boolean; detail: string }> {
+    return this.withContext(null, ctx, async (context) => {
+      const page = await context.newPage();
+      await page
+        .goto(`${this.baseUrl}/pridat-inzerat.php`, {
+          waitUntil: "domcontentloaded",
+        })
+        .catch(() => {});
+      await this.acceptCookies(page, ctx);
+      const title = await page
+        .locator('input[name="nadpis"]')
+        .count()
+        .catch(() => 0);
+      const rubriky = await page
+        .locator('select[name="rubriky"], .nadpis, form')
+        .count()
+        .catch(() => 0);
+      const body = await page.locator("body").innerText().catch(() => "");
+      const looksLikeAdd = /prida[ťt]\s+inzer[áa]t|nadpis|rubrik/i.test(body);
+      const ok = title > 0 || (rubriky > 0 && looksLikeAdd);
+      return {
+        ok,
+        detail: ok
+          ? `formulár OK (nadpis:${title})`
+          : `zmena formulára — nadpis:${title}, form/rubriky:${rubriky}`,
+      };
+    });
+  }
+
   async login(
     credentials: ProviderCredentials,
     ctx: ProviderContext,

@@ -618,6 +618,32 @@ export class BazarSkProvider extends BrowserProvider {
     return { match: bestScore > 0 ? best : null, listed };
   }
 
+  // ---- healthCheck (canary) ---------------------------------------------
+  async healthCheck(
+    ctx: ProviderContext,
+  ): Promise<{ ok: boolean; detail: string }> {
+    return this.withContext(null, ctx, async (context) => {
+      const page = await context.newPage();
+      await this.openAddFlow(page, ctx);
+      await this.dismissCookies(page, ctx);
+      const tiles = await page
+        .locator(".s-categories[data-cat-id]")
+        .count()
+        .catch(() => 0);
+      const whisperer = await page
+        .locator('input[name="input-category"]')
+        .count()
+        .catch(() => 0);
+      const ok = tiles >= 5 && whisperer > 0;
+      return {
+        ok,
+        detail: ok
+          ? `formulár OK (${tiles} kategórií)`
+          : `zmena formulára — kategórie: ${tiles}, napovedač: ${whisperer}`,
+      };
+    });
+  }
+
   // ---- helpers (instance) ------------------------------------------------
 
   /**
