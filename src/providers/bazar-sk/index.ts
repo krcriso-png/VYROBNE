@@ -845,40 +845,87 @@ export class BazarSkProvider extends BrowserProvider {
   }
 
   /**
-   * Check the first option of every required radio group that has none selected
-   * (Stav and category params like data[param_3]/data[param_4] render as radios,
-   * not selects). Without this the form is rejected for a missing parameter.
+   * Select the first option of every required radio group that has none chosen
+   * (Stav / "Typ" and other category params like data[param_3]/data[param_4]
+   * render as radios). bazar.sk uses STYLED radios whose real state is tracked
+   * by its own JS, so setting the native .checked isn't enough — we must click
+   * the visible label/control so the site registers the choice. Otherwise the
+   * form is rejected with "nevyplnené povinné údaje / Typ".
    */
   private async fillRequiredRadios(
     page: import("playwright").Page,
     ctx: ProviderContext,
   ): Promise<void> {
-    const done = await page
+    // Find, per group, the first radio's id/value so we can click its label.
+    const groups = await page
       .evaluate(() => {
-        const groups: Record<string, HTMLInputElement[]> = {};
+        const names: string[] = [];
+        const seen = new Set<string>();
         for (const el of Array.from(
           document.querySelectorAll<HTMLInputElement>('form input[type="radio"]'),
         )) {
           const n = el.name || "";
-          if (!n) continue;
-          (groups[n] = groups[n] || []).push(el);
+          if (!n || seen.has(n)) continue;
+          seen.add(n);
+          names.push(n);
         }
-        const out: string[] = [];
-        for (const n of Object.keys(groups)) {
-          const els = groups[n];
-          if (els.some((e) => e.checked)) continue;
+        const out: { name: string; id: string; checked: boolean }[] = [];
+        for (const n of names) {
+          const els = Array.from(
+            document.querySelectorAll<HTMLInputElement>(
+              `form input[type="radio"][name="${CSS.escape(n)}"]`,
+            ),
+          );
+          const anyChecked = els.some((e) => e.checked);
           const first = els[0];
-          if (!first) continue;
-          first.checked = true;
-          first.dispatchEvent(new Event("click", { bubbles: true }));
-          first.dispatchEvent(new Event("change", { bubbles: true }));
-          out.push(n);
+          out.push({
+            name: n,
+            id: first?.id || "",
+            checked: anyChecked,
+          });
         }
         return out;
       })
-      .catch(() => [] as string[]);
-    if (done.length) {
-      await ctx.log("Doplnené povinné prepínače (prvá možnosť)", { groups: done });
+      .catch(() => [] as { name: string; id: string; checked: boolean }[]);
+
+    const clicked: string[] = [];
+    for (const g of groups) {
+      if (g.checked) continue;
+      let ok = false;
+      // 1) Click the <label for=id> (styled radios are driven via the label).
+      if (g.id) {
+        const lbl = page.locator(`label[for="${g.id}"]`).first();
+        if ((await lbl.count().catch(() => 0)) > 0) {
+          await lbl.click({ timeout: 2500 }).catch(() => {});
+          ok = await page
+            .locator(`input[id="${g.id}"]`)
+            .isChecked()
+            .catch(() => false);
+        }
+      }
+      // 2) Force-click the radio itself.
+      if (!ok) {
+        const radio = page
+          .locator(`form input[type="radio"][name="${g.name}"]`)
+          .first();
+        await radio.click({ force: true, timeout: 2500 }).catch(() => {});
+        ok = await radio.isChecked().catch(() => false);
+        // 3) Last resort: set it via JS and fire events.
+        if (!ok) {
+          await radio
+            .evaluate((el) => {
+              const i = el as HTMLInputElement;
+              i.checked = true;
+              i.dispatchEvent(new Event("click", { bubbles: true }));
+              i.dispatchEvent(new Event("change", { bubbles: true }));
+            })
+            .catch(() => {});
+        }
+      }
+      clicked.push(`${g.name}${ok ? "✓" : ""}`);
+    }
+    if (clicked.length) {
+      await ctx.log("Povinné prepínače – kliknuté (prvá možnosť)", { clicked });
     }
   }
 
@@ -1381,6 +1428,34 @@ export class BazarSkProvider extends BrowserProvider {
     if (await this.hasField(page, "Nadpis")) {
       await this.debugShot(page, ctx, "submit-not-advanced");
       await this.logStructure(page, ctx);
+      // Pinpoint the fields bazar.sk marked invalid (it adds an error/red class
+      // and/or an inline .error message) so we know EXACTLY what's still missing.
+      const invalid = await page
+        .evaluate(() => {
+          const out: string[] = [];
+          for (const el of Array.from(
+            document.querySelectorAll<HTMLElement>(
+              'form .error,[class*="error"],[class*="invalid"],[class*="red"],[class*="required-"],.msg-box:not(.hide)',
+            ),
+          )) {
+            if (el.closest("header,nav,footer")) continue;
+            const r = el.getBoundingClientRect();
+            if (r.width < 2 || r.height < 2) continue;
+            const txt = (el.textContent || "").replace(/\s+/g, " ").trim();
+            const near =
+              el.closest("[class]")?.className?.toString().slice(0, 40) || "";
+            if (txt) out.push(`${near}: ${txt.slice(0, 60)}`);
+          }
+          const priceOpt = document.querySelector<HTMLSelectElement>(
+            '[name="data[priceOptions]"]',
+          );
+          return {
+            invalid: Array.from(new Set(out)).slice(0, 15),
+            priceOptions: priceOpt ? priceOpt.value : "n/a",
+          };
+        })
+        .catch(() => ({ invalid: [] as string[], priceOptions: "n/a" }));
+      await ctx.log("Neodoslané – chybné polia", invalid);
       const t = (
         await page
           .locator("body")
