@@ -192,17 +192,21 @@ export async function adoptListing(
   }
 }
 
-/** Remove a listing from a single portal (or all when portalId is omitted). */
+/**
+ * Remove a listing from a single portal (portalKey given) or from ALL portals
+ * (portalKey omitted). Only the portal ads are deleted — the listing itself
+ * stays in Klikado, so the user can re-publish it later.
+ */
 export async function unpublishListing(
   userId: string,
   listingId: string,
-  portalId?: string,
+  portalKey?: string,
 ): Promise<void> {
   const publications = await prisma.publication.findMany({
     where: {
       listingId,
       listing: { userId },
-      ...(portalId ? { portalId } : {}),
+      ...(portalKey ? { portal: { key: portalKey } } : {}),
       status: { notIn: ["REMOVED"] },
     },
     include: { portal: true },

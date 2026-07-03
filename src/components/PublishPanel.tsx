@@ -144,10 +144,16 @@ export function PublishPanel({
     router.refresh();
   }
 
-  async function unpublish() {
+  // Delete the ad from ONE portal (portalKey given) or from ALL portals where
+  // it's live (omit portalKey). Either way the listing STAYS in Klikado — only
+  // the portal ad(s) get removed, so it can be re-published anytime.
+  async function unpublish(portalKey?: string, portalName?: string) {
+    const scope = portalKey
+      ? `z portálu ${portalName ?? portalKey}`
+      : "zo VŠETKÝCH portálov, kde je zverejnený";
     if (
       !window.confirm(
-        "Naozaj zmazať inzerát zo všetkých portálov, kde je zverejnený? Túto akciu nemožno vrátiť.",
+        `Naozaj zmazať inzerát ${scope}? Inzerát ti zostane v Klikade — odstráni sa len z portálu a môžeš ho kedykoľvek znova publikovať.`,
       )
     ) {
       return;
@@ -156,12 +162,18 @@ export function PublishPanel({
     setMessage(null);
     const res = await fetch(`/api/listings/${listingId}/unpublish`, {
       method: "POST",
+      ...(portalKey
+        ? {
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ portalKey }),
+          }
+        : {}),
     });
     const data = await res.json().catch(() => ({}));
     setBusy(false);
     setMessage(
       res.ok
-        ? "Mazanie zaradené — inzerát sa čoskoro odstráni z portálov."
+        ? `Mazanie zaradené — inzerát sa čoskoro odstráni ${portalKey ? `z ${portalName ?? "portálu"}` : "z portálov"}. Ostáva ti v Klikade.`
         : (data.error ?? "Mazanie zlyhalo."),
     );
     router.refresh();
@@ -309,17 +321,30 @@ export function PublishPanel({
                     )}
                   </div>
                 </label>
-                {pub?.remoteUrl && pub.status === "PUBLISHED" && (
-                  <div className="border-t border-primary/10 px-3 py-2">
-                    <a
-                      href={pub.remoteUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                {pub?.status === "PUBLISHED" && (
+                  <div className="flex items-center justify-between gap-2 border-t border-primary/10 px-3 py-2">
+                    {pub.remoteUrl ? (
+                      <a
+                        href={pub.remoteUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                      >
+                        <ExternalLink className="size-3.5" /> Otvoriť inzerát
+                      </a>
+                    ) : (
+                      <span />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => unpublish(p.key, p.name)}
+                      disabled={busy}
+                      title={`Zmaže inzerát z ${p.name} (v Klikade ti zostane)`}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-destructive hover:underline disabled:opacity-50"
                     >
-                      <ExternalLink className="size-3.5" /> Otvoriť inzerát
-                    </a>
+                      <Trash2 className="size-3.5" /> Zmazať z portálu
+                    </button>
                   </div>
                 )}
                 {pub?.status === "ERROR" && (
@@ -378,11 +403,11 @@ export function PublishPanel({
                   <Button
                     className="col-span-2 w-full text-destructive hover:bg-destructive/10"
                     variant="outline"
-                    onClick={unpublish}
+                    onClick={() => unpublish()}
                     disabled={busy}
-                    title="Zmaže inzerát zo všetkých portálov, kde je zverejnený"
+                    title="Zmaže inzerát zo všetkých portálov naraz (v Klikade ti zostane)"
                   >
-                    <Trash2 className="size-4" /> Zmazať z portálov
+                    <Trash2 className="size-4" /> Zmazať zo všetkých portálov
                   </Button>
                 )}
               </div>
