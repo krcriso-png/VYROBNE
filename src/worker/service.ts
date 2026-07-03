@@ -24,6 +24,17 @@ import type { BaseJobData } from "../lib/queue/types";
 // ===========================================================================
 
 const HEADLESS = process.env.PLAYWRIGHT_HEADLESS !== "false";
+const SITE = (process.env.AUTH_URL ?? "https://klikado.sk").replace(/\/$/, "");
+
+/** Human-friendly portal name for e-mails/notifications. */
+function portalLabel(key: string): string {
+  const map: Record<string, string> = {
+    "bazos-sk": "Bazoš SK",
+    "bazos-cz": "Bazoš CZ",
+    "bazar-sk": "Bazar.sk",
+  };
+  return map[key] ?? key;
+}
 
 /** Build a logger/context scoped to this publication. */
 function buildContext(data: BaseJobData): ProviderContext {
@@ -63,6 +74,25 @@ async function waitForUserInput(
     portalKey: data.portalKey,
   });
 
+  // E-mail the customer that the ad is waiting on them — the portal requires a
+  // verification (SMS) code. Also happens during automatic re-postings, so the
+  // owner always knows an ad couldn't be completed without their input.
+  const portal = portalLabel(data.portalKey);
+  const listing = await prisma.listing
+    .findUnique({ where: { id: data.listingId }, select: { title: true } })
+    .catch(() => null);
+  const title = listing?.title ?? "inzerát";
+  await notifyUser(data.userId, {
+    title: `Inzerát čaká na overenie – ${portal}`,
+    body:
+      `Portál ${portal} žiada overenie telefónneho čísla, inak inzerát „${title}“ nezverejní.\n\n` +
+      `${prompt}\n\n` +
+      `Otvor Klikado a zadaj overovací kód. Ak ho nezadáš, inzerát sa nevybaví.`,
+    type: "PUBLISH_ERROR",
+    url: `${SITE}/listings/${data.listingId}`,
+    buttonLabel: "Zadať kód v Klikade",
+  }).catch(() => undefined);
+
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, pollMs));
@@ -78,6 +108,19 @@ async function waitForUserInput(
       return pub.smsCode.trim();
     }
   }
+
+  // Timed out with no code — tell the owner the ad wasn't completed so it isn't
+  // silently forgotten (especially for unattended automatic re-postings).
+  await notifyUser(data.userId, {
+    title: `Inzerát sa nevybavil – ${portal} žiada overenie`,
+    body:
+      `Inzerát „${title}“ sa na portáli ${portal} nezverejnil, pretože portál žiada overenie ` +
+      `telefónneho čísla (SMS kód) a ten nebol zadaný včas.\n\n` +
+      `Otvor Klikado a skús inzerát pridať znova – pri overovaní budeš mať pripravený telefón.`,
+    type: "PUBLISH_ERROR",
+    url: `${SITE}/listings/${data.listingId}`,
+    buttonLabel: "Otvoriť inzerát",
+  }).catch(() => undefined);
   return null;
 }
 
