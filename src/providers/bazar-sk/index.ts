@@ -493,37 +493,56 @@ export class BazarSkProvider extends BrowserProvider {
         .catch(() => [] as { tag: string; text: string; href: string; onclick: boolean }[]);
       await ctx.log("Bazar.sk: akčné prvky riadku inzerátu", { adId, controls });
 
-      // 3) If the parser found a real delete link, follow it; otherwise click
-      //    the "Zmazať" control on the current page (dialog gets accepted).
-      const deleteHref = own.match.deleteHref || "";
-      if (deleteHref) {
-        await page
-          .goto(deleteHref, { waitUntil: "domcontentloaded" })
-          .catch(() => {});
+      // 3) Click the row's "Zmazať" (NOT "Zmazať inzerát" — that's the modal's
+      //    confirm button). This opens the in-page modal "Zadajte heslo k
+      //    inzerátu".
+      const opener = page
+        .getByText(/zmaza[tť]/i)
+        .filter({ hasNotText: /inzer/i })
+        .first();
+      if (await opener.count()) {
+        await opener.click().catch(() => {});
       } else {
-        const del = page.getByText(/zmaza[tť]/i).first();
-        if (await del.count()) {
-          await del.click().catch(() => {});
-        }
+        await page
+          .getByText(/zmaza[tť]/i)
+          .first()
+          .click()
+          .catch(() => {});
       }
-      await page.waitForTimeout(1400);
-      await this.dismissCookies(page, ctx);
+      // Wait for the password modal to appear.
+      await page
+        .getByText(/heslo\s*k\s*inzer[áa]tu/i)
+        .first()
+        .waitFor({ timeout: 6000 })
+        .catch(() => {});
       await this.debugShot(page, ctx, "delete-open");
 
-      // 4) A confirmation page/modal may ask for the per-ad password.
+      // 4) Fill the per-ad password in the modal.
       const pass = ctx.secrets?.password || "";
-      const passField = page.locator('input[type="password"]').first();
+      const passField = page
+        .locator(
+          'input[type="password"]:visible, [role="dialog"] input:visible, .modal input:visible',
+        )
+        .first();
       if ((await passField.count()) && pass) {
         await passField.fill(pass).catch(() => {});
+      } else if (!pass) {
+        await ctx.log(
+          "Bazar.sk: chýba uložené heslo k inzerátu — bez neho sa nedá zmazať. Ulož ho v sekcii Portály.",
+        );
       }
 
-      // 5) Confirm the deletion (button/submit), if a confirm step exists.
-      await this.clickButton(page, /zmaza|odstr[aá]ni|vymaza|potvrd/i);
-      await page.waitForTimeout(1400);
+      // 5) Click the modal's blue "Zmazať inzerát" button to confirm.
+      const confirm = page.getByText(/zmaza[tť]\s*inzer[áa]t/i).first();
+      if (await confirm.count()) {
+        await confirm.click().catch(() => {});
+      } else {
+        await this.clickButton(page, /zmaza|odstr[aá]ni|vymaza|potvrd/i);
+      }
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      await page.waitForTimeout(1500);
       await this.debugShot(page, ctx, "delete-done");
-      await ctx.log("Pokus o zmazanie dokončený", {
-        usedDeleteLink: !!deleteHref,
-      });
+      await ctx.log("Pokus o zmazanie dokončený", { hadPassword: !!pass });
     });
   }
 
