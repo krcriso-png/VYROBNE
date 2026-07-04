@@ -123,7 +123,7 @@ export function PublishPanel({
     setBusy(false);
     setMessage(
       res.ok
-        ? `Topovanie zaradené (${data.queued ?? 0}). Inzerát sa zmaže a nahrá znova.`
+        ? `Topovanie zaradené na ${data.queued ?? 0} portáloch (1 kredit za portál). Inzerát sa zmaže a nahrá znova.`
         : (data.error ?? "Topovanie zlyhalo."),
     );
     router.refresh();
@@ -365,7 +365,7 @@ export function PublishPanel({
                     variant="outline"
                     onClick={topovat}
                     disabled={busy}
-                    title="Zmaže inzerát a nahrá ho znova (čerstvý dátum)"
+                    title="Zmaže inzerát a nahrá ho znova (čerstvý dátum) · 1 kredit za portál"
                   >
                     <RefreshCw className="size-4" /> Topovať
                   </Button>

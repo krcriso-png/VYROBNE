@@ -3,7 +3,7 @@
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Coins } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -220,6 +220,13 @@ export default function EditListingPage({
               <p className="text-xs text-muted-foreground">
                 Inzerát sa automaticky zmaže a nahrá znova, aby bol stále navrchu.
               </p>
+              {form.renewIntervalHours && (
+                <p className="flex items-start gap-1.5 rounded-md bg-primary/10 px-3 py-2 text-xs font-medium text-primary">
+                  <Coins className="mt-0.5 size-3.5 shrink-0" />
+                  Každé topovanie stojí 1 kredit za každý portál, na ktorom je
+                  inzerát zverejnený.
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>

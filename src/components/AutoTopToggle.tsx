@@ -21,6 +21,15 @@ export function AutoTopToggle({
   async function toggle() {
     if (busy) return;
     const next = !on;
+    // Make the cost explicit before turning it ON.
+    if (
+      next &&
+      !window.confirm(
+        "Automatické topovanie každých 24 h. Každé topovanie stojí 1 kredit za každý portál, na ktorom je inzerát zverejnený. Zapnúť?",
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     setOn(next); // optimistic
     const res = await fetch(`/api/listings/${listingId}`, {
@@ -41,7 +50,7 @@ export function AutoTopToggle({
       type="button"
       onClick={toggle}
       disabled={busy}
-      title="Automaticky topovať každých 24 hodín"
+      title="Automaticky topovať každých 24 h · 1 kredit za portál pri každom topovaní"
       className={cn(
         "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:opacity-50",
         on
