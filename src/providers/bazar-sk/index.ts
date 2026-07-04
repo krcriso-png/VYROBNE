@@ -516,7 +516,6 @@ export class BazarSkProvider extends BrowserProvider {
         }));
       await ctx.log("Bazar.sk: kandidáti na Zmazať", { adId, ...diag });
 
-      const modalText = page.getByText(/heslo\s*k\s*inzer[áa]tu/i).first();
       const pass = ctx.secrets?.password || "";
       if (!pass) {
         await ctx.log(
@@ -524,34 +523,52 @@ export class BazarSkProvider extends BrowserProvider {
         );
       }
 
-      // 3) Trigger the delete + dump the exact wiring in ONE in-page pass. A
-      //    Playwright/native click on the <span class="delete deleteAnonymItem">
-      //    wasn't firing bazar's handler, so we also dispatch a full mouse-event
-      //    sequence (pointer/mouse/click) which some handlers require — and we
-      //    report the modal's structure so we can target it precisely.
-      const wiring = await page
-        .evaluate(() => {
-          const out: Record<string, unknown> = {};
-          const del = document.querySelector<HTMLElement>(
-            '[data-klikado-del="1"]',
-          );
-          out.delHTML = del ? del.outerHTML.slice(0, 200) : null;
-          // These controls are jQuery-bound. The MOST reliable trigger is
-          // jQuery's own .trigger('click') (invokes bound handlers directly).
-          // Fall back to a full native mouse-event sequence.
-          const w = window as unknown as {
-            jQuery?: (el: Element) => { trigger: (e: string) => void; click: () => void };
-            $?: (el: Element) => { trigger: (e: string) => void; click: () => void };
-          };
-          out.hasJQuery = !!(w.jQuery || w.$);
-          if (del) {
+      // bazar.sk delete is a 3-step modal flow, and its controls are jQuery-bound
+      // <span>s that ignore plain synthetic clicks — jQuery's own .trigger('click')
+      // is what actually fires them. This helper fires jQuery + native events on
+      // the LAST visible element matching `pattern` (= the button in the modal
+      // that's currently open).
+      const fire = async (pattern: string) =>
+        page
+          .evaluate((p) => {
+            const re = new RegExp(p, "i");
+            const vis = (el: Element) => {
+              const h = el as HTMLElement;
+              return (
+                h.offsetParent !== null &&
+                getComputedStyle(h).visibility !== "hidden"
+              );
+            };
+            const els = Array.from(
+              document.querySelectorAll<HTMLElement>(
+                'button, a, [role=button], input[type=submit], .btn, span.clickable, [data-klikado-del="1"]',
+              ),
+            ).filter((el) => {
+              const t = (
+                el.textContent ||
+                (el as HTMLInputElement).value ||
+                ""
+              )
+                .replace(/\s+/g, " ")
+                .trim();
+              return re.test(t) && t.length < 40 && vis(el);
+            });
+            const el = els[els.length - 1];
+            if (!el) return false;
+            const w = window as unknown as {
+              jQuery?: (e: Element) => { trigger: (t: string) => void };
+              $?: (e: Element) => { trigger: (t: string) => void };
+            };
             const jq = w.jQuery || w.$;
-            if (jq) {
-              try {
-                jq(del).trigger("click");
-              } catch {
-                /* ignore */
-              }
+            try {
+              if (jq) jq(el).trigger("click");
+            } catch {
+              /* ignore */
+            }
+            try {
+              el.click();
+            } catch {
+              /* ignore */
             }
             for (const type of [
               "pointerdown",
@@ -560,7 +577,7 @@ export class BazarSkProvider extends BrowserProvider {
               "mouseup",
               "click",
             ]) {
-              del.dispatchEvent(
+              el.dispatchEvent(
                 new MouseEvent(type, {
                   bubbles: true,
                   cancelable: true,
@@ -568,99 +585,49 @@ export class BazarSkProvider extends BrowserProvider {
                 }),
               );
             }
-          }
-          // Describe the (possibly now-open) password modal.
-          let modal: HTMLElement | null = null;
-          for (const el of Array.from(
-            document.querySelectorAll<HTMLElement>("div, section, form"),
-          )) {
-            const t = el.textContent || "";
-            if (/heslo\s*k\s*inzer/i.test(t) && t.length < 400) {
-              modal = el;
-              break;
-            }
-          }
-          if (modal) {
-            out.modalTag = modal.tagName.toLowerCase();
-            out.modalCls = String(modal.className).slice(0, 60);
-            out.modalId = modal.id;
-            out.modalVisible = modal.offsetParent !== null;
-            out.modalInputs = Array.from(
-              modal.querySelectorAll("input"),
-            ).map((i) => `${i.name || i.id || "?"}:${i.type}`);
-            const form = modal.closest("form") || modal.querySelector("form");
-            out.formAction = form?.getAttribute("action") || null;
-            out.modalHTML = modal.outerHTML.slice(0, 500);
-          }
-          return out;
-        })
-        .catch(() => ({}) as Record<string, unknown>);
-      await ctx.log("Bazar.sk: delete wiring", wiring);
+            return true;
+          }, pattern)
+          .catch(() => false);
 
-      // If the modal still didn't open, read bazar's OWN delete code from its
-      // scripts to find the real endpoint/params — so we can call it directly.
-      if (!(await modalText.isVisible().catch(() => false))) {
-        const code = await page
-          .evaluate(async () => {
-            const w = window as unknown as Record<string, unknown>;
-            const globals = Object.keys(w).filter(
-              (k) =>
-                /delete|zmaz|anonym|inzer/i.test(k) &&
-                typeof w[k] === "function",
-            );
-            const snippets: { src: string; snip: string }[] = [];
-            const srcs = Array.from(document.scripts)
-              .map((s) => s.src)
-              .filter((s) => s && (s.includes("bazar.sk") || s.startsWith("/")));
-            for (const s of srcs.slice(0, 15)) {
-              try {
-                const txt = await (await fetch(s)).text();
-                const idx = txt.search(/deleteAnonym|zmazatInzerat|delAnonym/i);
-                if (idx >= 0) {
-                  snippets.push({
-                    src: s.slice(-50),
-                    snip: txt.slice(Math.max(0, idx - 80), idx + 500),
-                  });
-                }
-              } catch {
-                /* ignore */
-              }
-            }
-            return { globals: globals.slice(0, 30), snippets: snippets.slice(0, 3) };
-          })
-          .catch(() => ({ globals: [], snippets: [] }));
-        await ctx.log("Bazar.sk: delete code (z JS portálu)", code);
-      }
+      // STEP 1 — click the row "Zmazať" → opens the password modal.
+      await fire("^zmaza[tť]$");
+      const modalPw = page.getByText(/heslo\s*k\s*inzer[áa]tu/i).first();
+      await modalPw.waitFor({ state: "visible", timeout: 8000 }).catch(() => {});
+      await this.debugShot(page, ctx, "delete-1-password");
 
-      // Give the modal a moment to render, wait for it to be visible.
-      await page
-        .waitForTimeout(600)
-        .then(() =>
-          modalText.waitFor({ state: "visible", timeout: 5000 }).catch(() => {}),
-        );
-      await this.debugShot(page, ctx, "delete-open");
-
-      // 4) Fill the per-ad password (target the modal's visible input).
-      const passField = page
-        .locator('input[type="password"]:visible')
-        .first();
-      if ((await passField.count()) && pass) {
+      // STEP 2 — fill the per-ad password, then "Zmazať inzerát".
+      const passField = page.locator('input[type="password"]:visible').first();
+      const passFieldFound = (await passField.count()) > 0;
+      if (passFieldFound && pass) {
         await passField.fill(pass).catch(() => {});
       }
+      await fire("zmaza[tť]\\s*inzer[áa]t");
 
-      // 5) Confirm — click the modal's blue "Zmazať inzerát" button.
-      const confirm = page.getByText(/zmaza[tť]\s*inzer[áa]t/i).first();
-      if (await confirm.count()) {
-        await confirm.click({ force: true }).catch(() => {});
-      } else {
-        await this.clickButton(page, /zmaza|odstr[aá]ni|vymaza|potvrd/i);
-      }
-      await page.waitForLoadState("domcontentloaded").catch(() => {});
-      await page.waitForTimeout(1500);
-      await this.debugShot(page, ctx, "delete-done");
+      // STEP 3 — the "reason" modal (a reason is pre-selected: "Nechcem
+      // odpovedať"), so just confirm with its red "Zmazať inzerát".
+      const reasonModal = page
+        .getByText(/nepredal\s*som|nechcem\s*odpoveda|d[ôo]vod\w*\s*zmazan/i)
+        .first();
+      await reasonModal
+        .waitFor({ state: "visible", timeout: 8000 })
+        .catch(() => {});
+      await this.debugShot(page, ctx, "delete-2-reason");
+      await fire("zmaza[tť]\\s*inzer[áa]t");
+
+      // STEP 4 — success modal "Zmazanie inzerátu prebehlo úspešne."
+      const okModal = page
+        .getByText(/prebehlo\s*[úu]spe[šs]ne|[úu]spe[šs]ne\s*zmazan/i)
+        .first();
+      const successModal = await okModal
+        .waitFor({ state: "visible", timeout: 8000 })
+        .then(() => true)
+        .catch(() => false);
+      await page.waitForTimeout(800);
+      await this.debugShot(page, ctx, "delete-3-done");
       await ctx.log("Pokus o zmazanie dokončený", {
         hadPassword: !!pass,
-        modalOpened: await modalText.isVisible().catch(() => false),
+        passFieldFound,
+        successModal,
       });
     });
   }
