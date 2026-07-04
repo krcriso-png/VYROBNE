@@ -12,14 +12,12 @@ import { navItemsFor } from "./AppNav";
 export function MobileNav({
   isAdmin,
   supportUnread = 0,
-  adminAlert = 0,
   credits,
   userName,
   userEmail,
 }: {
   isAdmin: boolean;
   supportUnread?: number;
-  adminAlert?: number;
   credits: string;
   userName: string;
   userEmail: string;
@@ -51,8 +49,8 @@ export function MobileNav({
             className="relative grid size-9 place-items-center rounded-lg border"
           >
             <Menu className="size-5" />
-            {supportUnread + adminAlert > 0 && (
-              <span className="absolute -right-1 -top-1 size-3 animate-pulse rounded-full bg-destructive ring-2 ring-card" />
+            {supportUnread > 0 && (
+              <span className="absolute -right-1 -top-1 size-3 rounded-full bg-destructive ring-2 ring-card" />
             )}
           </button>
         </div>
@@ -83,11 +81,9 @@ export function MobileNav({
                   pathname === item.href ||
                   pathname.startsWith(item.href + "/");
                 const count =
-                  item.href === "/podpora"
+                  item.href === "/podpora" || item.href === "/admin"
                     ? supportUnread
-                    : item.href === "/admin"
-                      ? adminAlert + supportUnread
-                      : 0;
+                    : 0;
                 const badge = count > 0;
                 return (
                   <Link
@@ -106,7 +102,7 @@ export function MobileNav({
                     <item.icon className="size-4" />
                     <span className="flex-1">{item.label}</span>
                     {badge && (
-                      <span className="grid min-w-5 animate-pulse place-items-center rounded-full bg-destructive px-1.5 text-xs font-semibold text-destructive-foreground shadow-sm ring-2 ring-destructive/30">
+                      <span className="grid min-w-5 place-items-center rounded-full bg-destructive px-1.5 text-xs font-semibold text-destructive-foreground shadow-sm">
                         {count}
                       </span>
                     )}

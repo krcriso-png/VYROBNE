@@ -22,20 +22,17 @@ export default async function AppLayout({
 
   const credit = await getCreditState(session.user.id);
 
-  // Unread support messages drive the "Podpora" nav badge: for the admin, any
-  // thread with a new user message; for a user, their threads with a new reply.
+  // Unread support messages drive the red nav badge — the only thing that means
+  // "needs your action": for the admin, any thread with a new user message; for
+  // a user, their threads with a new reply. Publication errors are NOT counted
+  // here (they're an informational stat on the admin dashboard, not a to-do) so
+  // stale errors don't keep the menu blinking.
   const isAdmin = session.user.role === "ADMIN";
-  const [supportUnread, adminAlert] = await Promise.all([
-    prisma.supportThread.count({
-      where: isAdmin
-        ? { adminUnread: true }
-        : { userId: session.user.id, userUnread: true },
-    }),
-    // Failed publications light up the "Admin" item red (admin only).
-    isAdmin
-      ? prisma.publication.count({ where: { status: "ERROR" } })
-      : Promise.resolve(0),
-  ]);
+  const supportUnread = await prisma.supportThread.count({
+    where: isAdmin
+      ? { adminUnread: true }
+      : { userId: session.user.id, userUnread: true },
+  });
 
   return (
     <div className="flex min-h-screen bg-muted/30">
@@ -59,11 +56,7 @@ export default async function AppLayout({
           </span>
         </Link>
 
-        <AppNav
-          isAdmin={isAdmin}
-          supportUnread={supportUnread}
-          adminAlert={adminAlert}
-        />
+        <AppNav isAdmin={isAdmin} supportUnread={supportUnread} />
 
         <div className="mt-auto border-t pt-4">
           <Link
@@ -106,7 +99,6 @@ export default async function AppLayout({
         <MobileNav
           isAdmin={isAdmin}
           supportUnread={supportUnread}
-          adminAlert={adminAlert}
           credits={credit.unlimited ? "∞" : String(credit.credits)}
           userName={session.user.name ?? "Používateľ"}
           userEmail={session.user.email ?? ""}
