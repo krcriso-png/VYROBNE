@@ -525,9 +525,11 @@ export class BazarSkProvider extends BrowserProvider {
 
       // bazar.sk delete is a 3-step modal flow, and its controls are jQuery-bound
       // <span>s that ignore plain synthetic clicks — jQuery's own .trigger('click')
-      // is what actually fires them. This helper fires jQuery + native events on
-      // the LAST visible element matching `pattern` (= the button in the modal
-      // that's currently open).
+      // is what actually fires them. This helper fires a SINGLE activation on the
+      // LAST visible element matching `pattern` (= the button in the currently-open
+      // modal). It MUST be a single click: firing jQuery + native + a mouse
+      // sequence together submitted the delete multiple times (→ 3 confirmation
+      // e-mails). So: jQuery trigger if present, otherwise ONE native click.
       const fire = async (pattern: string) =>
         page
           .evaluate((p) => {
@@ -560,31 +562,16 @@ export class BazarSkProvider extends BrowserProvider {
               $?: (e: Element) => { trigger: (t: string) => void };
             };
             const jq = w.jQuery || w.$;
-            try {
-              if (jq) jq(el).trigger("click");
-            } catch {
-              /* ignore */
+            // ONE activation only.
+            if (jq) {
+              try {
+                jq(el).trigger("click");
+                return true;
+              } catch {
+                /* fall through to native */
+              }
             }
-            try {
-              el.click();
-            } catch {
-              /* ignore */
-            }
-            for (const type of [
-              "pointerdown",
-              "mousedown",
-              "pointerup",
-              "mouseup",
-              "click",
-            ]) {
-              el.dispatchEvent(
-                new MouseEvent(type, {
-                  bubbles: true,
-                  cancelable: true,
-                  view: window,
-                }),
-              );
-            }
+            el.click();
             return true;
           }, pattern)
           .catch(() => false);
