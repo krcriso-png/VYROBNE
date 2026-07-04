@@ -100,9 +100,11 @@ export function ListingsBrowser({ listings }: { listings: BrowserListing[] }) {
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="truncate font-medium">{l.title}</p>
-                      <Badge tone={st.tone}>{st.label}</Badge>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <p className="min-w-0 truncate font-medium">{l.title}</p>
+                      <Badge tone={st.tone} className="shrink-0">
+                        {st.label}
+                      </Badge>
                     </div>
                     <p className="mt-0.5 truncate text-sm text-muted-foreground">
                       {l.category} · {formatPrice(l.price, l.currency)}

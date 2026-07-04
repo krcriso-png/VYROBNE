@@ -99,7 +99,10 @@ export default async function AppLayout({
         </div>
       </aside>
 
-      <div className="flex-1">
+      {/* min-w-0 lets this flex column shrink to the viewport (a flex item
+          defaults to min-width:auto and would otherwise overflow on mobile);
+          overflow-x-hidden is a hard guard against any stray wide child. */}
+      <div className="w-full min-w-0 flex-1 overflow-x-hidden">
         <MobileNav
           isAdmin={isAdmin}
           supportUnread={supportUnread}
@@ -108,7 +111,7 @@ export default async function AppLayout({
           userName={session.user.name ?? "Používateľ"}
           userEmail={session.user.email ?? ""}
         />
-        <main className="mx-auto max-w-6xl animate-fade-in px-5 py-8 sm:px-8">
+        <main className="mx-auto max-w-6xl animate-fade-in px-4 py-8 sm:px-8">
           {children}
         </main>
       </div>
