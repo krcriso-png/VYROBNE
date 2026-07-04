@@ -597,6 +597,41 @@ export class BazarSkProvider extends BrowserProvider {
         .catch(() => ({}) as Record<string, unknown>);
       await ctx.log("Bazar.sk: delete wiring", wiring);
 
+      // If the modal still didn't open, read bazar's OWN delete code from its
+      // scripts to find the real endpoint/params — so we can call it directly.
+      if (!(await modalText.isVisible().catch(() => false))) {
+        const code = await page
+          .evaluate(async () => {
+            const w = window as unknown as Record<string, unknown>;
+            const globals = Object.keys(w).filter(
+              (k) =>
+                /delete|zmaz|anonym|inzer/i.test(k) &&
+                typeof w[k] === "function",
+            );
+            const snippets: { src: string; snip: string }[] = [];
+            const srcs = Array.from(document.scripts)
+              .map((s) => s.src)
+              .filter((s) => s && (s.includes("bazar.sk") || s.startsWith("/")));
+            for (const s of srcs.slice(0, 15)) {
+              try {
+                const txt = await (await fetch(s)).text();
+                const idx = txt.search(/deleteAnonym|zmazatInzerat|delAnonym/i);
+                if (idx >= 0) {
+                  snippets.push({
+                    src: s.slice(-50),
+                    snip: txt.slice(Math.max(0, idx - 80), idx + 500),
+                  });
+                }
+              } catch {
+                /* ignore */
+              }
+            }
+            return { globals: globals.slice(0, 30), snippets: snippets.slice(0, 3) };
+          })
+          .catch(() => ({ globals: [], snippets: [] }));
+        await ctx.log("Bazar.sk: delete code (z JS portálu)", code);
+      }
+
       // Give the modal a moment to render, wait for it to be visible.
       await page
         .waitForTimeout(600)
