@@ -244,7 +244,10 @@ async function setStatus(
 ) {
   await prisma.publication.update({
     where: { id: publicationId },
-    data: { status, ...extra },
+    // A status change describes the CURRENT state, so clear any stale note by
+    // default (e.g. an old "…nenachádza." must not linger under "Odstraňuje
+    // sa"). Callers that want a note pass it explicitly in `extra`.
+    data: { statusNote: null, status, ...extra },
   });
 }
 
