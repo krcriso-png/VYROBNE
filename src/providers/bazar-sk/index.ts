@@ -1394,54 +1394,96 @@ export class BazarSkProvider extends BrowserProvider {
       return hv.length > 0 || iv.length > 1;
     };
 
-    for (const cand of candidates.filter((c) => c && c.trim())) {
+    // Smart candidate list: full text, the city (before a comma/okres), and PSČ
+    // with/without a space — so at least one form triggers usable suggestions.
+    const expanded: string[] = [];
+    const addCand = (s: string | undefined) => {
+      const v = (s || "").replace(/\s+/g, " ").trim();
+      if (v && v.length >= 2 && !expanded.includes(v)) expanded.push(v);
+    };
+    for (const c of candidates) {
+      addCand(c);
+      addCand((c || "").split(/[,/(]/)[0]); // city part before "okres/," etc.
+    }
+    for (const c of candidates) {
+      const digits = (c || "").replace(/\D/g, "");
+      if (/^\d{5}$/.test(digits))
+        addCand(digits.replace(/(\d{3})(\d{2})/, "$1 $2"));
+    }
+    await ctx.log("Lokalita – kandidáti", { expanded });
+    if (expanded.length === 0) {
+      await ctx.log("Lokalita: inzerát nemá zadanú lokalitu ani PSČ.");
+      return;
+    }
+
+    for (const cand of expanded) {
       await input.click({ timeout: 3000 }).catch(() => {});
       await input.fill("").catch(() => {});
-      await input.pressSequentially(cand.trim(), { delay: 70 }).catch(() => {});
-      await page.waitForTimeout(1500);
-      await this.debugShot(page, ctx, "lokalita-typed");
+      await input.pressSequentially(cand, { delay: 90 }).catch(() => {});
 
-      // Prefer clicking a visible suggestion that appeared just below the input.
-      const picked = await page
-        .evaluate((q: string) => {
-          const norm = (s: string) =>
-            s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-          const vis = (el: HTMLElement) => {
-            const r = el.getBoundingClientRect();
-            return r.width > 2 && r.height > 2 && el.offsetParent !== null;
-          };
-          const inp = document.querySelector<HTMLElement>(
-            '[data-klikado-loc="1"]',
-          );
-          const ir = inp?.getBoundingClientRect();
-          if (!ir) return "";
-          const rows = Array.from(
-            document.querySelectorAll<HTMLElement>("li,a,div,span,p,td"),
-          ).filter((el) => {
-            if (!vis(el)) return false;
-            if (el.closest("header,nav,footer")) return false;
-            if (el.querySelector("input,textarea,select,form,ul,li"))
-              return false;
-            const r = el.getBoundingClientRect();
-            if (r.top < ir.bottom - 4 || r.top - ir.bottom > 340) return false;
-            if (Math.abs(r.left - ir.left) > 420) return false;
-            const t = (el.textContent || "").replace(/\s+/g, " ").trim();
-            return t.length >= 2 && t.length <= 60;
-          });
-          const nq = norm(q);
-          const best =
-            rows.find((el) => norm(el.textContent || "").includes(nq)) ??
-            rows[0];
-          if (best) {
-            best.setAttribute("data-klikado-locpick", "1");
-            return (best.textContent || "")
-              .replace(/\s+/g, " ")
-              .trim()
-              .slice(0, 50);
-          }
-          return "";
-        }, cand.trim())
-        .catch(() => "");
+      // Poll for the suggestion dropdown (AJAX latency) up to ~4 s, and DUMP the
+      // options seen so we can see the widget's structure from the log.
+      let picked = "";
+      let optionsSeen: string[] = [];
+      for (let tries = 0; tries < 8 && !picked; tries++) {
+        await page.waitForTimeout(500);
+        const res = await page
+          .evaluate((q: string) => {
+            const norm = (s: string) =>
+              s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+            const vis = (el: HTMLElement) => {
+              const r = el.getBoundingClientRect();
+              return r.width > 2 && r.height > 2 && el.offsetParent !== null;
+            };
+            const inp = document.querySelector<HTMLElement>(
+              '[data-klikado-loc="1"]',
+            );
+            const ir = inp?.getBoundingClientRect();
+            if (!ir) return { picked: "", options: [] as string[] };
+            const rows = Array.from(
+              document.querySelectorAll<HTMLElement>("li,a,div,span,p,td,tr"),
+            ).filter((el) => {
+              if (!vis(el)) return false;
+              if (el.closest("header,nav,footer")) return false;
+              if (el.querySelector("input,textarea,select,form")) return false;
+              if (el.querySelectorAll("*").length > 3) return false; // leaf-ish
+              const r = el.getBoundingClientRect();
+              if (r.top < ir.bottom - 6 || r.top - ir.bottom > 360) return false;
+              if (Math.abs(r.left - ir.left) > 460) return false;
+              const t = (el.textContent || "").replace(/\s+/g, " ").trim();
+              return (
+                t.length >= 2 &&
+                t.length <= 60 &&
+                /[a-záäčďéíĺľňóôŕšťúýž]/i.test(t)
+              );
+            });
+            const seen = new Set<string>();
+            const uniq = rows.filter((el) => {
+              const t = (el.textContent || "").replace(/\s+/g, " ").trim();
+              if (seen.has(t)) return false;
+              seen.add(t);
+              return true;
+            });
+            const nq = norm(q);
+            const best =
+              uniq.find((el) => norm(el.textContent || "").includes(nq)) ??
+              uniq[0];
+            if (best) best.setAttribute("data-klikado-locpick", "1");
+            return {
+              picked: best
+                ? (best.textContent || "").replace(/\s+/g, " ").trim().slice(0, 50)
+                : "",
+              options: uniq
+                .map((el) =>
+                  (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40),
+                )
+                .slice(0, 10),
+            };
+          }, cand)
+          .catch(() => ({ picked: "", options: [] as string[] }));
+        picked = res.picked;
+        optionsSeen = res.options;
+      }
 
       if (picked) {
         await page
@@ -1450,8 +1492,9 @@ export class BazarSkProvider extends BrowserProvider {
           .click({ timeout: 3000 })
           .catch(() => {});
         await page.waitForTimeout(800);
-      } else {
-        // Keyboard fallback: many autocompletes accept ArrowDown + Enter.
+      }
+      // Keyboard fallback if a click didn't stick (or no suggestion was found).
+      if (!(await filled())) {
         await input.press("ArrowDown").catch(() => {});
         await page.waitForTimeout(350);
         await input.press("Enter").catch(() => {});
@@ -1459,11 +1502,13 @@ export class BazarSkProvider extends BrowserProvider {
       }
       const ok = await filled();
       await ctx.log("Lokalita – pokus", {
-        cand: cand.trim(),
+        cand,
         picked: picked || "(klávesnica)",
+        options: optionsSeen,
         filled: ok,
       });
       if (ok) break;
+      await this.debugShot(page, ctx, "lokalita-typed");
     }
 
     await this.debugShot(page, ctx, "lokalita");
