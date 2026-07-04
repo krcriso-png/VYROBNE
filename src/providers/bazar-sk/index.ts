@@ -464,8 +464,15 @@ export class BazarSkProvider extends BrowserProvider {
       }
 
       // 1) Find the ad in Moje inzeráty (this also LANDS the page on the list
-      //    showing exactly this ad, with the right phone).
-      const own = await this.resolveOwnAdUrl(page, ctx, ctx.listingTitle);
+      //    showing exactly this ad). Match by the KNOWN ID so we never delete a
+      //    different, similarly-named ad of the user's.
+      const knownDelId = (remoteId.match(/(\d{5,})/) || [])[1] || undefined;
+      const own = await this.resolveOwnAdUrl(
+        page,
+        ctx,
+        ctx.listingTitle,
+        knownDelId,
+      );
       if (!own.match) {
         await ctx.log(
           "Bazar.sk: inzerát v Moje inzeráty nenájdený — možno už nie je online (overí sa kontrolou stavu).",
@@ -694,11 +701,17 @@ export class BazarSkProvider extends BrowserProvider {
     return this.withContext(session, ctx, async (context) => {
       const page = await context.newPage();
 
-      // PRIMARY — verify against bazar.sk "Moje inzeráty" by title, exactly like
-      // Bazoš: it's the source of truth for whether the ad is really live, and
-      // it back-fills the real ad URL even for ads added before we saved one.
-      if (ctx.listingTitle) {
-        const own = await this.resolveOwnAdUrl(page, ctx, ctx.listingTitle);
+      // PRIMARY — verify against bazar.sk "Moje inzeráty". If we already know the
+      // ad's ID, match by it (reliable with multiple similar ads); otherwise by
+      // title (adopts/heals ads added before we saved an id).
+      const knownId = (remoteId.match(/(\d{5,})/) || [])[1] || "";
+      if (ctx.listingTitle || knownId) {
+        const own = await this.resolveOwnAdUrl(
+          page,
+          ctx,
+          ctx.listingTitle || "",
+          knownId || undefined,
+        );
         if (own.match) {
           await ctx.log("Bazar.sk: inzerát potvrdený cez Moje inzeráty", {
             remoteId: own.match.id,
@@ -771,6 +784,7 @@ export class BazarSkProvider extends BrowserProvider {
     page: import("playwright").Page,
     ctx: ProviderContext,
     title: string,
+    knownId?: string,
   ): Promise<{
     match: {
       url: string;
@@ -801,6 +815,7 @@ export class BazarSkProvider extends BrowserProvider {
         title,
         att.phone,
         att.email,
+        knownId,
       );
       listed = listed || r.listed;
       if (r.match) return { match: r.match, listed: true };
@@ -815,6 +830,7 @@ export class BazarSkProvider extends BrowserProvider {
     title: string,
     phone: string,
     email: string,
+    knownId?: string,
   ): Promise<{
     match: {
       url: string;
@@ -976,6 +992,34 @@ export class BazarSkProvider extends BrowserProvider {
             `#${a.id} ${a.active ? "AKT" : "neakt"} ${a.views ?? "?"}x — ${(a.title || a.rowText).slice(0, 40)}`,
         ),
     });
+
+    // If we already KNOW the ad's ID (from publishing/adopting), match by it
+    // EXACTLY — the only reliable signal when the user has several similar ads.
+    // Never let title similarity pick a DIFFERENT ad (that pointed the saved
+    // link at the wrong ad). If the known ID isn't in this list, do NOT fall back
+    // to a title guess for this attempt.
+    if (knownId) {
+      const exact = ads.find((a) => a.id === knownId);
+      if (exact) {
+        await ctx.log("Bazar.sk Moje inzeráty – zhoda podľa ID", {
+          id: knownId,
+        });
+        return {
+          match: {
+            url: exact.href || `${this.baseUrl}/inzerat/${exact.id}`,
+            id: exact.id,
+            views: exact.views,
+            deleteHref: exact.deleteHref || undefined,
+          },
+          listed,
+        };
+      }
+      await ctx.log("Bazar.sk Moje inzeráty – ID sa v zozname nenašlo", {
+        knownId,
+        count: ads.length,
+      });
+      return { match: null, listed };
+    }
 
     // Match the ad by its TITLE (the ad's detail-link text) — fall back to the
     // whole row text, then shared-word overlap. The "Moje inzeráty" list is

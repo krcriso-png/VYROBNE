@@ -568,6 +568,7 @@ export class BazosSkProvider extends BrowserProvider {
     page: import("playwright").Page,
     ctx: ProviderContext,
     title: string,
+    knownId?: string,
   ): Promise<{ id: string; url: string; views?: number } | null> {
     try {
       await page
@@ -660,6 +661,24 @@ export class BazosSkProvider extends BrowserProvider {
           .map((l) => `${l.text.slice(0, 45)} (${l.views ?? "?"}x) => ${l.href}`),
       });
       if (!links.length) return null;
+
+      // If we already KNOW the ad's ID, match by it EXACTLY — reliable even when
+      // the user has several similar ads. Never let title similarity point the
+      // saved link at a DIFFERENT ad. If the known ID isn't listed, don't guess.
+      if (knownId) {
+        const byId = links.find((l) =>
+          new RegExp(`/inzerat/${knownId}(?:/|\\b)`).test(l.href),
+        );
+        if (byId) {
+          await ctx.log(`Moje inzeráty – zhoda podľa ID → ${byId.href}`);
+          return { id: knownId, url: byId.href, views: byId.views };
+        }
+        await ctx.log("Moje inzeráty – ID sa v zozname nenašlo", {
+          knownId,
+          adLinks: links.length,
+        });
+        return null;
+      }
 
       const w = norm(title);
       let best: { text: string; href: string; views?: number } | null = null;
@@ -985,8 +1004,14 @@ export class BazosSkProvider extends BrowserProvider {
       // PRIMARY — verify against "Moje inzeráty" by title. This is the source
       // of truth: it confirms liveness, gives the real ad URL, AND the view
       // count (from the "Zobrazenie" column), and survives re-posts.
-      if (ctx.listingTitle) {
-        const own = await this.resolveOwnAdUrl(page, ctx, ctx.listingTitle);
+      const knownId = (remoteId.match(/\/inzerat\/(\d+)/) || remoteId.match(/(\d{5,})/) || [])[1] || "";
+      if (ctx.listingTitle || knownId) {
+        const own = await this.resolveOwnAdUrl(
+          page,
+          ctx,
+          ctx.listingTitle || "",
+          knownId || undefined,
+        );
         if (own) {
           // The list row's "N x" column is unreliable across layouts. Open the
           // ad's detail page (which always prints the view count in a fixed
