@@ -474,27 +474,46 @@ export class BazarSkProvider extends BrowserProvider {
           });
           const hits: ReturnType<typeof describe>[] = [];
           let delEl: Element | null = null;
+          let delScore = 0;
           for (const el of Array.from(
             document.querySelectorAll("a, button, span, div, li, i"),
           )) {
             const t = (el.textContent || "").replace(/\s+/g, " ").trim();
+            const cls = String((el as HTMLElement).className || "");
             const meta = `${t} ${el.getAttribute("title") || ""} ${
               el.getAttribute("aria-label") || ""
             }`;
             if (!/zmaza[tť]|upravi|zv[ýy]hodni/i.test(meta)) continue;
             if (t.length > 40) continue; // skip big containers, keep leaf controls
             hits.push(describe(el));
-            // The delete control: mentions "Zmazať" but NOT "inzerát" (that's the
-            // modal's confirm button). First in document order = the outer <a>/
-            // control wrapping the label.
-            if (/zmaza[tť]/i.test(meta) && !/inzer/i.test(meta) && !delEl) {
-              delEl = el;
+            // The delete control mentions "Zmazať" but NOT "inzerát" (that's the
+            // modal's confirm button). Pick the LEAF: exact "Zmazať" text and/or
+            // a delete-ish class — NOT the "Upraviť Zmazať Zvýhodniť" container.
+            if (/zmaza[tť]/i.test(meta) && !/inzer/i.test(meta)) {
+              const score =
+                (/^zmaza[tť]$/i.test(t) ? 2 : 0) +
+                (/delete|zmaz/i.test(cls) ? 3 : 0);
+              if (score > delScore) {
+                delScore = score;
+                delEl = el;
+              }
             }
           }
           if (delEl) delEl.setAttribute("data-klikado-del", "1");
-          return { hits: hits.slice(0, 15), tagged: !!delEl };
+          return { hits: hits.slice(0, 15), tagged: !!delEl, delScore };
         })
-        .catch(() => ({ hits: [], tagged: false }));
+        .catch(() => ({
+          hits: [] as {
+            tag: string;
+            cls: string;
+            href: string;
+            title: string;
+            aria: string;
+            text: string;
+          }[],
+          tagged: false,
+          delScore: 0,
+        }));
       await ctx.log("Bazar.sk: kandidáti na Zmazať", { adId, ...diag });
 
       // 3) Click the tagged "Zmazať" control → opens the modal "Zadajte heslo k
