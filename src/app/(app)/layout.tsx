@@ -22,17 +22,22 @@ export default async function AppLayout({
 
   const credit = await getCreditState(session.user.id);
 
-  // Unread support messages drive the red nav badge — the only thing that means
-  // "needs your action": for the admin, any thread with a new user message; for
-  // a user, their threads with a new reply. Publication errors are NOT counted
-  // here (they're an informational stat on the admin dashboard, not a to-do) so
-  // stale errors don't keep the menu blinking.
+  // Red nav badge = things that need action. For a user: their threads with a
+  // new reply. For the admin: support threads with a new message PLUS failed
+  // publications (so real problems — tickets AND auto publish errors — blink).
+  // These are clearable (reply to the ticket / resolve the error), so once
+  // everything is handled the badge disappears.
   const isAdmin = session.user.role === "ADMIN";
-  const supportUnread = await prisma.supportThread.count({
-    where: isAdmin
-      ? { adminUnread: true }
-      : { userId: session.user.id, userUnread: true },
-  });
+  const [supportUnread, adminAlert] = await Promise.all([
+    prisma.supportThread.count({
+      where: isAdmin
+        ? { adminUnread: true }
+        : { userId: session.user.id, userUnread: true },
+    }),
+    isAdmin
+      ? prisma.publication.count({ where: { status: "ERROR" } })
+      : Promise.resolve(0),
+  ]);
 
   return (
     <div className="flex min-h-screen bg-muted/30">
@@ -56,7 +61,11 @@ export default async function AppLayout({
           </span>
         </Link>
 
-        <AppNav isAdmin={isAdmin} supportUnread={supportUnread} />
+        <AppNav
+          isAdmin={isAdmin}
+          supportUnread={supportUnread}
+          adminAlert={adminAlert}
+        />
 
         <div className="mt-auto border-t pt-4">
           <Link
@@ -99,6 +108,7 @@ export default async function AppLayout({
         <MobileNav
           isAdmin={isAdmin}
           supportUnread={supportUnread}
+          adminAlert={adminAlert}
           credits={credit.unlimited ? "∞" : String(credit.credits)}
           userName={session.user.name ?? "Používateľ"}
           userEmail={session.user.email ?? ""}

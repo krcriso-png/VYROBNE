@@ -89,7 +89,12 @@ function Incident({ incident }: { incident: IncidentDTO }) {
   }
 
   async function remove() {
-    if (!window.confirm("Vymazať tento záznam o chybe?")) return;
+    if (
+      !window.confirm(
+        "Označiť chybu ako vyriešenú? Zmizne z upozornení a z počítadla. Inzerát zostáva — môžeš ho kedykoľvek znova publikovať.",
+      )
+    )
+      return;
     setBusy(true);
     await fetch("/api/admin/incidents", {
       method: "DELETE",
@@ -178,7 +183,7 @@ function Incident({ incident }: { incident: IncidentDTO }) {
               className="text-muted-foreground hover:text-destructive"
               title="Vymazať tento záznam"
             >
-              <Trash2 className="size-4" /> Vymazať
+              <Trash2 className="size-4" /> Vyriešiť
             </Button>
           </div>
 

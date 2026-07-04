@@ -11,12 +11,29 @@ import type { IncidentDTO } from "@/components/AdminIncidents";
 // ===========================================================================
 
 export async function loadIncidents(): Promise<IncidentDTO[]> {
-  const [portals, errorLogs] = await Promise.all([
+  const [portals, errorLogs, errorPubs] = await Promise.all([
     prisma.portal.findMany({ select: { key: true, name: true } }),
     prisma.activityLog.findMany({
       where: { level: "ERROR", listingId: { not: null } },
       orderBy: { createdAt: "desc" },
       take: 150,
+    }),
+    // Every currently-ERROR publication — so the incident list matches the
+    // "Chyby publikácií" count and each one is clearable (nothing stuck).
+    prisma.publication.findMany({
+      where: { status: "ERROR" },
+      orderBy: { updatedAt: "desc" },
+      take: 50,
+      select: {
+        id: true,
+        listingId: true,
+        lastError: true,
+        updatedAt: true,
+        portal: { select: { key: true, name: true } },
+        listing: {
+          select: { id: true, title: true, user: { select: { email: true } } },
+        },
+      },
     }),
   ]);
 
@@ -72,7 +89,7 @@ export async function loadIncidents(): Promise<IncidentDTO[]> {
       : undefined;
   };
 
-  return distinct.map((l) => {
+  const fromLogs: IncidentDTO[] = distinct.map((l) => {
     const listing = listings.find((x) => x.id === l.listingId);
     const pub = pubs.find(
       (p) => p.listingId === l.listingId && p.portal.key === l.portalKey,
@@ -90,4 +107,25 @@ export async function loadIncidents(): Promise<IncidentDTO[]> {
       createdAt: l.createdAt.toISOString(),
     };
   });
+
+  // Append any currently-ERROR publication that the logs didn't already surface,
+  // so the incident list covers every counted error and each can be resolved.
+  const seenKeys = new Set(
+    fromLogs.map((i) => `${i.listingId}|${i.portalKey ?? ""}`),
+  );
+  const fromPubs: IncidentDTO[] = errorPubs
+    .filter((p) => !seenKeys.has(`${p.listingId}|${p.portal.key}`))
+    .map((p) => ({
+      id: p.id,
+      listingId: p.listingId,
+      portalKey: p.portal.key,
+      listingTitle: p.listing.title,
+      userEmail: p.listing.user.email ?? "—",
+      portalName: p.portal.name,
+      error: classifyError(p.lastError).message,
+      status: "ERROR",
+      createdAt: p.updatedAt.toISOString(),
+    }));
+
+  return [...fromLogs, ...fromPubs];
 }
