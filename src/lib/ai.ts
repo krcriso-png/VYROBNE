@@ -5,11 +5,13 @@ import Anthropic from "@anthropic-ai/sdk";
 //
 // Turns a photo and/or a short hint into a ready-to-publish classified ad:
 // a catchy title, a structured Slovak description, and a rough price estimate.
-// Uses the latest Claude model with vision + structured JSON output so the
-// result drops straight into the listing form.
+// Uses the fast, low-cost Haiku model with vision + structured JSON output so
+// the result drops straight into the listing form for a fraction of a cent.
 // ===========================================================================
 
-const MODEL = "claude-opus-4-8";
+// Cheapest capable model for this simple vision→JSON task. Note: the `effort`
+// parameter is NOT supported on Haiku and must not be sent (it 400s).
+const MODEL = "claude-haiku-4-5";
 
 export interface GeneratedListing {
   title: string;
@@ -91,7 +93,6 @@ export async function generateListingText(
     max_tokens: 1500,
     system: SYSTEM,
     output_config: {
-      effort: "low",
       format: { type: "json_schema", schema: SCHEMA },
     },
     messages: [{ role: "user", content: parts }],
