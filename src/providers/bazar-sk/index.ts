@@ -422,6 +422,13 @@ export class BazarSkProvider extends BrowserProvider {
         // Surface the portal's OWN rejection sentence (verbatim) when present,
         // otherwise a slice of the page text — so we report the true reason.
         const clean = text.replace(/\s+/g, " ").trim();
+        // A blank/white page means it didn't load — say that, don't fake a reason.
+        if (clean.length < 15) {
+          await this.debugShot(page, ctx, "prazdna-stranka");
+          throw new Error(
+            `Bazar.sk: po odoslaní sa stránka nenačítala (prázdna). Skús publikovať znova. URL: ${url}`,
+          );
+        }
         const specific = clean.match(
           /[^.!\n]*(nie\s+s[úu]\s+vyplnen[^.!\n]*|nem[ôo][žz]ete\s+prida[ťt]|nepovolen[ée][^.!\n]*znak|špeci[áa]lne\s+znak|povinn[ée]\s+([úu]daj|pole))[^.!\n]*[.!]?/i,
         );
@@ -1296,6 +1303,15 @@ export class BazarSkProvider extends BrowserProvider {
     ctx: ProviderContext,
     candidates: string[],
   ): Promise<void> {
+    // Page-state diagnostic — so a blank/white screenshot is still explainable
+    // from the log (URL + how much text the page has + a snippet).
+    const stateText = await page.locator("body").innerText().catch(() => "");
+    await ctx.log("Lokalita – stav stránky", {
+      url: page.url(),
+      candidates,
+      bodyLen: stateText.length,
+      snippet: stateText.replace(/\s+/g, " ").slice(0, 120),
+    });
     // Find + tag the visible location input: placeholder mentioning lokalita/PSČ,
     // else a whisperer that isn't the category box, else the input nearest to the
     // hidden data[locationName].
