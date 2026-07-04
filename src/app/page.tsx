@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { auth } from "@/lib/auth";
 import { OPERATOR } from "@/lib/legal";
 import {
   PLANS as PLAN_DEFS,
@@ -124,7 +125,11 @@ const PLANS = (["FREE", "BASIC", "PRO"] as const).map((k) => {
   };
 });
 
-export default function HomePage() {
+export default async function HomePage() {
+  // Reflect the logged-in state so opening klikado.sk in a new window/tab while
+  // signed in shows "Prejsť do aplikácie" instead of "Prihlásiť sa".
+  const session = await auth();
+  const loggedIn = !!session?.user;
   return (
     <main className="relative min-h-screen overflow-hidden">
       <div className="pointer-events-none absolute inset-0 grid-bg opacity-40" />
@@ -150,14 +155,24 @@ export default function HomePage() {
                 Cenník
               </Button>
             </Link>
-            <Link href="/login">
-              <Button variant="ghost" size="sm">
-                Prihlásiť sa
-              </Button>
-            </Link>
-            <Link href="/register">
-              <Button size="sm">Začať zadarmo</Button>
-            </Link>
+            {loggedIn ? (
+              <Link href="/dashboard">
+                <Button size="sm" className="gap-1.5">
+                  Prejsť do aplikácie <ArrowRight className="size-4" />
+                </Button>
+              </Link>
+            ) : (
+              <>
+                <Link href="/login">
+                  <Button variant="ghost" size="sm">
+                    Prihlásiť sa
+                  </Button>
+                </Link>
+                <Link href="/register">
+                  <Button size="sm">Začať zadarmo</Button>
+                </Link>
+              </>
+            )}
           </nav>
         </header>
 
@@ -180,9 +195,10 @@ export default function HomePage() {
             opakované prihlasovanie, vypĺňanie a kopírovanie.
           </p>
           <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Link href="/register">
+            <Link href={loggedIn ? "/dashboard" : "/register"}>
               <Button size="lg" className="gap-2">
-                Vyskúšať 7 dní zadarmo <ArrowRight className="size-4" />
+                {loggedIn ? "Prejsť do aplikácie" : "Vyskúšať 7 dní zadarmo"}{" "}
+                <ArrowRight className="size-4" />
               </Button>
             </Link>
             <Link href="#ako-to-funguje">
