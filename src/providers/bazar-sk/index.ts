@@ -376,42 +376,54 @@ export class BazarSkProvider extends BrowserProvider {
 
       // Success = bazar.sk's step-3 confirmation ("Inzerát ste úspešne pridali"
       // / "Váš inzerát je aktuálne na … pozícii"). The confirmation page is NOT
-      // the ad itself, so we take the ad URL from its "Zobraziť inzerát" link.
+      // the ad itself, so we take the ad URL ONLY from its "Zobraziť inzerát"
+      // link (a stray ad link elsewhere must NEVER count as success).
       const success =
         /inzer[áa]t\s+ste\b[^.]{0,25}pridal|[úu]spe[šs]ne\s+pridal|V[áa][šs]\s+inzer[áa]t\s+je\s+aktu[áa]lne/i.test(
           text,
         );
+      // Reject: missing required fields ("Nie sú vyplnené … povinné údaje",
+      // highlighted red), forbidden characters, or an explicit "wasn't added".
       const rejected =
+        /nie\s+s[úu]\s+vyplnen|nevyplnen|povinn[ée]\s+([úu]daj|pole)|zv[ýy]raznen[ée]\s+[čc]erven/i.test(
+          text,
+        ) ||
         /(nebol|nebola|nepodaril)\w*\s+(prida|vlož|zverejn|ulož)/i.test(text) ||
-        /nevyplnen|povinn[ée]\s+pole/i.test(text) ||
         /nem[ôo][žz]ete\s+prida|nepovolen\w*[^.]*znak|špeci[áa]lne\s+znak/i.test(
           text,
         );
 
-      // Resolve the real ad URL: the "Zobraziť inzerát" link, else any ad link.
-      let adHref: string | null = null;
-      for (const loc of [
-        page.getByRole("link", { name: /zobrazi[ťt]\s+inzer[áa]t/i }).first(),
-        page.locator('a:has-text("Zobraziť inzerát")').first(),
-        page.locator('a[href*="/inzerat/"]').first(),
-      ]) {
-        adHref = await loc.getAttribute("href").catch(() => null);
-        if (adHref) break;
-      }
-      const urlIsAd = /\/inzerat\//.test(url);
-      const remoteUrl = adHref
-        ? absolute(adHref)
+      // The ad URL comes ONLY from the confirmation's "Zobraziť inzerát" link,
+      // or from actually landing on the ad's own page. No generic link scraping.
+      const zobrazitHref =
+        (await page
+          .getByRole("link", { name: /zobrazi[ťt]\s+inzer[áa]t/i })
+          .first()
+          .getAttribute("href")
+          .catch(() => null)) ||
+        (await page
+          .locator('a:has-text("Zobraziť inzerát")')
+          .first()
+          .getAttribute("href")
+          .catch(() => null));
+      const urlIsAd =
+        /\/inzerat\//.test(url) || /\.bazar\.sk\/\d{5,}-/.test(url);
+      const remoteUrl = zobrazitHref
+        ? absolute(zobrazitHref)
         : urlIsAd
           ? url
           : "";
 
-      // Only fail if there's NO confirmation AND no ad URL — otherwise it's live.
-      if ((!success && !remoteUrl) || rejected) {
+      // A GENUINE success needs one of: the confirmation text, the "Zobraziť
+      // inzerát" link, or landing on the ad's own page. Anything else = failure
+      // (never report "published" for an ad that wasn't actually created).
+      const confirmed = success || !!zobrazitHref || urlIsAd;
+      if (rejected || !confirmed) {
         // Surface the portal's OWN rejection sentence (verbatim) when present,
         // otherwise a slice of the page text — so we report the true reason.
         const clean = text.replace(/\s+/g, " ").trim();
         const specific = clean.match(
-          /[^.!\n]*(nem[ôo][žz]ete\s+prida[ťt]|nepovolen[ée][^.!\n]*znak|špeci[áa]lne\s+znak|nevyplnen|povinn[ée]\s+pole)[^.!\n]*[.!]?/i,
+          /[^.!\n]*(nie\s+s[úu]\s+vyplnen[^.!\n]*|nem[ôo][žz]ete\s+prida[ťt]|nepovolen[ée][^.!\n]*znak|špeci[áa]lne\s+znak|povinn[ée]\s+([úu]daj|pole))[^.!\n]*[.!]?/i,
         );
         const detail = specific ? specific[0].trim() : clean.slice(0, 300);
         throw new Error(`Bazar.sk zamietol inzerát: ${detail}`);
