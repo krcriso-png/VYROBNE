@@ -536,8 +536,23 @@ export class BazarSkProvider extends BrowserProvider {
             '[data-klikado-del="1"]',
           );
           out.delHTML = del ? del.outerHTML.slice(0, 200) : null;
-          // Dispatch a realistic event sequence on the delete control.
+          // These controls are jQuery-bound. The MOST reliable trigger is
+          // jQuery's own .trigger('click') (invokes bound handlers directly).
+          // Fall back to a full native mouse-event sequence.
+          const w = window as unknown as {
+            jQuery?: (el: Element) => { trigger: (e: string) => void; click: () => void };
+            $?: (el: Element) => { trigger: (e: string) => void; click: () => void };
+          };
+          out.hasJQuery = !!(w.jQuery || w.$);
           if (del) {
+            const jq = w.jQuery || w.$;
+            if (jq) {
+              try {
+                jq(del).trigger("click");
+              } catch {
+                /* ignore */
+              }
+            }
             for (const type of [
               "pointerdown",
               "mousedown",
@@ -546,7 +561,11 @@ export class BazarSkProvider extends BrowserProvider {
               "click",
             ]) {
               del.dispatchEvent(
-                new MouseEvent(type, { bubbles: true, cancelable: true }),
+                new MouseEvent(type, {
+                  bubbles: true,
+                  cancelable: true,
+                  view: window,
+                }),
               );
             }
           }
