@@ -100,7 +100,8 @@ export default function PortalsPage() {
         <h1 className="text-2xl font-bold tracking-tight">Portály</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Ulož prihlasovacie údaje pre jednotlivé portály. Heslá sú šifrované
-          (AES-256-GCM) a nikdy sa nezobrazujú späť.
+          (AES-256-GCM) a použijú sa len na pridávanie tvojich inzerátov.
+          Zobraziť si svoje uložené heslo vieš kliknutím na „Zobraziť uložené".
         </p>
       </div>
 

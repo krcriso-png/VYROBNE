@@ -29,7 +29,7 @@ function planFeatures(key: string): string[] {
       : `${p.monthlyCredits} kreditov / mesiac`;
   return [
     credits,
-    "1 kredit = pridanie alebo topovanie",
+    "1 kredit = pridanie/topovanie na 1 portáli",
     "Všetky portály",
     "Automatické topovanie",
     key === "PRO" ? "Prioritné spracovanie" : "Synchronizácia zmien",
@@ -110,6 +110,21 @@ export default async function BillingPage() {
             </p>
           </div>
         )}
+      </Card>
+
+      {/* How credits work — plain and honest, so nobody is surprised. */}
+      <Card className="bg-muted/40 p-4 text-sm text-muted-foreground">
+        <p className="font-medium text-foreground">Ako sa míňajú kredity</p>
+        <p className="mt-1">
+          1 kredit = jedno pridanie alebo jedno topovanie inzerátu na{" "}
+          <strong className="text-foreground">jednom</strong> portáli. Napríklad
+          pridanie inzerátu na Bazoš SK, Bazoš CZ aj Bazar.sk = 3 kredity.
+          Automatické topovanie berie 1 kredit za portál pri každom kole.
+        </p>
+        <p className="mt-1">
+          Kontrola stavu, úprava textu (cena, popis, telefón) ani deaktivácia
+          inzerátu kredity neberú.
+        </p>
       </Card>
 
       {/* Plans */}

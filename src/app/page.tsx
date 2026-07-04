@@ -59,7 +59,7 @@ const BENEFITS = [
   {
     icon: RefreshCw,
     title: "Jedna zmena = všade",
-    body: "Znížil si cenu alebo pridal fotku? Uprav to na jednom mieste a Klikado to premietne na všetky portály.",
+    body: "Znížil si cenu alebo upravil popis? Uprav to na jednom mieste a Klikado zmenu premietne na všetky portály, kde je inzerát zverejnený. (Nové fotky sa prejavia pri najbližšom topovaní.)",
   },
   {
     icon: Trash2,
@@ -85,7 +85,7 @@ const FAQ = [
   },
   {
     q: "Ako je to s SMS overením telefónu?",
-    a: "Niektoré portály (napr. Bazar.sk) vyžadujú jednorazové overenie čísla cez SMS kód. Klikado ťa vyzve zadať kód a overenie si zapamätá, takže ďalšie inzeráty už SMS pýtať nebudú.",
+    a: "Niektoré portály (napr. Bazar.sk) vyžadujú overenie čísla cez SMS kód. Klikado ťa vyzve zadať kód a prihlásenie si zapamätá, takže ďalšie inzeráty už spravidla SMS nepýtajú. Ak si pripojíš účet portálu (e-mail + heslo), SMS sa väčšinou nevyžaduje vôbec.",
   },
   {
     q: "Nedostanem ban za duplicitné inzeráty?",
@@ -93,7 +93,7 @@ const FAQ = [
   },
   {
     q: "Koľko ma to stojí?",
-    a: "Začni zadarmo. Platíš kreditmi — 1 kredit = jedno pridanie alebo jedno topovanie. Vyber si mesačný alebo lacnejší ročný plán, zrušiť môžeš kedykoľvek.",
+    a: "Začni zadarmo. Platíš kreditmi — 1 kredit = jedno pridanie alebo topovanie inzerátu na jednom portáli (napr. pridanie na 3 portály = 3 kredity). Vyber si mesačný alebo lacnejší ročný plán, zrušiť môžeš kedykoľvek.",
   },
   {
     q: "Pribudnú ďalšie portály?",
@@ -116,7 +116,7 @@ const PLANS = (["FREE", "BASIC", "PRO"] as const).map((k) => {
       p.monthlyCredits === null
         ? "Neobmedzene kreditov*"
         : `${p.monthlyCredits} kreditov / mesiac`,
-      "1 kredit = pridanie alebo topovanie",
+      "1 kredit = pridanie/topovanie na 1 portáli",
       "Všetky portály (Bazoš SK/CZ, Bazar.sk)",
       "Automatické topovanie bez duplicít",
       k === "PRO" ? "Prioritné spracovanie" : "Synchronizácia zmien",
