@@ -11,6 +11,7 @@ import { AdminUserBlock } from "@/components/AdminUserBlock";
 import { AdminIncidents } from "@/components/AdminIncidents";
 import { SupportThreads, type SupportThreadDTO } from "@/components/SupportThreads";
 import { loadIncidents } from "@/lib/incidents";
+import { scanListing } from "@/lib/moderation";
 
 // Admin panel = the single place for everything admin: stats, all support
 // (customer tickets + auto-captured errors), portals and users.
@@ -40,6 +41,17 @@ export default async function AdminPage() {
       }),
       loadIncidents(),
     ]);
+
+  // Run the forbidden-content scanner across active listings so the admin sees
+  // how many need a look (drives the badge on the "Inzeráty zákazníkov" link).
+  const scanRows = await prisma.listing.findMany({
+    where: { status: { not: "ARCHIVED" } },
+    select: { title: true, description: true, category: true },
+    take: 500,
+  });
+  const flaggedListings = scanRows.filter(
+    (l) => scanListing(l).length > 0,
+  ).length;
 
   // Opening the panel clears the admin's "unread ticket" flag (drives the nav).
   await prisma.supportThread.updateMany({
@@ -180,10 +192,15 @@ export default async function AdminPage() {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-semibold">Používatelia</h2>
           <Link
-            href="/admin/inzeraty"
+            href={flaggedListings > 0 ? "/admin/inzeraty?flagged=1" : "/admin/inzeraty"}
             className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted"
           >
             <LayoutList className="size-4" /> Inzeráty zákazníkov
+            {flaggedListings > 0 && (
+              <span className="ml-0.5 inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
+                {flaggedListings} podozrivých
+              </span>
+            )}
           </Link>
         </div>
         <Card className="overflow-x-auto">
@@ -200,7 +217,14 @@ export default async function AdminPage() {
             <tbody>
               {users.map((u) => (
                 <tr key={u.id} className="border-b last:border-0 align-top">
-                  <td className="px-4 py-2.5">{u.email}</td>
+                  <td className="px-4 py-2.5">
+                    <Link
+                      href={`/admin/users/${u.id}`}
+                      className="font-medium text-primary hover:underline"
+                    >
+                      {u.email}
+                    </Link>
+                  </td>
                   <td className="px-4 py-2.5">
                     <AdminPlanSelect
                       userId={u.id}
