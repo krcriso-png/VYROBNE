@@ -41,11 +41,16 @@ export default async function ListingsPage() {
             {listings.length} {listings.length === 1 ? "inzerát" : "inzerátov"}
           </p>
         </div>
-        <Link href="/listings/new">
-          <Button>
-            <Plus className="size-4" /> Nový inzerát
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/listings/import">
+            <Button variant="outline">Pridať existujúci</Button>
+          </Link>
+          <Link href="/listings/new">
+            <Button>
+              <Plus className="size-4" /> Nový inzerát
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {listings.length === 0 ? (

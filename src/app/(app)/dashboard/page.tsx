@@ -127,13 +127,13 @@ export default async function DashboardPage() {
               Máš už iný inzerát uverejnený mimo Klikada?
             </p>
             <p className="text-xs text-muted-foreground">
-              Pridaj ho pod správu Klikada — vytvor si ho tu a priraď odkaz na
-              existujúci inzerát. Postaráme sa o topovanie, kontrolu stavu aj
-              mazanie z jedného miesta.
+              Vlož odkaz a Klikado si stiahne názov, popis, cenu aj fotky,
+              vytvorí inzerát a prevezme ho pod správu — topovanie, kontrola
+              stavu aj mazanie z jedného miesta.
             </p>
           </div>
         </div>
-        <Link href="/listings/new" className="shrink-0">
+        <Link href="/listings/import" className="shrink-0">
           <Button variant="outline">
             Pridať existujúci inzerát <ArrowRight className="size-4" />
           </Button>

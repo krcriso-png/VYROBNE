@@ -2,6 +2,9 @@ import { prisma } from "./db";
 import { enqueueTask } from "./queue";
 import { getProvider } from "../providers/registry";
 import { logActivity } from "./logger";
+import { importAdFromUrl } from "./import-ad";
+import { processAndStore } from "./images";
+import { canAddActiveListing } from "./plans";
 
 // ===========================================================================
 // Publishing orchestration (producer side)
@@ -190,6 +193,91 @@ export async function adoptListing(
       portalKey: portal.key,
     });
   }
+}
+
+/**
+ * Import an existing ad from a portal URL: scrape its title/description/price/
+ * photos, create a listing pre-filled with them, download the photos, and adopt
+ * the ad (mark it PUBLISHED on that portal by URL) so Klikado manages it. The
+ * user reviews/edits afterwards. Returns the new listing id.
+ */
+export async function importListingFromUrl(
+  userId: string,
+  url: string,
+): Promise<string> {
+  const ad = await importAdFromUrl(url);
+
+  // Respect the plan's active-listing limit (an import creates an active ad).
+  const sub = await prisma.subscription.findUnique({ where: { userId } });
+  const activeCount = await prisma.listing.count({
+    where: { userId, status: "ACTIVE" },
+  });
+  if (!canAddActiveListing(sub?.plan ?? "FREE", activeCount)) {
+    throw new Error("Dosiahnutý limit aktívnych inzerátov pre váš plán.");
+  }
+
+  const owner = await prisma.user.findUnique({ where: { id: userId } });
+
+  const listing = await prisma.listing.create({
+    data: {
+      userId,
+      title: ad.title,
+      description: ad.description || ad.title,
+      price: ad.price ?? null,
+      currency: ad.currency,
+      category: "Importované",
+      parameters: { imported: true, importUrl: url },
+      location: ad.location ?? null,
+      contactName: owner?.name ?? null,
+      contactEmail: owner?.email ?? null,
+      status: "ACTIVE",
+    },
+  });
+
+  await logActivity({
+    message: `Import z ${ad.portalKey}: „${ad.title}" — cena ${
+      ad.price ?? "?"
+    } ${ad.currency}, ${ad.imageUrls.length} fotiek nájdených.`,
+    userId,
+    listingId: listing.id,
+    portalKey: ad.portalKey,
+  });
+
+  // Download + store the photos (best-effort; skip any that fail).
+  let position = 0;
+  for (const imgUrl of ad.imageUrls) {
+    try {
+      const r = await fetch(imgUrl, { headers: { "user-agent": "Mozilla/5.0" } });
+      if (!r.ok) continue;
+      const buf = Buffer.from(await r.arrayBuffer());
+      if (buf.byteLength < 1024) continue; // skip tiny/placeholder images
+      const p = await processAndStore(userId, buf);
+      await prisma.listingImage.create({
+        data: {
+          listingId: listing.id,
+          key: p.key,
+          thumbKey: p.thumbKey,
+          url: p.url,
+          width: p.width,
+          height: p.height,
+          bytes: p.bytes,
+          mimeType: p.mimeType,
+          position,
+          isMain: position === 0,
+        },
+      });
+      position += 1;
+    } catch {
+      /* skip broken image */
+    }
+  }
+
+  // Adopt the ad on its source portal (marks it PUBLISHED + verifies).
+  await adoptListing(userId, listing.id, ad.portalKey, url).catch(
+    () => undefined,
+  );
+
+  return listing.id;
 }
 
 /**
