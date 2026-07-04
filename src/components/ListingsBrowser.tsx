@@ -81,12 +81,16 @@ export function ListingsBrowser({ listings }: { listings: BrowserListing[] }) {
           Nič nezodpovedá filtru.
         </p>
       ) : (
-        <div className="grid gap-3">
+        <div className="grid min-w-0 gap-3">
           {shown.map((l) => {
             const st = displayListingStatus(l.status, l.published);
             return (
-              <Link key={l.id} href={`/listings/${l.id}`} className="group">
-                <Card className="flex items-center gap-4 p-3 transition-shadow hover:shadow-card">
+              <Link
+                key={l.id}
+                href={`/listings/${l.id}`}
+                className="group block min-w-0"
+              >
+                <Card className="flex w-full min-w-0 items-center gap-4 p-3 transition-shadow hover:shadow-card">
                   <div className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted text-muted-foreground">
                     {l.mainUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element

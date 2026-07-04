@@ -158,7 +158,7 @@ export default async function DashboardPage() {
                 ? new Date(Math.max(...liveDates))
                 : null;
               return (
-                <Card key={l.id} className="flex items-center gap-4 p-3">
+                <Card key={l.id} className="flex min-w-0 items-center gap-4 p-3">
                   <Link
                     href={`/listings/${l.id}`}
                     className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted text-muted-foreground"
@@ -171,14 +171,16 @@ export default async function DashboardPage() {
                     )}
                   </Link>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
                       <Link
                         href={`/listings/${l.id}`}
-                        className="truncate font-medium hover:underline"
+                        className="min-w-0 truncate font-medium hover:underline"
                       >
                         {l.title}
                       </Link>
-                      <Badge tone={st.tone}>{st.label}</Badge>
+                      <Badge tone={st.tone} className="shrink-0">
+                        {st.label}
+                      </Badge>
                     </div>
                     <p className="mt-0.5 truncate text-sm text-muted-foreground">
                       {l.category} ·{" "}
