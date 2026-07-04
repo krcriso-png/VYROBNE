@@ -562,6 +562,14 @@ function PortalError({
         <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
         <span>{message}</span>
       </p>
+      {error && error.trim() && error.trim() !== message && (
+        <p className="mt-1.5 rounded-md border border-border/60 bg-background/60 px-2 py-1 text-[11px] text-muted-foreground">
+          <span className="font-medium text-foreground">
+            Presná hláška z portálu:
+          </span>{" "}
+          {error.trim()}
+        </p>
+      )}
       {kind === "system" && (
         <div className="mt-2">
           {state === "done" ? (

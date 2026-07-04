@@ -747,12 +747,11 @@ export class BazosSkProvider extends BrowserProvider {
         const m = bodyClean.match(
           /[^.]*(zablokovan|prekročili|překročili|skúste to neskôr|zkuste to později|maximum kódov|maximum kódů)[^.]*\.?/i,
         );
-        const portalSaid = (m?.[0] ?? bodyClean.slice(0, 160)).trim();
+        const portalSaid = (m?.[0] ?? bodyClean.slice(0, 180)).trim();
+        // Lead with the portal's EXACT words (shown verbatim in Klikado). The
+        // remedy/guidance is added by classifyError — we don't assert a cause.
         throw new Error(
-          `Bazoš odmietol SMS overenie na toto telefónne číslo. Portál zobrazil: „${portalSaid}“. ` +
-            "Presný dôvod nevidíme — môže ísť o dočasný limit (priveľa pokusov za sebou) alebo o číslo, ktoré portál blokuje. " +
-            "Riešenie: v sekcii Portály pripoj Bazoš účet (e-mail + heslo) — potom sa SMS pri pridávaní zvyčajne nevyžaduje; " +
-            "alebo zadaj iné telefónne číslo na overenie, prípadne skús neskôr. Nie je to chyba Klikada.",
+          `Bazoš pri SMS overení zobrazil: „${portalSaid}“ (SMS overenie sa nepodarilo).`,
         );
       }
       if ((await page.locator('input[name="nadpis"]').count()) === 0) {

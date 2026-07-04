@@ -102,6 +102,7 @@ export async function loadIncidents(): Promise<IncidentDTO[]> {
       userEmail: listing?.user.email ?? "—",
       portalName: portalName(l.portalKey),
       error: classifyError(l.message).message,
+      rawError: l.message?.trim() || undefined,
       screenshot: screenshotFor(l.listingId!, l.portalKey),
       status: pub?.status,
       createdAt: l.createdAt.toISOString(),
@@ -123,6 +124,7 @@ export async function loadIncidents(): Promise<IncidentDTO[]> {
       userEmail: p.listing.user.email ?? "—",
       portalName: p.portal.name,
       error: classifyError(p.lastError).message,
+      rawError: p.lastError?.trim() || undefined,
       status: "ERROR",
       createdAt: p.updatedAt.toISOString(),
     }));

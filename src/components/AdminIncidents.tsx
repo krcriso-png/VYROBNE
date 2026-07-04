@@ -24,7 +24,8 @@ export interface IncidentDTO {
   listingTitle: string;
   userEmail: string;
   portalName: string;
-  error: string;
+  error: string; // friendly hint (what to do)
+  rawError?: string; // the portal's / provider's EXACT message (verbatim)
   screenshot?: string;
   status?: string; // current publication status (to show if it's resolved)
   createdAt: string;
@@ -140,6 +141,14 @@ function Incident({ incident }: { incident: IncidentDTO }) {
             {formatDate(incident.createdAt)}
           </p>
           <p className="mt-1 text-xs text-destructive">{incident.error}</p>
+          {incident.rawError && incident.rawError !== incident.error && (
+            <p className="mt-1 rounded-md border border-border/60 bg-muted/50 px-2 py-1 text-[11px] text-muted-foreground">
+              <span className="font-medium text-foreground">
+                Presná hláška z portálu:
+              </span>{" "}
+              {incident.rawError}
+            </p>
+          )}
 
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Button
