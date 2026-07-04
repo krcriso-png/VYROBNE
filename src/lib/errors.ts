@@ -18,19 +18,29 @@ export function classifyError(raw: string | null | undefined): FriendlyError {
   const e = (raw ?? "").toLowerCase();
   if (!e) return { kind: "system", message: "Neznáma chyba." };
 
+  // The portal EXPLICITLY says the number is blocked → we know the reason; say
+  // it plainly (no "nevidíme dôvod").
+  if (/blokuje toto telef|zablokovan\w*\s+(telef|[čc][íi]sl)/.test(e)) {
+    return {
+      kind: "user",
+      message:
+        "Portál blokuje toto telefónne číslo pri SMS overení. Použi iné " +
+        "telefónne číslo na overenie, alebo v sekcii Portály pripoj účet portálu " +
+        "(e-mail + heslo) — vtedy sa SMS pri pridávaní zvyčajne nežiada.",
+    };
+  }
   if (
-    /zablokovan|prekročili|překročili|maximum kód|sms limit|odmietol sms|skúste to neskôr|zkuste to (pozd|později)/.test(
+    /prekročili|překročili|maximum kód|sms limit|odmietol sms|skúste to neskôr|zkuste to (pozd|později)/.test(
       e,
     )
   ) {
     return {
       kind: "user",
       message:
-        "Portál odmietol SMS overenie na toto telefónne číslo. Nevidíme presný " +
-        "dôvod — môže ísť o dočasný limit (priveľa pokusov za sebou) alebo o " +
-        "číslo, ktoré portál blokuje. Riešenie: pripoj účet portálu (e-mail + " +
-        "heslo) v sekcii Portály — vtedy sa SMS pri pridávaní zvyčajne nežiada; " +
-        "alebo skús iné číslo na overenie, prípadne to skús neskôr.",
+        "Portál odmietol SMS overenie na toto telefónne číslo — pravdepodobne " +
+        "dočasný limit (priveľa pokusov za sebou). Riešenie: pripoj účet portálu " +
+        "(e-mail + heslo) v sekcii Portály — vtedy sa SMS pri pridávaní zvyčajne " +
+        "nežiada; alebo skús iné číslo na overenie, prípadne to skús neskôr.",
     };
   }
   if (

@@ -743,15 +743,22 @@ export class BazosSkProvider extends BrowserProvider {
       ) {
         // Report the portal's OWN words — we don't actually know WHY it refused
         // (attempt limit vs. a blocked number), so we must not assert a cause.
+        // Extract ONLY the relevant sentence — not footer/nav junk like
+        // "…díl koupit". Prefer the explicit "blocked number" phrase.
         const bodyClean = body.replace(/\s+/g, " ").trim();
-        const m = bodyClean.match(
-          /[^.]*(zablokovan|prekročili|překročili|skúste to neskôr|zkuste to později|maximum kódov|maximum kódů)[^.]*\.?/i,
+        const blocked = bodyClean.match(
+          /Zablokovan[^\s]*\s+telef[^\s]*\s+[čc][íi]sl[^\s]*\s*[+0-9 ]*/i,
         );
-        const portalSaid = (m?.[0] ?? bodyClean.slice(0, 180)).trim();
-        // Lead with the portal's EXACT words (shown verbatim in Klikado). The
-        // remedy/guidance is added by classifyError — we don't assert a cause.
+        const other = bodyClean.match(
+          /(prekro[čc]il\w*|překro[čc]il\w*|maximum k[óo]d\w*|sk[úu]ste to nesk[ôo]r|zkuste to pozd[eě]ji)[^.]{0,60}/i,
+        );
+        const portalSaid = (blocked?.[0] ?? other?.[0] ?? "").trim();
+        // If the portal explicitly says the NUMBER is blocked, say so plainly —
+        // we DO know the reason then. Otherwise report its words without guessing.
         throw new Error(
-          `Bazoš pri SMS overení zobrazil: „${portalSaid}“ (SMS overenie sa nepodarilo).`,
+          blocked
+            ? `Bazoš blokuje toto telefónne číslo na SMS overenie. Portál zobrazil: „${portalSaid}“.`
+            : `Bazoš odmietol SMS overenie${portalSaid ? ` – zobrazil: „${portalSaid}“` : ""}.`,
         );
       }
       if ((await page.locator('input[name="nadpis"]').count()) === 0) {
