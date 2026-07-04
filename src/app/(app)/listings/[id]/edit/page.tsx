@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CategoryPicker } from "@/components/CategoryPicker";
+import { PhotoManager } from "@/components/PhotoManager";
 import { bazosCategoryLabel } from "@/lib/bazos-categories";
 import { RENEW_OPTIONS } from "@/lib/renew";
 
@@ -54,6 +55,7 @@ export default function EditListingPage({
   const { id } = use(params);
   const router = useRouter();
   const [form, setForm] = useState<Form>(EMPTY);
+  const [images, setImages] = useState<{ id: string; url: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +87,12 @@ export default function EditListingPage({
         phone: listing.phone ?? "",
         contactEmail: listing.contactEmail ?? "",
       });
+      setImages(
+        (listing.images ?? []).map((im: { id: string; url: string }) => ({
+          id: im.id,
+          url: im.url,
+        })),
+      );
       setLoading(false);
     })();
   }, [id]);
@@ -284,6 +292,18 @@ export default function EditListingPage({
             </div>
           </CardContent>
         </Card>
+
+        {/* Photos are managed here (add / reorder / set cover / delete). They
+            save immediately. Text edits propagate to live portals on save; new
+            photos apply on the next re-publish / topovanie (an in-place edit on
+            the portals doesn't swap images). */}
+        <PhotoManager listingId={id} images={images} />
+        <p className="-mt-3 text-xs text-muted-foreground">
+          Fotky sa uložia hneď. Textové zmeny (názov, popis, cena, telefón…) sa
+          po uložení automaticky prenesú na všetky portály, kde je inzerát
+          zverejnený. Nové fotky sa na portáloch prejavia pri najbližšom
+          topovaní alebo opätovnom publikovaní.
+        </p>
 
         {error && <p className="text-sm text-destructive">{error}</p>}
 

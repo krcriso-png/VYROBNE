@@ -4,7 +4,6 @@ import { ArrowLeft, MapPin, Phone } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { PublishPanel } from "@/components/PublishPanel";
-import { PhotoManager } from "@/components/PhotoManager";
 import { ListingActions } from "@/components/ListingActions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -75,10 +74,28 @@ export default async function ListingDetailPage({
 
       <div className="grid gap-6 lg:grid-cols-5">
         <div className="space-y-6 lg:col-span-3">
-          <PhotoManager
-            listingId={listing.id}
-            images={listing.images.map((img) => ({ id: img.id, url: img.url }))}
-          />
+          {/* Read-only preview. Adding / reordering / deleting photos happens on
+              the edit page ("Upraviť"), like the rest of the listing. */}
+          {listing.images.length > 0 ? (
+            <div className="grid grid-cols-4 gap-2">
+              {listing.images.map((img, i) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={img.id}
+                  src={img.url}
+                  alt=""
+                  className={
+                    "aspect-square w-full rounded-lg border object-cover " +
+                    (i === 0 ? "col-span-2 row-span-2" : "")
+                  }
+                />
+              ))}
+            </div>
+          ) : (
+            <Card className="p-6 text-center text-sm text-muted-foreground">
+              Žiadne fotky. Pridáš ich cez „Upraviť".
+            </Card>
+          )}
 
           <Card>
             <CardHeader>
