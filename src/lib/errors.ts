@@ -18,13 +18,19 @@ export function classifyError(raw: string | null | undefined): FriendlyError {
   const e = (raw ?? "").toLowerCase();
   if (!e) return { kind: "system", message: "Neznáma chyba." };
 
-  if (/zablokovan|maximum kód|skúste to neskôr|zkuste to pozd|sms limit/.test(e)) {
+  if (
+    /zablokovan|prekročili|překročili|maximum kód|sms limit|odmietol sms|skúste to neskôr|zkuste to (pozd|později)/.test(
+      e,
+    )
+  ) {
     return {
       kind: "user",
       message:
-        "Portál zablokoval SMS overenie na toto telefónne číslo (priveľa pokusov). " +
-        "Pripoj účet portálu (e-mail + heslo) v sekcii Portály — potom sa SMS pri pridávaní nežiada. " +
-        "Alebo použi iné číslo na overenie, prípadne skús o pár hodín.",
+        "Portál odmietol SMS overenie na toto telefónne číslo. Nevidíme presný " +
+        "dôvod — môže ísť o dočasný limit (priveľa pokusov za sebou) alebo o " +
+        "číslo, ktoré portál blokuje. Riešenie: pripoj účet portálu (e-mail + " +
+        "heslo) v sekcii Portály — vtedy sa SMS pri pridávaní zvyčajne nežiada; " +
+        "alebo skús iné číslo na overenie, prípadne to skús neskôr.",
     };
   }
   if (/nie je zadané žiadne číslo|nemá telefónne|vyžaduje overenie telefón/.test(e)) {
@@ -65,6 +71,7 @@ export function classifyError(raw: string | null | undefined): FriendlyError {
   return {
     kind: "system",
     message:
-      "Nastala technická chyba na našej strane. Skús to znova o chvíľu — alebo to nahlás adminovi tlačidlom nižšie.",
+      "Publikovanie zlyhalo z nejasného dôvodu. Skús to znova o chvíľu — ak to " +
+      "pretrváva, nahlás nám to tlačidlom nižšie a pozrieme sa na to.",
   };
 }

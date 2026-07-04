@@ -741,10 +741,18 @@ export class BazosSkProvider extends BrowserProvider {
           body,
         )
       ) {
+        // Report the portal's OWN words — we don't actually know WHY it refused
+        // (attempt limit vs. a blocked number), so we must not assert a cause.
+        const bodyClean = body.replace(/\s+/g, " ").trim();
+        const m = bodyClean.match(
+          /[^.]*(zablokovan|prekročili|překročili|skúste to neskôr|zkuste to později|maximum kódov|maximum kódů)[^.]*\.?/i,
+        );
+        const portalSaid = (m?.[0] ?? bodyClean.slice(0, 160)).trim();
         throw new Error(
-          "Bazoš zablokoval toto telefónne číslo na SMS overenie (priveľa pokusov / SMS limit). " +
-            "Riešenie: v sekcii Portály pripoj Bazoš účet (e-mail + heslo) — potom sa SMS overenie pri pridávaní nevyžaduje. " +
-            "Alebo zadaj iné telefónne číslo na overenie, prípadne počkaj niekoľko hodín. Nie je to chyba Klikada.",
+          `Bazoš odmietol SMS overenie na toto telefónne číslo. Portál zobrazil: „${portalSaid}“. ` +
+            "Presný dôvod nevidíme — môže ísť o dočasný limit (priveľa pokusov za sebou) alebo o číslo, ktoré portál blokuje. " +
+            "Riešenie: v sekcii Portály pripoj Bazoš účet (e-mail + heslo) — potom sa SMS pri pridávaní zvyčajne nevyžaduje; " +
+            "alebo zadaj iné telefónne číslo na overenie, prípadne skús neskôr. Nie je to chyba Klikada.",
         );
       }
       if ((await page.locator('input[name="nadpis"]').count()) === 0) {
