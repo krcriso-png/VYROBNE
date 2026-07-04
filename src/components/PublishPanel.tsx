@@ -398,11 +398,11 @@ export function PublishPanel({
             {portals.length > 0 && (
               <details className="rounded-lg border bg-muted/30 px-3 py-2 text-sm">
                 <summary className="cursor-pointer list-none font-medium text-muted-foreground">
-                  Už mám inzerát na portáli?
+                  Máš už tento inzerát uverejnený mimo Klikada? Pridaj ho!
                 </summary>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Vlož odkaz na existujúci inzerát a Klikado ho prevezme pod
-                  správu (topovanie, kontrola stavu, mazanie).
+                  Vlož odkaz na svoj existujúci inzerát z portálu a Klikado ho
+                  prevezme pod správu — topovanie, kontrola stavu aj mazanie.
                 </p>
                 <div className="mt-3 space-y-2">
                   <select

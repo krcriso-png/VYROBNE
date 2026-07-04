@@ -15,6 +15,7 @@ import {
   Clock,
   ShieldCheck,
   FlaskConical,
+  DownloadCloud,
 } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
@@ -114,6 +115,30 @@ export default async function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      {/* Bring an ad you already posted elsewhere under Klikado's management. */}
+      <Card className="flex flex-wrap items-center justify-between gap-3 border-primary/30 bg-primary/5 p-4">
+        <div className="flex items-center gap-3">
+          <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
+            <DownloadCloud className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-medium">
+              Máš už iný inzerát uverejnený mimo Klikada?
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Pridaj ho pod správu Klikada — vytvor si ho tu a priraď odkaz na
+              existujúci inzerát. Postaráme sa o topovanie, kontrolu stavu aj
+              mazanie z jedného miesta.
+            </p>
+          </div>
+        </div>
+        <Link href="/listings/new" className="shrink-0">
+          <Button variant="outline">
+            Pridať existujúci inzerát <ArrowRight className="size-4" />
+          </Button>
+        </Link>
+      </Card>
 
       <section>
         <div className="mb-3 flex items-center justify-between">
