@@ -74,3 +74,39 @@ export const PATCH = route(async (req: Request, { params }: Params) => {
   );
   return json({ ok: true });
 });
+
+// DELETE /api/listings/:id/images — remove one photo. Body: { imageId }.
+// Positions are re-normalized so the first remaining photo becomes the main one.
+export const DELETE = route(async (req: Request, { params }: Params) => {
+  const user = await requireUser();
+  const { id } = await params;
+  const listing = await prisma.listing.findFirst({
+    where: { id, userId: user.id },
+  });
+  if (!listing) throw new HttpError(404, "Inzerát nenájdený");
+
+  const { imageId } = (await req.json().catch(() => ({}))) as {
+    imageId?: string;
+  };
+  if (!imageId) throw new HttpError(400, "Chýba fotka");
+
+  await prisma.listingImage.deleteMany({
+    where: { id: imageId, listingId: id },
+  });
+
+  // Re-pack positions (0,1,2,…) and keep the first photo as main.
+  const rest = await prisma.listingImage.findMany({
+    where: { listingId: id },
+    orderBy: { position: "asc" },
+    select: { id: true },
+  });
+  await prisma.$transaction(
+    rest.map((img, index) =>
+      prisma.listingImage.update({
+        where: { id: img.id },
+        data: { position: index, isMain: index === 0 },
+      }),
+    ),
+  );
+  return json({ ok: true });
+});

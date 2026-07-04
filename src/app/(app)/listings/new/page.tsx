@@ -1,9 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Sparkles } from "lucide-react";
+import {
+  ArrowLeft,
+  Sparkles,
+  UploadCloud,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Star,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -32,7 +40,10 @@ export default function NewListingPage() {
     phone: "",
     contactEmail: "",
   });
-  const [files, setFiles] = useState<FileList | null>(null);
+  // Selected-but-not-yet-uploaded photos. Selections ACCUMULATE (picking again
+  // adds more instead of replacing), and can be reordered — the first one is
+  // the cover/title photo.
+  const [photos, setPhotos] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
@@ -66,6 +77,54 @@ export default function NewListingPage() {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
+  // Preview URLs for the selected photos (revoked when the selection changes).
+  const previews = useMemo(
+    () => photos.map((f) => ({ file: f, url: URL.createObjectURL(f) })),
+    [photos],
+  );
+  useEffect(
+    () => () => previews.forEach((p) => URL.revokeObjectURL(p.url)),
+    [previews],
+  );
+
+  // Append newly picked files (deduped by name+size), so multiple picks add up.
+  function addFiles(list: FileList | null) {
+    if (!list || list.length === 0) return;
+    setPhotos((prev) => {
+      const seen = new Set(prev.map((f) => `${f.name}:${f.size}`));
+      const next = [...prev];
+      for (const f of Array.from(list)) {
+        const k = `${f.name}:${f.size}`;
+        if (!seen.has(k)) {
+          seen.add(k);
+          next.push(f);
+        }
+      }
+      return next;
+    });
+  }
+  function removePhoto(i: number) {
+    setPhotos((prev) => prev.filter((_, idx) => idx !== i));
+  }
+  function movePhoto(i: number, dir: -1 | 1) {
+    setPhotos((prev) => {
+      const j = i + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = prev.slice();
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  }
+  function makeCover(i: number) {
+    setPhotos((prev) => {
+      if (i <= 0 || i >= prev.length) return prev;
+      const next = prev.slice();
+      const [pick] = next.splice(i, 1);
+      next.unshift(pick);
+      return next;
+    });
+  }
+
   // Read a File as bare base64 (without the data: URL prefix).
   function fileToBase64(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -92,7 +151,7 @@ export default function NewListingPage() {
             ? bazosCategoryLabel(form.section, form.subcategory)
             : undefined,
       };
-      const photo = files?.[0];
+      const photo = photos[0];
       if (photo) {
         payload.imageBase64 = await fileToBase64(photo);
         payload.imageMediaType = photo.type || "image/jpeg";
@@ -155,10 +214,11 @@ export default function NewListingPage() {
     }
     const { listing } = await res.json();
 
-    // Upload any selected photos right away (so it's all one step).
-    if (files && files.length > 0) {
+    // Upload the selected photos in the chosen order (first = cover), so it's
+    // all one step.
+    if (photos.length > 0) {
       const fd = new FormData();
-      Array.from(files).forEach((f) => fd.append("files", f));
+      photos.forEach((f) => fd.append("files", f));
       await fetch(`/api/listings/${listing.id}/images`, {
         method: "POST",
         body: fd,
@@ -347,22 +407,87 @@ export default function NewListingPage() {
           <CardHeader>
             <CardTitle>Fotografie</CardTitle>
           </CardHeader>
-          <CardContent>
-            <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-input p-8 text-center transition-colors hover:border-primary/50 hover:bg-muted/50">
+          <CardContent className="space-y-3">
+            {previews.length > 0 && (
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                {previews.map((p, i) => (
+                  <div
+                    key={p.url}
+                    className="relative aspect-square overflow-hidden rounded-lg border bg-muted"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={p.url}
+                      alt=""
+                      className="size-full object-cover"
+                    />
+                    {i === 0 && (
+                      <span className="absolute left-1 top-1 rounded bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                        Titulná
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removePhoto(i)}
+                      title="Odobrať fotku"
+                      className="absolute right-1 top-1 grid size-6 place-items-center rounded-full bg-black/55 text-white transition-colors hover:bg-destructive"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                    <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-black/50 px-1.5 py-1">
+                      <button
+                        type="button"
+                        onClick={() => movePhoto(i, -1)}
+                        disabled={i === 0}
+                        title="Posunúť dozadu"
+                        className="grid size-6 place-items-center rounded text-white disabled:opacity-30"
+                      >
+                        <ChevronLeft className="size-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => makeCover(i)}
+                        disabled={i === 0}
+                        title="Nastaviť ako titulnú"
+                        className="grid size-6 place-items-center rounded text-white disabled:opacity-30"
+                      >
+                        <Star
+                          className={"size-4 " + (i === 0 ? "fill-white" : "")}
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => movePhoto(i, 1)}
+                        disabled={i === previews.length - 1}
+                        title="Posunúť dopredu"
+                        className="grid size-6 place-items-center rounded text-white disabled:opacity-30"
+                      >
+                        <ChevronRight className="size-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-input p-6 text-center transition-colors hover:border-primary/50 hover:bg-muted/50">
+              <UploadCloud className="size-6 text-muted-foreground" />
               <span className="text-sm font-medium">
-                {files && files.length > 0
-                  ? `${files.length} fotiek vybraných`
+                {previews.length > 0
+                  ? `Pridať ďalšie (${previews.length} vybraných)`
                   : "Klikni a vyber fotografie"}
               </span>
               <span className="text-xs text-muted-foreground">
-                Prvá fotka je hlavná · automatický resize a konverzia na WebP
+                Naraz aj viac fotiek · prvá je titulná · poradie zmeníš šípkami
               </span>
               <input
                 type="file"
                 multiple
                 accept="image/*"
                 className="hidden"
-                onChange={(e) => setFiles(e.target.files)}
+                onChange={(e) => {
+                  addFiles(e.target.files);
+                  e.target.value = ""; // allow re-picking the same file
+                }}
               />
             </label>
           </CardContent>

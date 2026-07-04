@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  UploadCloud,
   ExternalLink,
   Send,
   Globe,
@@ -94,20 +93,6 @@ export function PublishPanel({
       else next.add(key);
       return next;
     });
-  }
-
-  async function uploadPhotos(files: FileList | null) {
-    if (!files || files.length === 0) return;
-    setBusy(true);
-    const fd = new FormData();
-    Array.from(files).forEach((f) => fd.append("files", f));
-    const res = await fetch(`/api/listings/${listingId}/images`, {
-      method: "POST",
-      body: fd,
-    });
-    setBusy(false);
-    setMessage(res.ok ? "Fotky nahraté." : "Nahrávanie zlyhalo.");
-    router.refresh();
   }
 
   async function publish() {
@@ -235,29 +220,6 @@ export function PublishPanel({
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Fotografie</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-input p-8 text-center transition-colors hover:border-primary/50 hover:bg-muted/50">
-            <UploadCloud className="size-7 text-muted-foreground" />
-            <span className="text-sm font-medium">Klikni a nahraj fotografie</span>
-            <span className="text-xs text-muted-foreground">
-              Automatický resize, kompresia a konverzia na WebP
-            </span>
-            <input
-              type="file"
-              multiple
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => uploadPhotos(e.target.files)}
-              disabled={busy}
-            />
-          </label>
-        </CardContent>
-      </Card>
-
       {waiting.map((p) => (
         <SmsPrompt key={p.id} publication={p} onDone={() => router.refresh()} />
       ))}
