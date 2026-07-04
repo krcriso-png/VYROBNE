@@ -33,6 +33,17 @@ export function classifyError(raw: string | null | undefined): FriendlyError {
         "alebo skús iné číslo na overenie, prípadne to skús neskôr.",
     };
   }
+  if (
+    /nepovolen\w*[^.]*znak|nem[ôo][žz]ete prida|špeci[áa]lne znak|zak[áa]zan\w*\s+znak|emoji/.test(
+      e,
+    )
+  ) {
+    return {
+      kind: "user",
+      message:
+        "Portál zamietol inzerát — text (názov alebo popis) obsahuje nepovolené znaky, napríklad emoji (✅, 🙂 …). Odstráň emoji a špeciálne znaky z názvu a popisu a skús znova.",
+    };
+  }
   if (/nie je zadané žiadne číslo|nemá telefónne|vyžaduje overenie telefón/.test(e)) {
     return {
       kind: "user",

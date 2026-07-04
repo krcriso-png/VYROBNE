@@ -374,7 +374,10 @@ export class BazarSkProvider extends BrowserProvider {
         );
       const rejected =
         /(nebol|nebola|nepodaril)\w*\s+(prida|vlož|zverejn|ulož)/i.test(text) ||
-        /nevyplnen|povinn[ée]\s+pole/i.test(text);
+        /nevyplnen|povinn[ée]\s+pole/i.test(text) ||
+        /nem[ôo][žz]ete\s+prida|nepovolen\w*[^.]*znak|špeci[áa]lne\s+znak/i.test(
+          text,
+        );
 
       // Resolve the real ad URL: the "Zobraziť inzerát" link, else any ad link.
       let adHref: string | null = null;
@@ -395,10 +398,14 @@ export class BazarSkProvider extends BrowserProvider {
 
       // Only fail if there's NO confirmation AND no ad URL — otherwise it's live.
       if ((!success && !remoteUrl) || rejected) {
-        const hint = text.replace(/\s+/g, " ").slice(0, 300);
-        throw new Error(
-          `Bazar.sk: inzerát sa nepodarilo zverejniť (skončili sme na ${url}). ${hint}`,
+        // Surface the portal's OWN rejection sentence (verbatim) when present,
+        // otherwise a slice of the page text — so we report the true reason.
+        const clean = text.replace(/\s+/g, " ").trim();
+        const specific = clean.match(
+          /[^.!\n]*(nem[ôo][žz]ete\s+prida[ťt]|nepovolen[ée][^.!\n]*znak|špeci[áa]lne\s+znak|nevyplnen|povinn[ée]\s+pole)[^.!\n]*[.!]?/i,
         );
+        const detail = specific ? specific[0].trim() : clean.slice(0, 300);
+        throw new Error(`Bazar.sk zamietol inzerát: ${detail}`);
       }
       // Fall back to a stable synthetic id only if bazar.sk didn't expose a URL
       // (rare) — still a success, but delete/status will need the URL later.
@@ -2292,10 +2299,21 @@ export class BazarSkProvider extends BrowserProvider {
     await this.debugShot(page, ctx, "sms-verified");
 
     const t1 = await bodyNow();
+    // If bazar rejected the AD ITSELF (e.g. forbidden characters / emoji in the
+    // title or text), report THAT verbatim — never blame the SMS code for it.
+    const rejection = t1.match(
+      /[^.!\n]*(nem[ôo][žz]ete\s+prida[ťt]|nepovolen[ée][^.!\n]*znak|zak[áa]zan[^.!\n]*znak|špeci[áa]lne\s+znak)[^.!\n]*[.!]?/i,
+    );
+    if (rejection) {
+      throw new Error(
+        `Bazar.sk zamietol inzerát: ${rejection[0].replace(/\s+/g, " ").trim()}`,
+      );
+    }
+    // Only a genuine wrong/expired code counts as an SMS failure. (Do NOT treat a
+    // stray "Neoverené telefónne číslo" as proof — a re-rendered form after an
+    // unrelated rejection can show it and would misreport the real cause.)
     if (
-      /nespr[áa]vn\w*\s+k[óo]d|k[óo]d\s+nie\s+je|neplatn\w*\s+k[óo]d|Neoveren[éeě]\s+telef/i.test(
-        t1,
-      )
+      /nespr[áa]vn\w*\s+k[óo]d|k[óo]d\s+nie\s+je|neplatn\w*\s+k[óo]d/i.test(t1)
     ) {
       throw new Error(
         "Bazar.sk: SMS kód sa nepodarilo overiť (nesprávny alebo expirovaný). Skús publikovať znova.",
