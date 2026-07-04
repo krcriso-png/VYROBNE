@@ -105,13 +105,22 @@ export class BazarSkProvider extends BrowserProvider {
       // Title + description. bazar.sk counts characters on real key events, so
       // a plain value-set leaves its "Napísaných 0 znakov (min. 20)" counter at
       // zero and rejects the ad — type them for real.
+      // bazar.sk rejects emoji / special characters ("nepovolené špeciálne
+      // znaky"), so strip them here (Bazoš keeps them). Log it transparently.
+      const cleanTitle = stripBazarChars(listing.title);
+      const cleanDesc = stripBazarChars(listing.description);
+      if (cleanTitle !== listing.title || cleanDesc !== listing.description) {
+        await ctx.log(
+          "Bazar.sk nepodporuje emoji/špeciálne znaky — pre Bazar.sk som ich z názvu/popisu odstránil (na Bazoši ostávajú).",
+        );
+      }
       await this.typeReactive(
         page,
         page.locator('form [name="data[title]"]').first(),
-        listing.title,
+        cleanTitle,
       );
       // Bazar.sk requires at least 20 characters of body text.
-      const body = ensureMinLength(listing.description, listing.title, 20);
+      const body = ensureMinLength(cleanDesc, cleanTitle, 20);
       await this.typeReactive(
         page,
         page.locator('form [name="data[content]"]').first(),
@@ -2604,6 +2613,24 @@ function ensureMinLength(text: string, title: string, min: number): string {
   if (title) t = (t + "\n" + title).trim();
   while (t.length < min) t += ".";
   return t;
+}
+
+/**
+ * bazar.sk rejects ads whose title/text contain emoji or other pictographic
+ * symbols ("nepovolené špeciálne znaky"). Strip them so the ad publishes, and
+ * tidy up the whitespace left behind (e.g. an "✅ " bullet becomes plain text).
+ * (Bazoš accepts emoji, so this only runs for bazar.)
+ */
+function stripBazarChars(s: string | null | undefined): string {
+  const cleaned = (s ?? "").replace(
+    /[\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}️‍⃣]/gu,
+    "",
+  );
+  return cleaned
+    .split("\n")
+    .map((line) => line.replace(/[ \t]{2,}/g, " ").replace(/^[ \t]+/, "").trimEnd())
+    .join("\n")
+    .trim();
 }
 
 /** A per-ad password that satisfies bazar.sk's "min. 7 znakov" rule. */
