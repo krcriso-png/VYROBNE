@@ -458,53 +458,57 @@ export class BazarSkProvider extends BrowserProvider {
       }
       const adId = own.match.id;
 
-      // 2) Diagnostics: dump the row's action controls (link OR button OR
-      //    onclick) so we can see exactly what "Zmazať" is if this fails.
-      const controls = await page
+      // 2) The row actions (Upraviť/Zmazať/Zvýhodniť) are NOT <a>/<button> — they
+      //    are <span>/<div> with JS click handlers. So scan ALL tags by their
+      //    visible text / title / aria-label, TAG the real "Zmazať" control in
+      //    the DOM, and dump candidates for diagnostics.
+      const diag = await page
         .evaluate(() => {
-          const out: {
-            tag: string;
-            text: string;
-            href: string;
-            onclick: boolean;
-          }[] = [];
+          const describe = (el: Element) => ({
+            tag: el.tagName.toLowerCase(),
+            cls: String((el as HTMLElement).className || "").slice(0, 50),
+            href: el.getAttribute("href") || "",
+            title: el.getAttribute("title") || "",
+            aria: el.getAttribute("aria-label") || "",
+            text: (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 30),
+          });
+          const hits: ReturnType<typeof describe>[] = [];
+          let delEl: Element | null = null;
           for (const el of Array.from(
-            document.querySelectorAll<HTMLElement>("a, button, [onclick]"),
+            document.querySelectorAll("a, button, span, div, li, i"),
           )) {
-            const text = (el.textContent || "")
-              .replace(/\s+/g, " ")
-              .trim()
-              .slice(0, 30);
-            const href = el.getAttribute("href") || "";
-            if (
-              !/zmaza|upravi|zv[ýy]hodni|odstr|vymaza/i.test(text) &&
-              !/zmaza|vymaz|odstr|delete|zrusit/i.test(href)
-            )
-              continue;
-            out.push({
-              tag: el.tagName.toLowerCase(),
-              text,
-              href,
-              onclick: !!el.getAttribute("onclick"),
-            });
+            const t = (el.textContent || "").replace(/\s+/g, " ").trim();
+            const meta = `${t} ${el.getAttribute("title") || ""} ${
+              el.getAttribute("aria-label") || ""
+            }`;
+            if (!/zmaza[tť]|upravi|zv[ýy]hodni/i.test(meta)) continue;
+            if (t.length > 40) continue; // skip big containers, keep leaf controls
+            hits.push(describe(el));
+            // The delete control: mentions "Zmazať" but NOT "inzerát" (that's the
+            // modal's confirm button). First in document order = the outer <a>/
+            // control wrapping the label.
+            if (/zmaza[tť]/i.test(meta) && !/inzer/i.test(meta) && !delEl) {
+              delEl = el;
+            }
           }
-          return out.slice(0, 12);
+          if (delEl) delEl.setAttribute("data-klikado-del", "1");
+          return { hits: hits.slice(0, 15), tagged: !!delEl };
         })
-        .catch(() => [] as { tag: string; text: string; href: string; onclick: boolean }[]);
-      await ctx.log("Bazar.sk: akčné prvky riadku inzerátu", { adId, controls });
+        .catch(() => ({ hits: [], tagged: false }));
+      await ctx.log("Bazar.sk: kandidáti na Zmazať", { adId, ...diag });
 
-      // 3) Click the row's "Zmazať" (NOT "Zmazať inzerát" — that's the modal's
-      //    confirm button). This opens the in-page modal "Zadajte heslo k
-      //    inzerátu".
-      const opener = page
-        .getByText(/zmaza[tť]/i)
-        .filter({ hasNotText: /inzer/i })
-        .first();
-      if (await opener.count()) {
-        await opener.click().catch(() => {});
+      // 3) Click the tagged "Zmazať" control → opens the modal "Zadajte heslo k
+      //    inzerátu". Fall back to a text match if tagging missed.
+      if (diag.tagged) {
+        await page
+          .locator('[data-klikado-del="1"]')
+          .first()
+          .click()
+          .catch(() => {});
       } else {
         await page
           .getByText(/zmaza[tť]/i)
+          .filter({ hasNotText: /inzer/i })
           .first()
           .click()
           .catch(() => {});
