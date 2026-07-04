@@ -555,12 +555,27 @@ export async function runDelete(data: BaseJobData): Promise<void> {
     const provider = getProvider(data.portalKey);
     await provider.delete(pub.remoteId, session, ctx);
 
-    // Verify the ad is ACTUALLY gone before reporting it removed. We only mark
-    // REMOVED when the check CONFIRMS it's gone (verified && !live).
-    const status = await provider
-      .checkStatus(pub.remoteId, session, ctx)
-      .catch(() => null);
-    const confirmedGone = !!status && status.verified === true && !status.live;
+    // Verify the ad is ACTUALLY gone before reporting it removed. The portal's
+    // "Moje inzeráty" search index can lag a few seconds after a delete, so
+    // retry a few times before concluding it's still live — otherwise a truly
+    // deleted ad gets a false "still online".
+    let status: Awaited<ReturnType<typeof provider.checkStatus>> | null = null;
+    let confirmedGone = false;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await new Promise((r) => setTimeout(r, attempt === 0 ? 3000 : 4000));
+      status = await provider
+        .checkStatus(pub.remoteId, session, ctx)
+        .catch(() => null);
+      if (status && status.verified === true && !status.live) {
+        confirmedGone = true;
+        break;
+      }
+      if (status && status.live) {
+        await ctx.log(
+          `Bazar.sk: inzerát ešte vidno v Moje inzeráty (pokus ${attempt + 1}/4) — čakám na aktualizáciu indexu…`,
+        );
+      }
+    }
     if (!confirmedGone) {
       const stillLive = status?.live === true;
       await ctx.log(
