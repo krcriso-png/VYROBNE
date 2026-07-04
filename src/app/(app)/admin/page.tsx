@@ -1,11 +1,13 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Users, Clock, AlertTriangle, LifeBuoy } from "lucide-react";
+import { Users, Clock, AlertTriangle, LifeBuoy, LayoutList } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AdminPlanSelect } from "@/components/AdminPlanSelect";
 import { AdminPortalToggle } from "@/components/AdminPortalToggle";
+import { AdminUserBlock } from "@/components/AdminUserBlock";
 import { AdminIncidents } from "@/components/AdminIncidents";
 import { SupportThreads, type SupportThreadDTO } from "@/components/SupportThreads";
 import { loadIncidents } from "@/lib/incidents";
@@ -175,20 +177,29 @@ export default async function AdminPage() {
       </section>
 
       <section>
-        <h2 className="mb-3 font-semibold">Používatelia</h2>
-        <Card className="overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-semibold">Používatelia</h2>
+          <Link
+            href="/admin/inzeraty"
+            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted"
+          >
+            <LayoutList className="size-4" /> Inzeráty zákazníkov
+          </Link>
+        </div>
+        <Card className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
             <thead className="border-b bg-muted/50 text-left text-muted-foreground">
               <tr>
                 <th className="px-4 py-2.5 font-medium">Email</th>
                 <th className="px-4 py-2.5 font-medium">Plán</th>
                 <th className="px-4 py-2.5 font-medium">Inzeráty</th>
                 <th className="px-4 py-2.5 font-medium">Stav</th>
+                <th className="px-4 py-2.5 font-medium">Účet</th>
               </tr>
             </thead>
             <tbody>
               {users.map((u) => (
-                <tr key={u.id} className="border-b last:border-0">
+                <tr key={u.id} className="border-b last:border-0 align-top">
                   <td className="px-4 py-2.5">{u.email}</td>
                   <td className="px-4 py-2.5">
                     <AdminPlanSelect
@@ -202,6 +213,19 @@ export default async function AdminPage() {
                       <Badge tone="destructive">blokovaný</Badge>
                     ) : (
                       <Badge tone="success">aktívny</Badge>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    {u.role === "ADMIN" ? (
+                      <span className="text-xs text-muted-foreground">
+                        administrátor
+                      </span>
+                    ) : (
+                      <AdminUserBlock
+                        userId={u.id}
+                        blocked={u.blocked}
+                        email={u.email}
+                      />
                     )}
                   </td>
                 </tr>

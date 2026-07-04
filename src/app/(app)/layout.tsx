@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Layers, LogOut, Coins } from "lucide-react";
+import { Layers, LogOut, Coins, Ban } from "lucide-react";
 import { auth, signOut } from "@/lib/auth";
 import { AppNav } from "@/components/AppNav";
 import { MobileNav } from "@/components/MobileNav";
@@ -16,6 +16,49 @@ export default async function AppLayout({
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
+
+  // A blocked account keeps its JWT until it expires, so re-check the DB flag on
+  // every page load and lock the whole UI out if it's blocked (the API already
+  // rejects every action). This makes "zablokovať účet" real, not cosmetic.
+  const account = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { blocked: true },
+  });
+  if (account?.blocked) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-muted/30 p-6">
+        <div className="max-w-md space-y-4 rounded-2xl border bg-card p-8 text-center">
+          <div className="mx-auto grid size-14 place-items-center rounded-full bg-destructive/10 text-destructive">
+            <Ban className="size-7" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold">Účet je zablokovaný</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Váš účet bol zablokovaný administrátorom. Podrobnosti sme vám
+              poslali e-mailom. Ak si myslíte, že ide o omyl, napíšte nám na{" "}
+              <a
+                href="mailto:info@klikado.sk"
+                className="font-medium text-primary"
+              >
+                info@klikado.sk
+              </a>
+              .
+            </p>
+          </div>
+          <form
+            action={async () => {
+              "use server";
+              await signOut({ redirectTo: "/" });
+            }}
+          >
+            <Button variant="outline" className="w-full">
+              <LogOut className="size-4" /> Odhlásiť sa
+            </Button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   const initial =
     (session.user.name ?? session.user.email ?? "?").charAt(0).toUpperCase();
