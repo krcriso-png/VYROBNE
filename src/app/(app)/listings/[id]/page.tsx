@@ -8,7 +8,7 @@ import { PhotoManager } from "@/components/PhotoManager";
 import { ListingActions } from "@/components/ListingActions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { LISTING_STATUS } from "@/lib/status";
+import { displayListingStatus } from "@/lib/status";
 import { formatPrice } from "@/lib/utils";
 
 // Listing detail: content, photos, portal publishing + live status.
@@ -43,7 +43,10 @@ export default async function ListingDetailPage({
     include: { accounts: { where: { userId }, select: { id: true } } },
   });
 
-  const st = LISTING_STATUS[listing.status];
+  const publishedCount = listing.publications.filter(
+    (p) => p.status === "PUBLISHED",
+  ).length;
+  const st = displayListingStatus(listing.status, publishedCount);
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">

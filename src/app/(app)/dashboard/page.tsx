@@ -23,7 +23,7 @@ import { getCreditState } from "@/lib/credits";
 import { Card } from "@/components/ui/card";
 import { Badge, Dot } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { LISTING_STATUS, PUBLICATION_STATUS } from "@/lib/status";
+import { PUBLICATION_STATUS, displayListingStatus } from "@/lib/status";
 import { formatPrice, formatDate } from "@/lib/utils";
 import { AutoTopToggle } from "@/components/AutoTopToggle";
 import { AutoRefresh } from "@/components/AutoRefresh";
@@ -140,7 +140,10 @@ export default async function DashboardPage() {
           <div className="grid gap-3">
             {listings.map((l) => {
               const main = l.images[0];
-              const st = LISTING_STATUS[l.status];
+              const publishedCount = l.publications.filter(
+                (p) => p.status === "PUBLISHED",
+              ).length;
+              const st = displayListingStatus(l.status, publishedCount);
               const publishedPub = l.publications.find(
                 (p) => p.status === "PUBLISHED" && p.remoteUrl,
               );

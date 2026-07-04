@@ -6,7 +6,7 @@ import { ImageOff, Globe, AlertTriangle, ArrowRight, Search } from "lucide-react
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { LISTING_STATUS } from "@/lib/status";
+import { LISTING_STATUS, displayListingStatus } from "@/lib/status";
 import { formatPrice } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
@@ -83,7 +83,7 @@ export function ListingsBrowser({ listings }: { listings: BrowserListing[] }) {
       ) : (
         <div className="grid gap-3">
           {shown.map((l) => {
-            const st = LISTING_STATUS[l.status];
+            const st = displayListingStatus(l.status, l.published);
             return (
               <Link key={l.id} href={`/listings/${l.id}`} className="group">
                 <Card className="flex items-center gap-4 p-3 transition-shadow hover:shadow-card">

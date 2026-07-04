@@ -133,14 +133,10 @@ export function PublishPanel({
   // it's live (omit portalKey). Either way the listing STAYS in Klikado — only
   // the portal ad(s) get removed, so it can be re-published anytime.
   async function unpublish(portalKey?: string, portalName?: string) {
-    const scope = portalKey
-      ? `z portálu ${portalName ?? portalKey}`
-      : "zo VŠETKÝCH portálov, kde je zverejnený";
-    if (
-      !window.confirm(
-        `Naozaj zmazať inzerát ${scope}? Inzerát ti zostane v Klikade — odstráni sa len z portálu a môžeš ho kedykoľvek znova publikovať.`,
-      )
-    ) {
+    const confirmText = portalKey
+      ? `Naozaj zmazať inzerát z portálu ${portalName ?? portalKey}? Inzerát ti zostane v Klikade — odstráni sa len z tohto portálu a môžeš ho kedykoľvek znova publikovať.`
+      : "Deaktivovať inzerát? Stiahne sa zo VŠETKÝCH portálov, kde je zverejnený. V Klikade ti zostane a môžeš ho kedykoľvek znova publikovať.";
+    if (!window.confirm(confirmText)) {
       return;
     }
     setBusy(true);
@@ -158,8 +154,10 @@ export function PublishPanel({
     setBusy(false);
     setMessage(
       res.ok
-        ? `Mazanie zaradené — inzerát sa čoskoro odstráni ${portalKey ? `z ${portalName ?? "portálu"}` : "z portálov"}. Ostáva ti v Klikade.`
-        : (data.error ?? "Mazanie zlyhalo."),
+        ? portalKey
+          ? `Mazanie zaradené — inzerát sa čoskoro odstráni z ${portalName ?? "portálu"}. Ostáva ti v Klikade.`
+          : "Deaktivácia zaradená — inzerát sa čoskoro stiahne zo všetkých portálov. Ostáva ti v Klikade a môžeš ho znova publikovať."
+        : (data.error ?? "Akcia zlyhala."),
     );
     router.refresh();
   }
@@ -387,9 +385,10 @@ export function PublishPanel({
                     variant="outline"
                     onClick={() => unpublish()}
                     disabled={busy}
-                    title="Zmaže inzerát zo všetkých portálov naraz (v Klikade ti zostane)"
+                    title="Stiahne inzerát zo všetkých portálov naraz — v Klikade ti zostane a môžeš ho znova publikovať"
                   >
-                    <Trash2 className="size-4" /> Zmazať zo všetkých portálov
+                    <Trash2 className="size-4" /> Deaktivovať inzerát (stiahnuť zo
+                    všetkých portálov)
                   </Button>
                 )}
               </div>
