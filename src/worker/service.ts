@@ -556,9 +556,7 @@ export async function runDelete(data: BaseJobData): Promise<void> {
     await provider.delete(pub.remoteId, session, ctx);
 
     // Verify the ad is ACTUALLY gone before reporting it removed. We only mark
-    // REMOVED when the check CONFIRMS it's gone (verified && !live). If it's
-    // still online — or we couldn't verify — we say so honestly and leave the
-    // ad in ERROR, never a false "deleted".
+    // REMOVED when the check CONFIRMS it's gone (verified && !live).
     const status = await provider
       .checkStatus(pub.remoteId, session, ctx)
       .catch(() => null);
@@ -567,16 +565,19 @@ export async function runDelete(data: BaseJobData): Promise<void> {
       const stillLive = status?.live === true;
       await ctx.log(
         stillLive
-          ? "Inzerát je po pokuse o zmazanie stále online — NEOZNAČUJEM ako zmazaný."
-          : "Zmazanie sa nepodarilo overiť — NEOZNAČUJEM ako zmazaný.",
+          ? "Inzerát je po pokuse o zmazanie stále online — nechávam ho zverejnený a hlásim, že zmazanie zlyhalo."
+          : "Zmazanie sa nepodarilo overiť — nechávam pôvodný stav a hlásim, že zmazanie zlyhalo.",
       );
+      // Deletion failed. Do NOT flip to a confusing ERROR — the ad is still
+      // live, so keep it PUBLISHED (the truth) and just attach a clear note that
+      // the delete failed, with the "write to support" affordance in the UI.
       await prisma.publication.update({
         where: { id: data.publicationId },
         data: {
-          status: "ERROR",
-          lastError: stillLive
-            ? "Zmazanie sa nepodarilo — inzerát je stále online na portáli. Skús to znova alebo ho zmaž priamo na portáli."
-            : "Zmazanie sa nepodarilo overiť — nevieme potvrdiť, či inzerát zmizol z portálu. Skontroluj to prosím priamo na portáli.",
+          status: stillLive ? "PUBLISHED" : pub.status,
+          // remoteId/remoteUrl are intentionally kept — the ad is still online.
+          statusNote:
+            "Zmazanie sa nepodarilo — inzerát je stále zverejnený na portáli. Skús to znova, alebo napíš podpore.",
         },
       });
       return;

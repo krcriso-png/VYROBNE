@@ -516,37 +516,48 @@ export class BazarSkProvider extends BrowserProvider {
         }));
       await ctx.log("Bazar.sk: kandidáti na Zmazať", { adId, ...diag });
 
+      const modalText = page.getByText(/heslo\s*k\s*inzer[áa]tu/i).first();
+
       // 3) Click the tagged "Zmazať" control → opens the modal "Zadajte heslo k
-      //    inzerátu". Fall back to a text match if tagging missed.
-      if (diag.tagged) {
-        await page
-          .locator('[data-klikado-del="1"]')
-          .first()
-          .click()
-          .catch(() => {});
-      } else {
-        await page
-          .getByText(/zmaza[tť]/i)
-          .filter({ hasNotText: /inzer/i })
-          .first()
-          .click()
-          .catch(() => {});
-      }
-      // Wait for the password modal to appear.
-      await page
-        .getByText(/heslo\s*k\s*inzer[áa]tu/i)
-        .first()
-        .waitFor({ timeout: 6000 })
-        .catch(() => {});
+      //    inzerátu". The handler is a jQuery-delegated one on a <span>, so we
+      //    try a real Playwright click, then a native in-page element.click()
+      //    fallback (both bubble to the delegated handler). Fall back to a text
+      //    match if tagging missed.
+      const clickDelete = async () => {
+        if (diag.tagged) {
+          const loc = page.locator('[data-klikado-del="1"]').first();
+          await loc.scrollIntoViewIfNeeded().catch(() => {});
+          await loc.click({ force: true, timeout: 4000 }).catch(() => {});
+          // If the modal isn't visible yet, dispatch a native click in-page.
+          if (!(await modalText.isVisible().catch(() => false))) {
+            await page
+              .evaluate(() => {
+                const el = document.querySelector<HTMLElement>(
+                  '[data-klikado-del="1"]',
+                );
+                el?.click();
+              })
+              .catch(() => {});
+          }
+        } else {
+          await page
+            .getByText(/zmaza[tť]/i)
+            .filter({ hasNotText: /inzer/i })
+            .first()
+            .click({ force: true })
+            .catch(() => {});
+        }
+      };
+      await clickDelete();
+
+      // Wait for the modal to be truly VISIBLE (not just present in the DOM —
+      // bazar pre-renders it hidden, which made an earlier wait resolve instantly).
+      await modalText.waitFor({ state: "visible", timeout: 6000 }).catch(() => {});
       await this.debugShot(page, ctx, "delete-open");
 
       // 4) Fill the per-ad password in the modal.
       const pass = ctx.secrets?.password || "";
-      const passField = page
-        .locator(
-          'input[type="password"]:visible, [role="dialog"] input:visible, .modal input:visible',
-        )
-        .first();
+      const passField = page.locator('input[type="password"]').first();
       if ((await passField.count()) && pass) {
         await passField.fill(pass).catch(() => {});
       } else if (!pass) {
@@ -558,14 +569,17 @@ export class BazarSkProvider extends BrowserProvider {
       // 5) Click the modal's blue "Zmazať inzerát" button to confirm.
       const confirm = page.getByText(/zmaza[tť]\s*inzer[áa]t/i).first();
       if (await confirm.count()) {
-        await confirm.click().catch(() => {});
+        await confirm.click({ force: true }).catch(() => {});
       } else {
         await this.clickButton(page, /zmaza|odstr[aá]ni|vymaza|potvrd/i);
       }
       await page.waitForLoadState("domcontentloaded").catch(() => {});
       await page.waitForTimeout(1500);
       await this.debugShot(page, ctx, "delete-done");
-      await ctx.log("Pokus o zmazanie dokončený", { hadPassword: !!pass });
+      await ctx.log("Pokus o zmazanie dokončený", {
+        hadPassword: !!pass,
+        modalOpened: await modalText.isVisible().catch(() => false),
+      });
     });
   }
 

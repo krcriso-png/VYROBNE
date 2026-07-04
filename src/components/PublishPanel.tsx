@@ -352,12 +352,32 @@ export function PublishPanel({
                     <PortalError publicationId={pub.id} error={pub.lastError} />
                   </div>
                 )}
-                {pub?.statusNote && pub.status !== "ERROR" && (
-                  <p className="mx-3 mb-3 flex items-start gap-1.5 rounded-md bg-warning/10 px-3 py-2 text-xs text-warning">
-                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-                    <span>{pub.statusNote}</span>
-                  </p>
-                )}
+                {pub?.statusNote &&
+                  pub.status !== "ERROR" &&
+                  (/zmazanie sa nepodarilo/i.test(pub.statusNote) ? (
+                    <div className="mx-3 mb-3 rounded-md bg-warning/10 px-3 py-2">
+                      <p className="flex items-start gap-1.5 text-xs text-warning">
+                        <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                        <span>{pub.statusNote}</span>
+                      </p>
+                      <div className="mt-2 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => unpublish(p.key, p.name)}
+                          disabled={busy}
+                          className="text-xs font-medium text-destructive hover:underline disabled:opacity-50"
+                        >
+                          Skúsiť zmazať znova
+                        </button>
+                        <ReportButton publicationId={pub.id} />
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mx-3 mb-3 flex items-start gap-1.5 rounded-md bg-warning/10 px-3 py-2 text-xs text-warning">
+                      <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                      <span>{pub.statusNote}</span>
+                    </p>
+                  ))}
               </div>
             );
           })}
@@ -515,6 +535,42 @@ function SmsPrompt({
         {error && <p className="text-sm text-destructive">{error}</p>}
       </CardContent>
     </Card>
+  );
+}
+
+/** Small "write to support" button (reuses the publication report endpoint). */
+function ReportButton({ publicationId }: { publicationId: string }) {
+  const [state, setState] = useState<"idle" | "sending" | "done" | "fail">(
+    "idle",
+  );
+  async function report() {
+    setState("sending");
+    const res = await fetch(`/api/publications/${publicationId}/report`, {
+      method: "POST",
+    });
+    setState(res.ok ? "done" : "fail");
+  }
+  if (state === "done") {
+    return (
+      <span className="text-xs text-success">
+        ✓ Napísané podpore — ozveme sa ti.
+      </span>
+    );
+  }
+  return (
+    <>
+      <button
+        type="button"
+        onClick={report}
+        disabled={state === "sending"}
+        className="text-xs font-medium text-primary hover:underline disabled:opacity-50"
+      >
+        {state === "sending" ? "Odosielam…" : "Napísať podpore"}
+      </button>
+      {state === "fail" && (
+        <span className="text-xs text-destructive">Odoslanie zlyhalo.</span>
+      )}
+    </>
   );
 }
 
