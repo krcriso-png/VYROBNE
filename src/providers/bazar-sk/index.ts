@@ -603,8 +603,9 @@ export class BazarSkProvider extends BrowserProvider {
       }
       await fire("zmaza[tť]\\s*inzer[áa]t");
 
-      // STEP 3 — the "reason" modal (a reason is pre-selected: "Nechcem
-      // odpovedať"), so just confirm with its red "Zmazať inzerát".
+      // STEP 3 — the "reason" modal. A reason MUST be selected first (it is NOT
+      // pre-selected), so pick "Nechcem odpovedať" (neutral), then confirm with
+      // the red "Zmazať inzerát".
       const reasonModal = page
         .getByText(/nepredal\s*som|nechcem\s*odpoveda|d[ôo]vod\w*\s*zmazan/i)
         .first();
@@ -612,6 +613,55 @@ export class BazarSkProvider extends BrowserProvider {
         .waitFor({ state: "visible", timeout: 8000 })
         .catch(() => {});
       await this.debugShot(page, ctx, "delete-2-reason");
+
+      // Select the "Nechcem odpovedať" radio: click its label text AND set the
+      // nearest radio checked in-page (covers wrapped-label and sibling-input
+      // layouts).
+      await page
+        .getByText(/nechcem\s*odpoveda/i)
+        .first()
+        .click({ force: true })
+        .catch(() => {});
+      const reasonPicked = await page
+        .evaluate(() => {
+          const nodes = Array.from(
+            document.querySelectorAll<HTMLElement>("label, li, div, span, p"),
+          );
+          for (const el of nodes) {
+            const t = (el.textContent || "").replace(/\s+/g, " ").trim();
+            if (!/nechcem\s*odpoveda/i.test(t) || t.length > 40) continue;
+            let radio =
+              el.querySelector<HTMLInputElement>('input[type="radio"]') ||
+              el.closest("label")?.querySelector<HTMLInputElement>(
+                'input[type="radio"]',
+              ) ||
+              null;
+            if (!radio) {
+              // radio as a preceding sibling of the text node
+              let sib = el.previousElementSibling;
+              while (sib) {
+                if (
+                  sib instanceof HTMLInputElement &&
+                  sib.type === "radio"
+                ) {
+                  radio = sib;
+                  break;
+                }
+                sib = sib.previousElementSibling;
+              }
+            }
+            if (radio) {
+              radio.checked = true;
+              radio.click();
+              radio.dispatchEvent(new Event("change", { bubbles: true }));
+              return true;
+            }
+          }
+          return false;
+        })
+        .catch(() => false);
+      await ctx.log("Bazar.sk: dôvod zmazania zvolený", { reasonPicked });
+
       await fire("zmaza[tť]\\s*inzer[áa]t");
 
       // STEP 4 — success modal "Zmazanie inzerátu prebehlo úspešne."
