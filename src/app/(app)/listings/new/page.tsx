@@ -89,12 +89,15 @@ export default function NewListingPage() {
   );
 
   // Append newly picked files (deduped by name+size), so multiple picks add up.
-  function addFiles(list: FileList | null) {
-    if (!list || list.length === 0) return;
+  // IMPORTANT: `files` must already be a materialized array — the caller reads
+  // e.target.files BEFORE clearing the input, otherwise the FileList is empty by
+  // the time this state updater runs (that caused "first pick shows nothing").
+  function addFiles(files: File[]) {
+    if (files.length === 0) return;
     setPhotos((prev) => {
       const seen = new Set(prev.map((f) => `${f.name}:${f.size}`));
       const next = [...prev];
-      for (const f of Array.from(list)) {
+      for (const f of files) {
         const k = `${f.name}:${f.size}`;
         if (!seen.has(k)) {
           seen.add(k);
@@ -496,7 +499,8 @@ export default function NewListingPage() {
                 accept="image/*"
                 className="hidden"
                 onChange={(e) => {
-                  addFiles(e.target.files);
+                  // Materialize the FileList NOW, before clearing the input.
+                  addFiles(Array.from(e.target.files ?? []));
                   e.target.value = ""; // allow re-picking the same file
                 }}
               />
