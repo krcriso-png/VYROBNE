@@ -129,6 +129,7 @@ export default async function ListingDetailPage({
             portals={portals.map((p) => ({
               key: p.key,
               name: p.name,
+              country: p.country,
               integration: p.integration,
               hasAccount: p.accounts.length > 0,
               paused: p.pausedForUsers,

@@ -21,11 +21,20 @@ import { classifyError } from "@/lib/errors";
 interface PortalOption {
   key: string;
   name: string;
+  country: string; // "SK" | "CZ" — used to group portals so you can publish
+  // only to one country without accidentally posting everywhere.
   integration: string;
   hasAccount: boolean;
   // True when the portal is paused for regular customers (only admins see it).
   paused?: boolean;
 }
+
+// Country grouping metadata for the portal picker.
+const COUNTRY_LABEL: Record<string, string> = {
+  SK: "🇸🇰 Slovensko",
+  CZ: "🇨🇿 Česko",
+};
+const COUNTRY_ORDER = ["SK", "CZ"];
 
 interface PublicationState {
   id: string;
@@ -91,6 +100,50 @@ export function PublishPanel({
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
+      return next;
+    });
+  }
+
+  // Portals grouped by country (SK/CZ) so you can publish to just one country.
+  const groups = COUNTRY_ORDER.map((country) => ({
+    country,
+    label: COUNTRY_LABEL[country] ?? country,
+    items: portals.filter((p) => (p.country || "SK") === country),
+  }))
+    .concat(
+      // Any unexpected country code still shows up (never hide a portal).
+      Object.keys(COUNTRY_LABEL).length
+        ? portals
+            .filter((p) => !COUNTRY_ORDER.includes(p.country || "SK"))
+            .reduce<{ country: string; label: string; items: PortalOption[] }[]>(
+              (acc, p) => {
+                const c = p.country || "SK";
+                let g = acc.find((x) => x.country === c);
+                if (!g) {
+                  g = { country: c, label: c, items: [] };
+                  acc.push(g);
+                }
+                g.items.push(p);
+                return acc;
+              },
+              [],
+            )
+        : [],
+    )
+    .filter((g) => g.items.length > 0);
+
+  // Select / clear a whole country group at once (only portals with an account).
+  function toggleGroup(country: string) {
+    const keys = portals
+      .filter((p) => (p.country || "SK") === country && p.hasAccount)
+      .map((p) => p.key);
+    const allOn = keys.length > 0 && keys.every((k) => selected.has(k));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const k of keys) {
+        if (allOn) next.delete(k);
+        else next.add(k);
+      }
       return next;
     });
   }
@@ -227,10 +280,37 @@ export function PublishPanel({
           <CardTitle>Publikovať na portály</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          {portals.map((p) => {
-            const pub = pubByPortal.get(p.key);
-            const st = pub ? PUBLICATION_STATUS[pub.status] : null;
-            const checked = selected.has(p.key);
+          {groups.map((g) => {
+            const groupKeys = g.items
+              .filter((p) => p.hasAccount)
+              .map((p) => p.key);
+            const allOn =
+              groupKeys.length > 0 && groupKeys.every((k) => selected.has(k));
+            return (
+              <div key={g.country} className="space-y-2">
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {g.label}
+                  </span>
+                  {groupKeys.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(g.country)}
+                      className="text-xs font-medium text-primary hover:underline"
+                    >
+                      {allOn ? "Zrušiť všetky" : "Vybrať všetky"}
+                    </button>
+                  )}
+                </div>
+                {g.country === "CZ" && (
+                  <p className="rounded-md bg-muted/50 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                    Ceny sa automaticky prepočítajú z € na Kč aktuálnym kurzom.
+                  </p>
+                )}
+                {g.items.map((p) => {
+                  const pub = pubByPortal.get(p.key);
+                  const st = pub ? PUBLICATION_STATUS[pub.status] : null;
+                  const checked = selected.has(p.key);
             return (
               <div
                 key={p.key}
@@ -338,6 +418,9 @@ export function PublishPanel({
                       <span>{pub.statusNote}</span>
                     </p>
                   ))}
+              </div>
+            );
+                })}
               </div>
             );
           })}

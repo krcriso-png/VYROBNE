@@ -71,6 +71,19 @@ export class BazosSkProvider extends BrowserProvider {
     return key;
   }
 
+  /**
+   * The price string to type into the portal's price field. Bazoš SK is in EUR,
+   * so the listing price is used as-is. Bazoš CZ overrides this to convert EUR
+   * → CZK with a real exchange rate (see BazosCzProvider), because the Czech
+   * field expects crowns — otherwise "100" (€100) would post as 100 Kč.
+   */
+  protected async priceForPortal(
+    priceEur: number,
+    _ctx: ProviderContext,
+  ): Promise<string> {
+    return String(priceEur);
+  }
+
   // Format the phone for the "Moje inzeráty" lookup. Bazoš lists ads by the
   // VERIFICATION phone, and each market expects a different format WITHOUT "+":
   // Bazoš SK uses the local "0…" form, Bazoš CZ the "421…" form.
@@ -344,7 +357,8 @@ export class BazosSkProvider extends BrowserProvider {
       await selectBestCategoryOption(page, ctx, wanted);
 
       if (listing.price != null) {
-        await page.fill('input[name="cena"]', String(listing.price));
+        const priced = await this.priceForPortal(Number(listing.price), ctx);
+        await page.fill('input[name="cena"]', priced);
       } else {
         // No fixed price → "Dohodou".
         await page.selectOption('select[name="cenavyber"]', "2").catch(() => {});

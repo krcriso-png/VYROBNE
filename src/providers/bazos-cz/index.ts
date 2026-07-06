@@ -1,4 +1,6 @@
 import { BazosSkProvider } from "../bazos-sk";
+import type { ProviderContext } from "../types";
+import { eurToCzk } from "../../lib/fx";
 
 // ===========================================================================
 // Bazoš CZ
@@ -38,6 +40,18 @@ export class BazosCzProvider extends BazosSkProvider {
 
   protected mapSectionKey(key: string): string {
     return BazosCzProvider.KEY_MAP[key] ?? key;
+  }
+
+  // Klikado prices are in EUR; the Czech field expects crowns. Convert with a
+  // real (Czech National Bank) rate and log it transparently, so €100 posts as
+  // ~2530 Kč instead of "100 Kč". Never blocks a publish — see src/lib/fx.ts.
+  protected async priceForPortal(
+    priceEur: number,
+    ctx: ProviderContext,
+  ): Promise<string> {
+    const { czk, note } = await eurToCzk(priceEur);
+    await ctx.log(note);
+    return String(czk);
   }
 
   // Bazoš CZ "Moje inzeráty" lists by the phone in "421…" form (no leading 0).
