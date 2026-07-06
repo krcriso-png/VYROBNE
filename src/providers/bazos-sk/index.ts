@@ -729,8 +729,8 @@ export class BazosSkProvider extends BrowserProvider {
     const phone = formatPhone(rawPhone, this.phonePrefix);
     if (!phone) {
       throw new Error(
-        "Bazoš vyžaduje overenie telefónu, ale nie je zadané žiadne číslo " +
-          "(zadaj 'Telefón na SMS overenie' pri Bazoš účte alebo telefón v inzeráte).",
+        `${this.name} vyžaduje overenie telefónu, ale nie je zadané žiadne číslo ` +
+          `(zadaj 'Telefón na SMS overenie' pri ${this.name} účte alebo telefón v inzeráte).`,
       );
     }
     await ctx.log("Spúšťam overenie telefónu na Bazoši");
@@ -776,8 +776,8 @@ export class BazosSkProvider extends BrowserProvider {
         // we DO know the reason then. Otherwise report its words without guessing.
         throw new Error(
           blocked
-            ? `Bazoš blokuje toto telefónne číslo na SMS overenie. Portál zobrazil: „${portalSaid}“.`
-            : `Bazoš odmietol SMS overenie${portalSaid ? ` – zobrazil: „${portalSaid}“` : ""}.`,
+            ? `${this.name} blokuje toto telefónne číslo na SMS overenie. Portál zobrazil: „${portalSaid}“.`
+            : `${this.name} odmietol SMS overenie${portalSaid ? ` – zobrazil: „${portalSaid}“` : ""}.`,
         );
       }
       if ((await page.locator('input[name="nadpis"]').count()) === 0) {
@@ -795,7 +795,7 @@ export class BazosSkProvider extends BrowserProvider {
       throw new Error("SMS overenie vyžaduje interaktívne zadanie kódu.");
     }
     const code = await ctx.requestUserInput(
-      "Zadaj SMS kód (mobilný kľúč) z Bazoš, ktorý ti prišiel na telefón.",
+      `Zadaj SMS kód (mobilný kľúč) z ${this.name}, ktorý ti prišiel na telefón.`,
     );
     if (!code) {
       throw new Error("SMS kód nebol zadaný včas — skús publikovať znova.");
