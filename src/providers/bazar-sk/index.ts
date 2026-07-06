@@ -1394,21 +1394,26 @@ export class BazarSkProvider extends BrowserProvider {
       return hv.length > 0 || iv.length > 1;
     };
 
-    // Smart candidate list: full text, the city (before a comma/okres), and PSČ
-    // with/without a space — so at least one form triggers usable suggestions.
+    // Candidate order per the reliable recipe: PSČ FIRST (unambiguous — the
+    // portal suggests the matching town), then the town/city text as fallback.
     const expanded: string[] = [];
     const addCand = (s: string | undefined) => {
       const v = (s || "").replace(/\s+/g, " ").trim();
       if (v && v.length >= 2 && !expanded.includes(v)) expanded.push(v);
     };
-    for (const c of candidates) {
-      addCand(c);
-      addCand((c || "").split(/[,/(]/)[0]); // city part before "okres/," etc.
-    }
+    // 1) PSČ — with a space ("821 08") and without ("82108").
     for (const c of candidates) {
       const digits = (c || "").replace(/\D/g, "");
-      if (/^\d{5}$/.test(digits))
+      if (/^\d{5}$/.test(digits)) {
         addCand(digits.replace(/(\d{3})(\d{2})/, "$1 $2"));
+        addCand(digits);
+      }
+    }
+    // 2) Town / city text (full, then the part before an "okres"/comma).
+    for (const c of candidates) {
+      if (/^\d/.test((c || "").trim())) continue; // skip raw PSČ (added above)
+      addCand(c);
+      addCand((c || "").split(/[,/(]/)[0]);
     }
     await ctx.log("Lokalita – kandidáti", { expanded });
     if (expanded.length === 0) {
@@ -1416,21 +1421,51 @@ export class BazarSkProvider extends BrowserProvider {
       return;
     }
 
+    // bazar.sk shows suggestions in a "whisperer/napovedač" list — a specific,
+    // reliable selector. We click the FIRST offered option (the recipe that
+    // works every time): type the value, wait for the list, click option #1.
+    const SUGGEST_SEL =
+      ".whisperer-items li, .whisperer-item, ul.whisperer li, .ui-autocomplete li, " +
+      ".whisperer-list li, .napovedac li, .autocomplete-items div, .autocomplete li";
+
     for (const cand of expanded) {
       await input.click({ timeout: 3000 }).catch(() => {});
       await input.fill("").catch(() => {});
-      await input.pressSequentially(cand, { delay: 90 }).catch(() => {});
+      // Real keystrokes so the portal's AJAX autocomplete fires.
+      await input.pressSequentially(cand, { delay: 110 }).catch(() => {});
 
-      // Poll for the suggestion dropdown (AJAX latency) up to ~4 s, and DUMP the
-      // options seen so we can see the widget's structure from the log.
+      // Wait for the suggestion list and click the FIRST item. Poll up to ~6 s.
       let picked = "";
       let optionsSeen: string[] = [];
-      for (let tries = 0; tries < 8 && !picked; tries++) {
+      for (let tries = 0; tries < 12 && !(await filled()); tries++) {
         await page.waitForTimeout(500);
+        const sugg = page.locator(SUGGEST_SEL).filter({ visible: true });
+        const count = await sugg.count().catch(() => 0);
+        if (count > 0) {
+          optionsSeen = (
+            await sugg
+              .allInnerTexts()
+              .catch(() => [] as string[])
+          )
+            .map((t) => t.replace(/\s+/g, " ").trim().slice(0, 40))
+            .filter(Boolean)
+            .slice(0, 10);
+          const first = sugg.first();
+          picked = (await first.innerText().catch(() => ""))
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 50);
+          await first.click({ timeout: 3000 }).catch(() => {});
+          await page.waitForTimeout(800);
+          break;
+        }
+      }
+
+      // Fallback A: generic scan for the first leaf option right below the input
+      // (if the widget doesn't use the known whisperer classes).
+      if (!(await filled())) {
         const res = await page
-          .evaluate((q: string) => {
-            const norm = (s: string) =>
-              s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+          .evaluate(() => {
             const vis = (el: HTMLElement) => {
               const r = el.getBoundingClientRect();
               return r.width > 2 && r.height > 2 && el.offsetParent !== null;
@@ -1451,11 +1486,7 @@ export class BazarSkProvider extends BrowserProvider {
               if (r.top < ir.bottom - 6 || r.top - ir.bottom > 360) return false;
               if (Math.abs(r.left - ir.left) > 460) return false;
               const t = (el.textContent || "").replace(/\s+/g, " ").trim();
-              return (
-                t.length >= 2 &&
-                t.length <= 60 &&
-                /[a-záäčďéíĺľňóôŕšťúýž]/i.test(t)
-              );
+              return t.length >= 2 && t.length <= 60;
             });
             const seen = new Set<string>();
             const uniq = rows.filter((el) => {
@@ -1464,14 +1495,11 @@ export class BazarSkProvider extends BrowserProvider {
               seen.add(t);
               return true;
             });
-            const nq = norm(q);
-            const best =
-              uniq.find((el) => norm(el.textContent || "").includes(nq)) ??
-              uniq[0];
-            if (best) best.setAttribute("data-klikado-locpick", "1");
+            const first = uniq[0]; // click the FIRST option, per the recipe
+            if (first) first.setAttribute("data-klikado-locpick", "1");
             return {
-              picked: best
-                ? (best.textContent || "").replace(/\s+/g, " ").trim().slice(0, 50)
+              picked: first
+                ? (first.textContent || "").replace(/\s+/g, " ").trim().slice(0, 50)
                 : "",
               options: uniq
                 .map((el) =>
@@ -1479,27 +1507,28 @@ export class BazarSkProvider extends BrowserProvider {
                 )
                 .slice(0, 10),
             };
-          }, cand)
+          })
           .catch(() => ({ picked: "", options: [] as string[] }));
-        picked = res.picked;
-        optionsSeen = res.options;
+        if (res.picked) {
+          picked = res.picked;
+          optionsSeen = res.options;
+          await page
+            .locator('[data-klikado-locpick="1"]')
+            .first()
+            .click({ timeout: 3000 })
+            .catch(() => {});
+          await page.waitForTimeout(800);
+        }
       }
 
-      if (picked) {
-        await page
-          .locator('[data-klikado-locpick="1"]')
-          .first()
-          .click({ timeout: 3000 })
-          .catch(() => {});
-        await page.waitForTimeout(800);
-      }
-      // Keyboard fallback if a click didn't stick (or no suggestion was found).
+      // Fallback B: keyboard — down to the first suggestion, Enter.
       if (!(await filled())) {
         await input.press("ArrowDown").catch(() => {});
         await page.waitForTimeout(350);
         await input.press("Enter").catch(() => {});
         await page.waitForTimeout(700);
       }
+
       const ok = await filled();
       await ctx.log("Lokalita – pokus", {
         cand,
