@@ -14,7 +14,11 @@ import type {
   StatusResult,
 } from "./types";
 import type { IntegrationType } from "@prisma/client";
-import { putObject } from "../lib/storage";
+import {
+  putObject,
+  objectStorageConfigured,
+  pruneDebugBlobs,
+} from "../lib/storage";
 
 // ===========================================================================
 // Base provider classes
@@ -207,51 +211,75 @@ export abstract class BrowserProvider extends BaseProvider {
     } catch {
       /* page may be gone */
     }
-    // 1) Full-page screenshot (best), with a timeout so it can't hang.
+    // With real object storage (S3/R2) we can afford full-page shots and HTML
+    // dumps. On the DB-fallback we must NOT — big blobs fill the database (that
+    // filled Neon's 512 MB and broke writes). There we keep only a small
+    // viewport PNG and prune old debug blobs so debug never balloons.
+    const big = objectStorageConfigured();
+    const store = async (suffix: string, buf: Buffer, ct: string) => {
+      const key = `debug/${this.key}-${label}-${Date.now()}.${suffix}`;
+      await putObject(key, buf, ct);
+      if (!big) await pruneDebugBlobs(); // bound DB-fallback debug storage
+      return key;
+    };
+
+    // 1) Screenshot — full-page only on object storage, else a small viewport shot.
     try {
-      const buf = await page.screenshot({ fullPage: true, timeout: 15000 });
-      const key = `debug/${this.key}-${label}-${Date.now()}.png`;
-      await putObject(key, buf, "image/png");
-      await ctx.log(`📸 [${label}] /api/blob/${key} · ${url}`, {
+      const buf = await page.screenshot({
+        fullPage: big,
+        timeout: big ? 15000 : 8000,
+      });
+      const key = await store("png", buf, "image/png");
+      await ctx.log(`📸 [${label}] /api/blob/${key} · ${url}${big ? "" : " (výrez)"}`, {
         debugScreenshot: `/api/blob/${key}`,
         url,
       });
       return;
     } catch {
-      /* fall back to viewport */
+      /* try a plain viewport shot next */
     }
-    // 2) Viewport-only screenshot — far more reliable on a broken/tall page.
+    // 2) Viewport-only retry (covers a failed full-page attempt on object storage).
     try {
-      const buf = await page.screenshot({ timeout: 10000 });
-      const key = `debug/${this.key}-${label}-${Date.now()}.png`;
-      await putObject(key, buf, "image/png");
+      const buf = await page.screenshot({ timeout: 8000 });
+      const key = await store("png", buf, "image/png");
       await ctx.log(`📸 [${label}] /api/blob/${key} · ${url} (výrez)`, {
         debugScreenshot: `/api/blob/${key}`,
         url,
       });
       return;
     } catch {
-      /* fall back to HTML */
+      /* fall through */
     }
-    // 3) Screenshot impossible → save the page HTML so the state is still visible.
+    // 3) HTML dump — ONLY with real object storage (HTML is large; never in DB).
+    if (big) {
+      try {
+        const html = await page.content();
+        const key = await store("html", Buffer.from(html, "utf8"), "text/html");
+        await ctx.log(`📄 [${label}] HTML: /api/blob/${key} · ${url}`, {
+          debugHtml: `/api/blob/${key}`,
+          url,
+        });
+        return;
+      } catch {
+        /* fall through */
+      }
+    }
+    // 4) Last resort — a short text snippet in the log (never touches storage).
+    let snippet = "";
     try {
-      const html = await page.content();
-      const key = `debug/${this.key}-${label}-${Date.now()}.html`;
-      await putObject(key, Buffer.from(html, "utf8"), "text/html");
-      await ctx.log(`📄 [${label}] HTML uložené: /api/blob/${key} · ${url}`, {
-        debugHtml: `/api/blob/${key}`,
-        url,
-      });
-      return;
-    } catch (e) {
-      // 4) Even HTML failed (renderer crashed). Log at least the URL + reason.
-      await ctx
-        .log(
-          `❌ [${label}] Snímku ani HTML sa nepodarilo uložiť (stránka pravdepodobne spadla). URL: ${url} · ${String(e).slice(0, 140)}`,
-          { url },
-        )
-        .catch(() => {});
+      snippet = (await page.locator("body").innerText())
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 220);
+    } catch {
+      /* page unreachable */
     }
+    await ctx
+      .log(
+        `❌ [${label}] Snímka sa nepodarila (URL: ${url}).${snippet ? ` Text stránky: ${snippet}` : " Stránka pravdepodobne spadla."}`,
+        { url },
+      )
+      .catch(() => {});
   }
 
   /** Serialise the current context into a persistable session blob. */

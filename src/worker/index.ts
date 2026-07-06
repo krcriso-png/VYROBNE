@@ -13,6 +13,7 @@ import {
   markError,
 } from "./service";
 import { startScheduler } from "./scheduler";
+import { pruneDebugBlobs } from "../lib/storage";
 
 // ===========================================================================
 // Worker entrypoint
@@ -104,6 +105,21 @@ const worker = new Worker<BaseJobData>(
 );
 
 void recoverStuckPublications();
+
+// Free space taken by accumulated debug screenshots/HTML in the DB-fallback
+// storage. During testing these can fill a small DB (Neon 512 MB) and block all
+// writes. On boot we purge every debug blob; runtime keeps only a recent few.
+void (async () => {
+  try {
+    const removed = await pruneDebugBlobs(0);
+    if (removed > 0) {
+      // eslint-disable-next-line no-console
+      console.log(`🧹 Purged ${removed} debug blob(s) to free database space.`);
+    }
+  } catch {
+    /* non-fatal */
+  }
+})();
 
 worker.on("completed", (job) => {
   void logActivity({

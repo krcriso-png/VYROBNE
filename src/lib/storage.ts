@@ -73,6 +73,40 @@ export async function deleteObject(key: string): Promise<void> {
   }
 }
 
+/** True when a real (S3-compatible) object store is configured. */
+export function objectStorageConfigured(): boolean {
+  return USE_S3;
+}
+
+/**
+ * Keep debug artifacts (screenshots) from filling the DB-fallback storage.
+ * When there's no S3, `debug/*` blobs live in the database (which on a small
+ * plan — e.g. Neon 512 MB — fills up fast during testing). This deletes all but
+ * the newest `keep` debug blobs. Pass keep=0 to purge them all (free space now).
+ * No-op when S3 is configured (object storage is large/cheap). Never throws.
+ */
+export async function pruneDebugBlobs(keep = 12): Promise<number> {
+  if (USE_S3) return 0;
+  try {
+    const rows = await prisma.imageBlob.findMany({
+      where: { key: { startsWith: "debug/" } },
+      orderBy: { createdAt: "desc" },
+      select: { key: true },
+    });
+    const toDelete = rows.slice(keep).map((r) => r.key);
+    if (toDelete.length === 0) return 0;
+    // Delete in chunks so a huge backlog doesn't build one enormous statement.
+    for (let i = 0; i < toDelete.length; i += 200) {
+      await prisma.imageBlob.deleteMany({
+        where: { key: { in: toDelete.slice(i, i + 200) } },
+      });
+    }
+    return toDelete.length;
+  } catch {
+    return 0;
+  }
+}
+
 /** Public URL for an object (used as ListingImage.url for browser display). */
 export function publicUrl(key: string): string {
   if (USE_S3) {
