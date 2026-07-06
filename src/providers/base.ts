@@ -191,7 +191,14 @@ export abstract class BrowserProvider extends BaseProvider {
   /** Serialise the current context into a persistable session blob. */
   protected async snapshot(context: BrowserContext): Promise<ProviderSession> {
     const state = await context.storageState();
-    return { state };
+    // Always carry a validity window. Without it, persistSessionRefresh() would
+    // store sessionValidUntil = null after a publish, the session would count as
+    // expired, and the next post would log in from scratch — throwing away the
+    // SMS-verified cookies and making the portal ask for a NEW code every time.
+    return {
+      state,
+      validUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    };
   }
 
   /** Dismiss a cookie-consent banner if present (best-effort, never throws). */

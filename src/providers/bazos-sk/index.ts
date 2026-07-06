@@ -805,6 +805,14 @@ export class BazosSkProvider extends BrowserProvider {
     }
 
     await this.debugShot(page, ctx, "sms-code-page");
+    // Explain WHY an SMS is being asked, so repeated prompts are understandable.
+    // A logged-in, phone-verified account skips SMS; anonymous posting does not.
+    const hasAccount = !!(ctx.secrets?.login && ctx.secrets?.password);
+    await ctx.log(
+      hasAccount
+        ? `${this.name} pýta SMS aj napriek zadanému účtu — prihlásenie sa asi neuchytilo (skontroluj email/heslo k portálu). Prihlásený overený účet by SMS nepýtal.`
+        : `${this.name} pýta SMS, lebo inzerát ide anonymne (bez prihlásenia). Pridaj email a heslo k ${this.name} účtu v sekcii Portály — potom sa už SMS opakovane pýtať nebude.`,
+    );
     if (!ctx.requestUserInput) {
       throw new Error("SMS overenie vyžaduje interaktívne zadanie kódu.");
     }
