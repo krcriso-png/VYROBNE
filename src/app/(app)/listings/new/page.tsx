@@ -172,6 +172,9 @@ export default function NewListingPage() {
         title: data.title || f.title,
         description: data.description || f.description,
         price: data.price ? String(data.price) : f.price,
+        // AI's category suggestion pre-fills the picker (you can still change it).
+        section: data.categorySection || f.section,
+        subcategory: data.categorySubcategory || f.subcategory,
       }));
     } catch {
       setAiError("Generovanie zlyhalo. Skús to znova.");

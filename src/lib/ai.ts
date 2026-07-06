@@ -1,4 +1,15 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { BAZOS_CATEGORIES } from "./bazos-categories";
+
+// Valid Bazoš section keys, offered to the AI so it can also pick a category.
+const SECTION_KEYS = BAZOS_CATEGORIES.map((s) => s.key);
+
+// Compact catalog the model reads to choose the best section + subcategory.
+function categoryCatalog(): string {
+  return BAZOS_CATEGORIES.map(
+    (s) => `- ${s.key} (${s.label}): ${s.subcategories.join(", ")}`,
+  ).join("\n");
+}
 
 // ===========================================================================
 // AI ad-copy generation (Claude)
@@ -21,6 +32,11 @@ export interface GeneratedListing {
   title: string;
   description: string;
   price: number; // 0 = unknown / "Dohodou"
+  // Suggested Bazoš category (best guess; empty when the AI is unsure). The
+  // section is a key from BAZOS_CATEGORIES; the subcategory is one of that
+  // section's labels. The form pre-fills the picker so the user can confirm.
+  categorySection: string;
+  categorySubcategory: string;
 }
 
 export interface GenerateInput {
@@ -43,6 +59,7 @@ Zásady:
 - Názov: výstižný, max ~60 znakov, bez zbytočných emoji a CAPS LOCKu.
 - Popis: 3–6 viet, prirodzená slovenčina. Spomeň stav, kľúčové vlastnosti a krátku výzvu na kontakt. Nevymýšľaj si fakty, ktoré nevidíš — píš všeobecne, ak nevieš detail.
 - Cena: odhad v eurách ako číslo. Ak sa nedá odhadnúť, daj 0.
+- Kategória: z priloženého zoznamu vyber NAJVHODNEJŠIU sekciu (jej kľúč do poľa categorySection) a k nej podkategóriu (presný názov zo zoznamu tej sekcie do poľa categorySubcategory). Ak si nie si istý, nechaj oba prázdne — radšej prázdne než nesprávne.
 - Nepoužívaj telefónne čísla ani odkazy.`;
 
 const SCHEMA = {
@@ -54,10 +71,26 @@ const SCHEMA = {
       type: "number",
       description: "Odhad ceny v EUR, 0 ak neznáme",
     },
+    categorySection: {
+      type: "string",
+      enum: [...SECTION_KEYS, ""],
+      description: "Kľúč najvhodnejšej sekcie zo zoznamu; prázdne ak nevieš.",
+    },
+    categorySubcategory: {
+      type: "string",
+      description:
+        "Presný názov podkategórie z vybranej sekcie; prázdne ak nevieš.",
+    },
   },
-  required: ["title", "description", "price"],
+  required: [
+    "title",
+    "description",
+    "price",
+    "categorySection",
+    "categorySubcategory",
+  ],
   additionalProperties: false,
-} as const;
+};
 
 export async function generateListingText(
   input: GenerateInput,
@@ -85,11 +118,14 @@ export async function generateListingText(
     });
   }
   const ask: string[] = ["Vytvor inzerát na Bazoš."];
-  if (input.category) ask.push(`Kategória: ${input.category}.`);
+  if (input.category) ask.push(`Kategória (ak už zvolená): ${input.category}.`);
   if (input.hint) ask.push(`Doplňujúci popis od predajcu: ${input.hint}`);
   if (!input.imageBase64) {
     ask.push("Fotka nie je k dispozícii — vychádzaj z popisu.");
   }
+  ask.push(
+    `\n\nZoznam kategórií (vyber najvhodnejšiu):\n${categoryCatalog()}`,
+  );
   parts.push({ type: "text", text: ask.join(" ") });
 
   const response = await client.messages.create({
@@ -107,10 +143,22 @@ export async function generateListingText(
     throw new Error("AI nevrátila text.");
   }
   const parsed = JSON.parse(text.text) as GeneratedListing;
+
+  // Validate the suggested category against the real tree: only accept a section
+  // that exists and a subcategory that truly belongs to it (else leave empty so
+  // the user picks it). This keeps the suggestion honest — never a made-up pair.
+  const section = String(parsed.categorySection ?? "");
+  const sectionDef = BAZOS_CATEGORIES.find((s) => s.key === section);
+  const sub = String(parsed.categorySubcategory ?? "");
+  const validSub =
+    sectionDef && sectionDef.subcategories.includes(sub) ? sub : "";
+
   return {
     title: String(parsed.title ?? "").slice(0, 160),
     description: String(parsed.description ?? ""),
     price:
       typeof parsed.price === "number" && parsed.price > 0 ? parsed.price : 0,
+    categorySection: sectionDef ? section : "",
+    categorySubcategory: validSub,
   };
 }
