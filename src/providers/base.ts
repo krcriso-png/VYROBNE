@@ -172,19 +172,85 @@ export abstract class BrowserProvider extends BaseProvider {
     context: BrowserContext | null,
     ctx: ProviderContext,
   ): Promise<void> {
-    if (!context) return;
-    for (const page of context.pages()) {
-      try {
-        const buf = await page.screenshot({ fullPage: true });
-        const key = `debug/${this.key}-${Date.now()}.png`;
-        await putObject(key, buf, "image/png");
-        await ctx.log(
-          `Snímka pri chybe uložená: /api/blob/${key} · stránka: ${page.url()} · titulok: "${await page.title()}"`,
-          { debugScreenshot: `/api/blob/${key}`, url: page.url() },
-        );
-      } catch {
-        // ignore capture failures
-      }
+    if (!context) {
+      await ctx
+        .log("⚠️ Chyba pred otvorením stránky — prehliadač sa nespustil, snímka nie je.")
+        .catch(() => {});
+      return;
+    }
+    const pages = context.pages();
+    if (pages.length === 0) {
+      await ctx
+        .log("⚠️ Pri chybe nebola otvorená žiadna stránka (možno spadla) — snímka nie je.")
+        .catch(() => {});
+      return;
+    }
+    for (const page of pages) {
+      await this.captureOne(page, ctx, "chyba").catch(() => {});
+    }
+  }
+
+  /**
+   * Capture ONE page as robustly as possible and ALWAYS leave a log trail so an
+   * error is never invisible. Order: full-page PNG → viewport PNG (survives
+   * heavy/crashed pages the full-page shot chokes on) → raw HTML dump → a final
+   * log line with the URL + reason. Something is stored/logged in every case.
+   */
+  protected async captureOne(
+    page: Page,
+    ctx: ProviderContext,
+    label: string,
+  ): Promise<void> {
+    let url = "?";
+    try {
+      url = page.url();
+    } catch {
+      /* page may be gone */
+    }
+    // 1) Full-page screenshot (best), with a timeout so it can't hang.
+    try {
+      const buf = await page.screenshot({ fullPage: true, timeout: 15000 });
+      const key = `debug/${this.key}-${label}-${Date.now()}.png`;
+      await putObject(key, buf, "image/png");
+      await ctx.log(`📸 [${label}] /api/blob/${key} · ${url}`, {
+        debugScreenshot: `/api/blob/${key}`,
+        url,
+      });
+      return;
+    } catch {
+      /* fall back to viewport */
+    }
+    // 2) Viewport-only screenshot — far more reliable on a broken/tall page.
+    try {
+      const buf = await page.screenshot({ timeout: 10000 });
+      const key = `debug/${this.key}-${label}-${Date.now()}.png`;
+      await putObject(key, buf, "image/png");
+      await ctx.log(`📸 [${label}] /api/blob/${key} · ${url} (výrez)`, {
+        debugScreenshot: `/api/blob/${key}`,
+        url,
+      });
+      return;
+    } catch {
+      /* fall back to HTML */
+    }
+    // 3) Screenshot impossible → save the page HTML so the state is still visible.
+    try {
+      const html = await page.content();
+      const key = `debug/${this.key}-${label}-${Date.now()}.html`;
+      await putObject(key, Buffer.from(html, "utf8"), "text/html");
+      await ctx.log(`📄 [${label}] HTML uložené: /api/blob/${key} · ${url}`, {
+        debugHtml: `/api/blob/${key}`,
+        url,
+      });
+      return;
+    } catch (e) {
+      // 4) Even HTML failed (renderer crashed). Log at least the URL + reason.
+      await ctx
+        .log(
+          `❌ [${label}] Snímku ani HTML sa nepodarilo uložiť (stránka pravdepodobne spadla). URL: ${url} · ${String(e).slice(0, 140)}`,
+          { url },
+        )
+        .catch(() => {});
     }
   }
 
@@ -241,14 +307,9 @@ export abstract class BrowserProvider extends BaseProvider {
     ctx: ProviderContext,
     label: string,
   ): Promise<void> {
-    try {
-      const buf = await page.screenshot({ fullPage: true });
-      const key = `debug/${this.key}-${label}-${Date.now()}.png`;
-      await putObject(key, buf, "image/png");
-      await ctx.log(`📸 [${label}] /api/blob/${key} · ${page.url()}`);
-    } catch {
-      // ignore
-    }
+    // Use the robust capture (full-page → viewport → HTML → logged reason) so a
+    // step screenshot is never silently missing on a heavy/crashed page.
+    await this.captureOne(page, ctx, label).catch(() => {});
   }
 
   /**
