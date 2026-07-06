@@ -9,9 +9,13 @@ import Anthropic from "@anthropic-ai/sdk";
 // the result drops straight into the listing form for a fraction of a cent.
 // ===========================================================================
 
-// Cheapest capable model for this simple vision→JSON task. Note: the `effort`
-// parameter is NOT supported on Haiku and must not be sent (it 400s).
-const MODEL = "claude-haiku-4-5";
+// Model used for ad-copy generation. Defaults to the cheapest capable Claude
+// model (Haiku 4.5) for this simple vision→JSON task. It can be overridden per
+// deployment with the AI_MODEL environment variable (e.g. in Railway) WITHOUT a
+// code change — set AI_MODEL=claude-sonnet-5 for higher quality, or leave it
+// unset for the cheapest option. Note: we intentionally do NOT send the `effort`
+// parameter, so any current model (incl. Haiku, which rejects effort) works.
+const MODEL = process.env.AI_MODEL?.trim() || "claude-haiku-4-5";
 
 export interface GeneratedListing {
   title: string;
