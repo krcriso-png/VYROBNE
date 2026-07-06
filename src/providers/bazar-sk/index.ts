@@ -414,10 +414,14 @@ export class BazarSkProvider extends BrowserProvider {
           ? url
           : "";
 
-      // A GENUINE success needs one of: the confirmation text, the "Zobraziť
-      // inzerát" link, or landing on the ad's own page. Anything else = failure
-      // (never report "published" for an ad that wasn't actually created).
-      const confirmed = success || !!zobrazitHref || urlIsAd;
+      // A GENUINE success needs the portal's fresh-add confirmation TEXT, or
+      // actually landing on a real ad URL. A stray "Zobraziť inzerát" link must
+      // NOT count on its own: after a FAILED submit bazar.sk shows "Moje
+      // inzeráty" with links to your OLD ads, and grabbing the first of those
+      // made Klikado claim "published" and link to a different, unrelated ad.
+      // The Zobraziť link is still used below — but ONLY to read the URL of an
+      // already-confirmed success, never to decide success.
+      const confirmed = success || urlIsAd;
       if (rejected || !confirmed) {
         // Surface the portal's OWN rejection sentence (verbatim) when present,
         // otherwise a slice of the page text — so we report the true reason.
@@ -447,8 +451,11 @@ export class BazarSkProvider extends BrowserProvider {
         success,
       });
       return {
+        // NEVER fall back to the confirmation-page URL as the ad link — it isn't
+        // the ad. Better an empty link (a status check resolves it later by the
+        // ad's own ID) than a link that opens the wrong page.
         remoteId,
-        remoteUrl: remoteUrl || url,
+        remoteUrl,
         session: await this.snapshot(context),
       };
     });
