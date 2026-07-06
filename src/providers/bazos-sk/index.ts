@@ -1272,8 +1272,25 @@ async function selectBestCategoryOption(
       best = o;
     }
   }
+
+  // TRUTHFULNESS SAFETY NET: if no option shares a real word with the chosen
+  // category, we do NOT silently post to a wrong category (that's how "Lyže,
+  // snowboardy" ended up under "Fitness, jogging"). Fail clearly and log the
+  // real options so the exact mapping can be built.
+  if (bestScore < 1) {
+    await ctx.log("Kategóriu sa nepodarilo priradiť — reálne možnosti portálu", {
+      chcena: wanted,
+      moznosti: real.map((o) => o.text),
+    });
+    throw new Error(
+      `Kategóriu „${wanted}" sa nepodarilo spoľahlivo priradiť medzi kategórie ` +
+        `portálu, preto sme inzerát NEuverejnili (aby neskončil v zlej ` +
+        `kategórii). Skontroluj/uprav výber kategórie a skús znova.`,
+    );
+  }
+
   await page.selectOption(sel, best.value).catch(() => {});
-  await ctx.log(`Podkategória (select) → ${best.text}`);
+  await ctx.log(`Podkategória (select) → ${best.text}`, { skore: bestScore });
 }
 
 async function downloadImages(
