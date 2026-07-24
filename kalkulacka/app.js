@@ -492,11 +492,12 @@
       '</div>' +
 
       '<div class="card settings-block">' +
-      '<h3 class="section">Terasa — doplnky (predajné ceny bez DPH)</h3>' +
-      '<p class="note">Podľa poznámok v Exceli; používa ich 3D konfigurátor na webe.</p>' +
+      '<h3 class="section">Doplnky — predajné ceny</h3>' +
+      '<p class="note">Terasa podľa poznámok v Exceli (bez DPH); používa ich 3D konfigurátor na webe.</p>' +
       numField('Zábradlie (€/bm)', 'config.settings.terasaZabradlieBm', { min: 0 }) +
       numField('Plná stena (€/m²)', 'config.settings.terasaPlnaStenaM2', { min: 0 }) +
       numField('Priehľadná — lamelová stena (€/bm)', 'config.settings.terasaLamelovaBm', { min: 0 }) +
+      numField('Okno navyše (€/ks, s DPH)', 'config.settings.oknoNavyseSDph', { min: 0, hint: 'každé okno nad základné 1 v cene' }) +
       '</div>' +
 
       '<div class="card settings-block">' +

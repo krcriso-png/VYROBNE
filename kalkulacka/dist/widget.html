@@ -270,6 +270,12 @@
       </div>
       <label class="check"><input type="checkbox" id="cPod"> Podlaha v domčeku</label>
       <label class="check"><input type="checkbox" id="cOdk" checked> Odkvapový systém</label>
+      <div class="lbl"><span>Okná</span><output id="oOkna">1</output></div>
+      <div class="slider-row">
+        <button id="oknoMinus" aria-label="Menej okien">−</button>
+        <span class="note" id="oknoNote" style="flex:1; text-align:center;">každé ďalšie okno +275 € s DPH</span>
+        <button id="oknoPlus" aria-label="Viac okien">+</button>
+      </div>
       <div class="lbl"><span>Zateplenie</span></div>
       <select id="selZat" aria-label="Zateplenie">
         <option value="none">bez zateplenia</option>
@@ -387,6 +393,8 @@
     terasaZabradlieBm: 75,
     terasaPlnaStenaM2: 90,
     terasaLamelovaBm: 100,
+    // Každé okno navyše (nad základné 1 v cene) — predajná cena S DPH za kus.
+    oknoNavyseSDph: 275,
   };
 
   var DEFAULT_INPUTS = {
@@ -843,6 +851,7 @@
   var st = {
     w: 4, d: 2.5, h: 2.1,
     terasa: false, terSide: 'right', terW: 2,
+    okna: 1,
     podlaha: false, odkvap: true, zat: 'none',
     clad: '#d49030', trim: '#2b2b2b',
     // uzatvorenie terasy per strana: none | zabradlie | lamelova | plna
@@ -860,6 +869,32 @@
     { k: 'front', l: 'Predná' }, { k: 'back', l: 'Zadná' },
     { k: 'left', l: 'Ľavá' }, { k: 'right', l: 'Pravá' },
   ];
+
+  // Miery podľa návrhára (drawElev): fasáda = svetlá výška (hlo),
+  // lemovanie/fascia 18 cm ako vrchný pás fasády, rohovníky 10 cm,
+  // lamela 8,2 cm s rozstupom 11 cm, plech panely á 31 cm, stĺpy 12 cm,
+  // dvere 16 cm od rohu, vrch okna = vrch dverí. Steny idú až po zem.
+  var FASC = 0.18, LAMSTEP = 0.11, LAMW = 0.082, CORNER = 0.10;
+  var POST = 0.12, PANEL = 0.31, DOOR_M = 0.16;
+
+  // Rozloženie okien: základné okno vpravo na prednej stene; ďalšie sa
+  // ukladajú vedľa neho smerom k dverám a keď sa minie miesto, na zadnú stenu.
+  function windowLayout() {
+    var winW = 1.0, gap = 0.3;
+    var fStart = DOOR_M + 0.95 + gap;
+    var fBase = st.w - 0.16 - winW;
+    var frontSlots = [];
+    for (var x = fBase - (winW + gap); x >= fStart; x -= winW + gap) frontSlots.push(x);
+    var backSlots = [];
+    for (var b = 0.2; b + winW <= st.w - 0.2; b += winW + gap) backSlots.push(b);
+    var cap = 1 + frontSlots.length + backSlots.length;
+    var extra = Math.max(0, Math.min(st.okna, cap) - 1);
+    return {
+      cap: cap,
+      front: [fBase].concat(frontSlots.slice(0, extra)),
+      back: backSlots.slice(0, Math.max(0, extra - frontSlots.length)),
+    };
+  }
 
   // palety prevzaté z návrhára (EXPERTWOOD)
   var CLADS = [
@@ -925,11 +960,18 @@
     var v = r.variants[vk];
     var odk = st.odkvap ? (v.withTerasa ? r.odkvap.sTerasou : r.odkvap.bezTerasy) : null;
     var dop = E.terasaDoplnky(inp, cfg, st.terasa ? st.terStrany : {});
+    // okná navyše: pevná predajná cena S DPH za kus (základné 1 je v cene)
+    var extraOkna = Math.max(0, st.okna - 1);
+    var oknoRate = cfg.settings.oknoNavyseSDph != null ? cfg.settings.oknoNavyseSDph : 275;
+    var oknaSDph = extraOkna * oknoRate;
     return {
       label: v.label,
-      bezDph: v.predajnaBezDph + (odk ? odk.predajnaBezDph : 0) + dop.predajnaBezDph,
-      sDph: v.predajSDph + (odk ? odk.predajSDph : 0) + dop.predajSDph,
+      bezDph: v.predajnaBezDph + (odk ? odk.predajnaBezDph : 0) + dop.predajnaBezDph + oknaSDph / (1 + cfg.settings.dph),
+      sDph: v.predajSDph + (odk ? odk.predajSDph : 0) + dop.predajSDph + oknaSDph,
       doplnky: dop,
+      extraOkna: extraOkna,
+      oknaSDph: oknaSDph,
+      oknoRate: oknoRate,
       dph: cfg.settings.dph,
     };
   }
@@ -939,11 +981,13 @@
     document.getElementById('pVariant').textContent = p.label +
       (st.zat !== 'none' ? ' + zateplenie' : '') + (st.odkvap ? ' + odkvap' : '');
     document.getElementById('pTotal').textContent = eurFmt.format(Math.round(p.sDph));
+    var extras = [];
+    if (p.doplnky.predajnaBezDph > 0) extras.push('doplnky terasy ' + eurFmt2.format(p.doplnky.predajSDph));
+    if (p.extraOkna > 0) extras.push(p.extraOkna + '× okno navyše ' + eurFmt2.format(p.oknaSDph));
     document.getElementById('pSub').textContent =
       eurFmt2.format(p.bezDph) + ' bez DPH · s DPH ' + Math.round(p.dph * 100) + ' %' +
-      (p.doplnky.predajnaBezDph > 0
-        ? ' · vrátane doplnkov terasy ' + eurFmt2.format(p.doplnky.predajSDph) + ' s DPH'
-        : ' · materiál, výroba, doprava aj montáž');
+      (extras.length ? ' · vrátane: ' + extras.join(' + ') : ' · materiál, výroba, doprava aj montáž');
+    document.getElementById('oknoNote').textContent = 'každé ďalšie okno +' + Math.round(p.oknoRate) + ' € s DPH';
     updateCta(p);
   }
 
@@ -989,13 +1033,8 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cw, ch);
 
-    // Miery podľa návrhára (drawElev): fasáda = svetlá výška (hlo),
-    // lemovanie/fascia 18 cm ako vrchný pás fasády, rohovníky 10 cm,
-    // lamela 8,2 cm s rozstupom 11 cm, plech panely á 31 cm, stĺpy 12 cm,
-    // dvere 16 cm od rohu, vrch okna = vrch dverí. Steny idú až po zem.
-    var FASC = 0.18, LAMSTEP = 0.11, LAMW = 0.082, CORNER = 0.10;
-    var POST = 0.12, PANEL = 0.31, DOOR_M = 0.16;
     var W = st.w, D = st.d;
+    var WL = windowLayout();
     var hloF = st.h + 0.15;            // fasáda vzadu = svetlá výška (hlo)
     var hhiF = hloF + D * 0.05;        // fasáda vpredu (spád 5 cm/m)
     var T = st.terasa ? st.terW : 0;
@@ -1014,6 +1053,8 @@
     var C = { cx: x0 + totW / 2, cy: hhiF / 2, cz: D / 2 };
     var ca = Math.cos(cam.az), sa = Math.sin(cam.az);
     var ce = Math.cos(cam.el), se = Math.sin(cam.el);
+    // pozícia kamery vo svete (pre backface culling)
+    var camP = [C.cx - dist * ce * sa, C.cy + dist * se, C.cz - dist * ce * ca];
 
     function proj(p) {
       var x = p[0] - C.cx, y = p[1] - C.cy, z = p[2] - C.cz;
@@ -1029,9 +1070,19 @@
 
     var faces = [];
     // face: pts = [spodok-A, spodok-B, vrch-B, vrch-A] (pre dekory stien),
-    // opts: wall (lamely+lišty+tieň), roofTop, glass, door, flat, alpha, lum
+    // opts: wall (lamely+lišty+tieň), roofTop, flat, alpha, lum,
+    //       outward [nx,ny,nz] → backface culling: odvrátená plocha sa vôbec
+    //       nekreslí. Veľké plochy (steny, strecha, podhľad) tak painter's
+    //       algoritmus nikdy nemôže zoradiť zle — presvitanie je vylúčené.
     function face(pts, color, opts) {
       opts = opts || {};
+      if (opts.outward) {
+        var cx0 = 0, cy0 = 0, cz0 = 0;
+        pts.forEach(function (p) { cx0 += p[0]; cy0 += p[1]; cz0 += p[2]; });
+        cx0 /= pts.length; cy0 /= pts.length; cz0 /= pts.length;
+        var vx = camP[0] - cx0, vy = camP[1] - cy0, vz = camP[2] - cz0;
+        if (opts.outward[0] * vx + opts.outward[1] * vy + opts.outward[2] * vz <= 0.001) return;
+      }
       var a = pts[0], b = pts[1], c = pts[2];
       var u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
       var v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
@@ -1067,10 +1118,10 @@
     // Dvere/okno/plech/lemovanie kreslí dekor steny v jednom ťahu (painter by
     // malé plôšky na kraji veľkej steny prekresľoval; odsadené lemovanie zasa
     // pri strmých uhloch parallaxou odhaľovalo vrch lamiel).
-    face([[0, 0, 0], [W, 0, 0], [W, hhiF, 0], [0, hhiF, 0]], st.clad, { wall: true, fasc: true, front: true, faceKey: 'front' });
-    face([[W, 0, D], [0, 0, D], [0, hloF, D], [W, hloF, D]], st.clad, { wall: true, fasc: true, faceKey: 'back' });
-    face([[W, 0, 0], [W, 0, D], [W, hloF, D], [W, hhiF, 0]], st.clad, { wall: true, fasc: true, faceKey: 'right' });
-    face([[0, 0, D], [0, 0, 0], [0, hhiF, 0], [0, hloF, D]], st.clad, { wall: true, fasc: true, faceKey: 'left' });
+    face([[0, 0, 0], [W, 0, 0], [W, hhiF, 0], [0, hhiF, 0]], st.clad, { wall: true, fasc: true, front: true, faceKey: 'front', outward: [0, 0, -1] });
+    face([[W, 0, D], [0, 0, D], [0, hloF, D], [W, hloF, D]], st.clad, { wall: true, fasc: true, faceKey: 'back', outward: [0, 0, 1] });
+    face([[W, 0, 0], [W, 0, D], [W, hloF, D], [W, hhiF, 0]], st.clad, { wall: true, fasc: true, faceKey: 'right', outward: [1, 0, 0] });
+    face([[0, 0, D], [0, 0, 0], [0, hhiF, 0], [0, hloF, D]], st.clad, { wall: true, fasc: true, faceKey: 'left', outward: [-1, 0, 0] });
 
     // ── terasa: stĺpy 12 cm po spodok lemovania, väznica, uzatvorenie strán ──
     if (T > 0) {
@@ -1153,7 +1204,7 @@
       var o = 0.012;
       function roofPiece(xa, xb) {
         face([[xa, hhiF + 0.004, -o], [xb, hhiF + 0.004, -o],
-              [xb, hloF + 0.004, D + o], [xa, hloF + 0.004, D + o]], st.trim, { roofTop: true });
+              [xb, hloF + 0.004, D + o], [xa, hloF + 0.004, D + o]], st.trim, { roofTop: true, outward: [0, 1, 0] });
       }
       if (T > 0) {
         var right = st.terSide !== 'left';
@@ -1164,12 +1215,24 @@
         var t0 = Math.min(ta, tb), t1 = Math.max(ta, tb);
         var xo = right ? x0 + totW : x0;  // vonkajšia hrana
         // predné a zadné lemovanie nad terasou
-        face([[t0, hhiF - FASC, 0], [t1, hhiF - FASC, 0], [t1, hhiF, 0], [t0, hhiF, 0]], st.trim);
-        face([[t1, hloF - FASC, D], [t0, hloF - FASC, D], [t0, hloF, D], [t1, hloF, D]], st.trim);
+        face([[t0, hhiF - FASC, 0], [t1, hhiF - FASC, 0], [t1, hhiF, 0], [t0, hhiF, 0]], st.trim, { outward: [0, 0, -1] });
+        face([[t1, hloF - FASC, D], [t0, hloF - FASC, D], [t0, hloF, D], [t1, hloF, D]], st.trim, { outward: [0, 0, 1] });
         // vonkajšie šikmé lemovanie
-        face([[xo, hhiF - FASC, 0], [xo, hloF - FASC, D], [xo, hloF, D], [xo, hhiF, 0]], st.trim);
-        // podhľad nad terasou (spodok strešnej dosky = spodok lemovania)
-        face([[t0, hhiF - FASC, 0], [t1, hhiF - FASC, 0], [t1, hloF - FASC, D], [t0, hloF - FASC, D]], lighten(st.trim, 0.14));
+        face([[xo, hhiF - FASC, 0], [xo, hloF - FASC, D], [xo, hloF, D], [xo, hhiF, 0]], st.trim, { outward: [right ? 1 : -1, 0, 0] });
+        // výbitie nad terasou tatranským obkladom (skladba z výrobnej časti
+        // návrhára: krokvy zospodu, medzi nimi tatranský obklad)
+        face([[t0, hhiF - FASC, 0], [t1, hhiF - FASC, 0], [t1, hloF - FASC, D], [t0, hloF - FASC, D]],
+          lighten(st.clad, 0.22), { outward: [0, -1, 0] });
+        // krokvy 45×120 á 50 cm (KVH 45/120 ako vo výrobnom kalkulátore)
+        var kw = 0.045, kd = 0.12;
+        for (var kx = t0 + 0.5; kx < t1 - 0.1; kx += 0.5) {
+          var kT0 = topAt(0.03) - FASC, kT1 = topAt(D - 0.03) - FASC;
+          face([[kx, kT0 - kd, 0.03], [kx, kT1 - kd, D - 0.03], [kx, kT1, D - 0.03], [kx, kT0, 0.03]], st.clad);
+          face([[kx + kw, kT0 - kd, 0.03], [kx + kw, kT1 - kd, D - 0.03], [kx + kw, kT1, D - 0.03], [kx + kw, kT0, 0.03]], st.clad);
+          face([[kx, kT0 - kd, 0.03], [kx + kw, kT0 - kd, 0.03], [kx + kw, kT1 - kd, D - 0.03], [kx, kT1 - kd, D - 0.03]], st.clad, { outward: [0, -1, 0] });
+          // čelo krokvy vpredu
+          face([[kx, kT0 - kd, 0.03], [kx + kw, kT0 - kd, 0.03], [kx + kw, kT0, 0.03], [kx, kT0, 0.03]], st.clad, { outward: [0, 0, -1] });
+        }
       } else {
         roofPiece(x0 - o, x0 + totW + o);
       }
@@ -1212,6 +1275,16 @@
       ctx.fillStyle = style;
       ctx.fill();
       ctx.globalAlpha = 1;
+    }
+    // okno 100×55 s rámom, sklom, odleskom a parapetom na rovine z=zp
+    function drawWindow(wx, wy, zp, lum) {
+      var ww = 1.0, wh = 0.55;
+      var frameC = shade(lighten(st.trim, 0.14), lum);
+      quad3d([wx - 0.05, wy - 0.05, zp], [wx + ww + 0.05, wy - 0.05, zp], [wx + ww + 0.05, wy + wh + 0.05, zp], [wx - 0.05, wy + wh + 0.05, zp], frameC);
+      quad3d([wx, wy, zp], [wx + ww, wy, zp], [wx + ww, wy + wh, zp], [wx, wy + wh, zp], shade('#aec7d2', lum + 0.1));
+      quad3d([wx + ww * 0.08, wy, zp], [wx + ww * 0.35, wy, zp], [wx + ww * 0.55, wy + wh, zp], [wx + ww * 0.28, wy + wh, zp], '#ffffff', 0.3);
+      quad3d([wx + ww * 0.45, wy, zp], [wx + ww * 0.55, wy, zp], [wx + ww * 0.75, wy + wh, zp], [wx + ww * 0.65, wy + wh, zp], '#ffffff', 0.16);
+      quad3d([wx - 0.05, wy - 0.09, zp], [wx + ww + 0.05, wy - 0.09, zp], [wx + ww + 0.05, wy - 0.05, zp], [wx - 0.05, wy - 0.05, zp], shade(lighten(st.trim, 0.25), lum));
     }
 
     faces.sort(function (a, b) { return b.depth - a.depth; });
@@ -1275,17 +1348,19 @@
           quad3d([dx + dw - 0.1, dh * 0.4, 0], [dx + dw - 0.065, dh * 0.4, 0],
                  [dx + dw - 0.065, dh * 0.6, 0], [dx + dw - 0.1, dh * 0.6, 0], '#c9ccce');
 
-          // okno vpravo (16 cm od rohu): rám, sklo s odleskom, parapet
-          var ww = 1.0, wh = 0.55;
-          var wx = W - 0.16 - ww;
-          if (wx > dx + dw + 0.2) {
-            var wy = dh - wh; // vrch okna = vrch dverí
-            quad3d([wx - 0.05, wy - 0.05, 0], [wx + ww + 0.05, wy - 0.05, 0], [wx + ww + 0.05, wy + wh + 0.05, 0], [wx - 0.05, wy + wh + 0.05, 0], frameC);
-            quad3d([wx, wy, 0], [wx + ww, wy, 0], [wx + ww, wy + wh, 0], [wx, wy + wh, 0], shade('#aec7d2', f.lum + 0.1));
-            quad3d([wx + ww * 0.08, wy, 0], [wx + ww * 0.35, wy, 0], [wx + ww * 0.55, wy + wh, 0], [wx + ww * 0.28, wy + wh, 0], '#ffffff', 0.3);
-            quad3d([wx + ww * 0.45, wy, 0], [wx + ww * 0.55, wy, 0], [wx + ww * 0.75, wy + wh, 0], [wx + ww * 0.65, wy + wh, 0], '#ffffff', 0.16);
-            quad3d([wx - 0.05, wy - 0.09, 0], [wx + ww + 0.05, wy - 0.09, 0], [wx + ww + 0.05, wy - 0.05, 0], [wx - 0.05, wy - 0.05, 0], shade(lighten(st.trim, 0.25), f.lum));
-          }
+          // okná (16 cm od rohu, vrch okna = vrch dverí; ďalšie smerom k dverám)
+          WL.front.forEach(function (wx) {
+            if (wx <= dx + dw + 0.2) return;
+            drawWindow(wx, dh - 0.55, 0, f.lum);
+          });
+        }
+
+        if (f.opts.faceKey === 'back' && WL.back.length) {
+          // okná navyše, ktoré sa nezmestili na prednú stenu
+          var bTop = Math.min(2.0, hloF - FASC - 0.05);
+          WL.back.forEach(function (wx) {
+            drawWindow(wx, bTop - 0.55, D, f.lum);
+          });
         }
 
         // lemovanie — vrchných 18 cm fasády vo farbe plechov (na rovine steny,
@@ -1450,8 +1525,10 @@
       else row.setAttribute('data-off', '1');
       row.querySelector('.cnt output').textContent = st.plech[wdef.k].n;
     });
+    document.getElementById('oOkna').textContent = st.okna;
   }
   function update() {
+    st.okna = Math.max(1, Math.min(st.okna, windowLayout().cap));
     refreshOutputs();
     draw();
     renderPrice();
@@ -1479,6 +1556,8 @@
   document.getElementById('cPod').addEventListener('change', function () { st.podlaha = this.checked; update(); });
   document.getElementById('cOdk').addEventListener('change', function () { st.odkvap = this.checked; update(); });
   document.getElementById('cStlp').addEventListener('change', function () { st.terStlp = this.checked; update(); });
+  document.getElementById('oknoMinus').addEventListener('click', function () { st.okna = Math.max(1, st.okna - 1); update(); });
+  document.getElementById('oknoPlus').addEventListener('click', function () { st.okna = Math.min(windowLayout().cap, st.okna + 1); update(); });
   document.getElementById('selZat').addEventListener('change', function () { st.zat = this.value; update(); });
   document.getElementById('terLeft').addEventListener('click', function () { st.terSide = 'left'; update(); });
   document.getElementById('terRight').addEventListener('click', function () { st.terSide = 'right'; update(); });
@@ -1574,6 +1653,9 @@
       if (c.on) lines.push('Oplechovanie — ' + wdef.l.toLowerCase() + ' stena: ' + c.n + ' panelov (á 31 cm) ' + (c.from === 'left' ? 'zľava' : 'sprava'));
     });
     lines = lines.concat([
+      'Okná: ' + st.okna + (p.extraOkna > 0
+        ? ' (1 v cene, ' + p.extraOkna + ' navyše á ' + Math.round(p.oknoRate) + ' € s DPH)'
+        : ''),
       'Podlaha v domčeku: ' + (st.podlaha ? 'áno' : 'nie'),
       'Odkvapový systém: ' + (st.odkvap ? 'áno' : 'nie'),
       'Zateplenie: ' + (st.zat === 'none' ? 'nie' : st.zat === 'osb' ? 'áno — záklop OSB' : 'áno — tatranský obklad'),
@@ -1624,6 +1706,20 @@
       cfg['plech' + plechIdMap[wdef.k] + 'From'] = c.from;
       cfg['plech' + plechIdMap[wdef.k] + 'N'] = c.n;
     });
+    // okná → _windows (návrhár kreslí `count` okien vedľa seba)
+    var wl = windowLayout();
+    cfg._windows = [{
+      wall: 'front', posMode: 'preset', pos: 'right', offsetCm: 0, topOffsetCm: 0,
+      count: wl.front.length, w: 100, h: 55, type: 'tilt', panels: 1,
+      sillFromGround: false, mirrored: false,
+    }];
+    if (wl.back.length) {
+      cfg._windows.push({
+        wall: 'back', posMode: 'preset', pos: 'left', offsetCm: 0, topOffsetCm: 0,
+        count: wl.back.length, w: 100, h: 55, type: 'tilt', panels: 1,
+        sillFromGround: false, mirrored: false,
+      });
+    }
     // uzatvorenie terasy → teE_<strana>_t (mapovanie strán podľa polohy terasy)
     if (st.terasa) {
       var typeMap = { none: 'none', zabradlie: 'railing', lamelova: 'transparent', plna: 'full' };

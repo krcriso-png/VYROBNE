@@ -83,6 +83,8 @@
     terasaZabradlieBm: 75,
     terasaPlnaStenaM2: 90,
     terasaLamelovaBm: 100,
+    // Každé okno navyše (nad základné 1 v cene) — predajná cena S DPH za kus.
+    oknoNavyseSDph: 275,
   };
 
   var DEFAULT_INPUTS = {
