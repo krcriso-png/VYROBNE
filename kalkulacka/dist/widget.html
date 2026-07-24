@@ -1064,12 +1064,13 @@
     })();
 
     // steny až po zem (ako v pohľadoch návrhára), predná z=0 vyššia.
-    // Dvere/okno/plech kreslí dekor steny v jednom ťahu (painter by malé
-    // plôšky na kraji veľkej steny prekresľoval).
-    face([[0, 0, 0], [W, 0, 0], [W, hhiF, 0], [0, hhiF, 0]], st.clad, { wall: true, front: true, faceKey: 'front' });
-    face([[W, 0, D], [0, 0, D], [0, hloF, D], [W, hloF, D]], st.clad, { wall: true, faceKey: 'back' });
-    face([[W, 0, 0], [W, 0, D], [W, hloF, D], [W, hhiF, 0]], st.clad, { wall: true, faceKey: 'right' });
-    face([[0, 0, D], [0, 0, 0], [0, hhiF, 0], [0, hloF, D]], st.clad, { wall: true, faceKey: 'left' });
+    // Dvere/okno/plech/lemovanie kreslí dekor steny v jednom ťahu (painter by
+    // malé plôšky na kraji veľkej steny prekresľoval; odsadené lemovanie zasa
+    // pri strmých uhloch parallaxou odhaľovalo vrch lamiel).
+    face([[0, 0, 0], [W, 0, 0], [W, hhiF, 0], [0, hhiF, 0]], st.clad, { wall: true, fasc: true, front: true, faceKey: 'front' });
+    face([[W, 0, D], [0, 0, D], [0, hloF, D], [W, hloF, D]], st.clad, { wall: true, fasc: true, faceKey: 'back' });
+    face([[W, 0, 0], [W, 0, D], [W, hloF, D], [W, hhiF, 0]], st.clad, { wall: true, fasc: true, faceKey: 'right' });
+    face([[0, 0, D], [0, 0, 0], [0, hhiF, 0], [0, hloF, D]], st.clad, { wall: true, fasc: true, faceKey: 'left' });
 
     // ── terasa: stĺpy 12 cm po spodok lemovania, väznica, uzatvorenie strán ──
     if (T > 0) {
@@ -1142,20 +1143,36 @@
       });
     }
 
-    // ── strecha bez podstrešia + lemovanie (fascia 18 cm) po celom obvode ──
+    // ── strecha bez podstrešia: rovina na pôdoryse (presah len 1,2 cm proti
+    //    vlasovým škáram na hranách). Lemovanie 18 cm na stenách kreslí dekor
+    //    fasády; samostatné pásy sú len nad terasou, kde stena nie je.
+    //    Strecha je rozdelená na dielec nad domom a nad terasou — jeden veľký
+    //    štvoruholník by painter podľa priemernej hĺbky prehrával s podhľadom
+    //    terasy (menší a bližší by ho prekreslil). ──
     (function () {
-      var o = 0.015;
-      var rx0 = x0 - o, rx1 = x0 + totW + o;
-      // predné a zadné lemovanie (zvislé pásy 18 cm od vrchu fasády nadol)
-      face([[rx0, hhiF - FASC, -o], [rx1, hhiF - FASC, -o], [rx1, hhiF, -o], [rx0, hhiF, -o]], st.trim);
-      face([[rx1, hloF - FASC, D + o], [rx0, hloF - FASC, D + o], [rx0, hloF, D + o], [rx1, hloF, D + o]], st.trim);
-      // bočné lemovanie (šikmé, kopíruje spád)
-      face([[rx0, hloF - FASC, D + o], [rx0, hhiF - FASC, -o], [rx0, hhiF, -o], [rx0, hloF, D + o]], st.trim);
-      face([[rx1, hhiF - FASC, -o], [rx1, hloF - FASC, D + o], [rx1, hloF, D + o], [rx1, hhiF, -o]], st.trim);
-      // podhľad nad terasou (spodok strešnej dosky na úrovni spodku lemovania)
-      face([[rx0, hhiF - FASC, -o], [rx1, hhiF - FASC, -o], [rx1, hloF - FASC, D + o], [rx0, hloF - FASC, D + o]], lighten(st.trim, 0.14));
-      // vrch strechy — trapézový plech
-      face([[rx0, hhiF + 0.004, -o], [rx1, hhiF + 0.004, -o], [rx1, hloF + 0.004, D + o], [rx0, hloF + 0.004, D + o]], st.trim, { roofTop: true });
+      var o = 0.012;
+      function roofPiece(xa, xb) {
+        face([[xa, hhiF + 0.004, -o], [xb, hhiF + 0.004, -o],
+              [xb, hloF + 0.004, D + o], [xa, hloF + 0.004, D + o]], st.trim, { roofTop: true });
+      }
+      if (T > 0) {
+        var right = st.terSide !== 'left';
+        if (right) { roofPiece(x0 - o, W); roofPiece(W, x0 + totW + o); }
+        else { roofPiece(x0 - o, 0); roofPiece(0, W + o); }
+        var ta = right ? W : x0;          // hranica dom/terasa
+        var tb = right ? x0 + totW : 0;
+        var t0 = Math.min(ta, tb), t1 = Math.max(ta, tb);
+        var xo = right ? x0 + totW : x0;  // vonkajšia hrana
+        // predné a zadné lemovanie nad terasou
+        face([[t0, hhiF - FASC, 0], [t1, hhiF - FASC, 0], [t1, hhiF, 0], [t0, hhiF, 0]], st.trim);
+        face([[t1, hloF - FASC, D], [t0, hloF - FASC, D], [t0, hloF, D], [t1, hloF, D]], st.trim);
+        // vonkajšie šikmé lemovanie
+        face([[xo, hhiF - FASC, 0], [xo, hloF - FASC, D], [xo, hloF, D], [xo, hhiF, 0]], st.trim);
+        // podhľad nad terasou (spodok strešnej dosky = spodok lemovania)
+        face([[t0, hhiF - FASC, 0], [t1, hhiF - FASC, 0], [t1, hloF - FASC, D], [t0, hloF - FASC, D]], lighten(st.trim, 0.14));
+      } else {
+        roofPiece(x0 - o, x0 + totW + o);
+      }
     })();
 
     // odkvap: žľab pod spodkom lemovania na zadnej (nižšej) strane
@@ -1243,12 +1260,6 @@
           }
         }
 
-        // rohovníky — kovové L-profily 10 cm vo farbe plechov (celá výška)
-        var tw = Math.min(CORNER / wallLen, 0.2);
-        var trimC = shade(st.trim, Math.min(1.15, f.lum + 0.25));
-        quad3d(edgeInterp(A, 0, 1, 0), edgeInterp(A, 0, 1, tw), edgeInterp(A, 3, 2, tw), edgeInterp(A, 3, 2, 0), trimC);
-        quad3d(edgeInterp(A, 0, 1, 1 - tw), edgeInterp(A, 0, 1, 1), edgeInterp(A, 3, 2, 1), edgeInterp(A, 3, 2, 1 - tw), trimC);
-
         if (f.opts.front) {
           // dvere 16 cm od rohu, od zeme; vrch okna = vrch dverí (návrhár)
           var doorC = shade(st.trim, Math.min(1.1, f.lum + 0.12));
@@ -1276,6 +1287,21 @@
             quad3d([wx - 0.05, wy - 0.09, 0], [wx + ww + 0.05, wy - 0.09, 0], [wx + ww + 0.05, wy - 0.05, 0], [wx - 0.05, wy - 0.05, 0], shade(lighten(st.trim, 0.25), f.lum));
           }
         }
+
+        // lemovanie — vrchných 18 cm fasády vo farbe plechov (na rovine steny,
+        // presne ako fasciaPoly v návrhári; kryje lamely, plech aj rám okna)
+        if (f.opts.fasc) {
+          var fascC = shade(st.trim, Math.min(1.1, f.lum + 0.18));
+          quad3d([A[3][0], A[3][1] - FASC, A[3][2]], [A[2][0], A[2][1] - FASC, A[2][2]],
+                 A[2], A[3], fascC);
+        }
+
+        // rohovníky — kovové L-profily 10 cm vo farbe plechov, celá výška
+        // vrátane lemovania (návrhár ich kreslí cez fasciu)
+        var tw = Math.min(CORNER / wallLen, 0.2);
+        var trimC = shade(st.trim, Math.min(1.15, f.lum + 0.25));
+        quad3d(edgeInterp(A, 0, 1, 0), edgeInterp(A, 0, 1, tw), edgeInterp(A, 3, 2, tw), edgeInterp(A, 3, 2, 0), trimC);
+        quad3d(edgeInterp(A, 0, 1, 1 - tw), edgeInterp(A, 0, 1, 1), edgeInterp(A, 3, 2, 1), edgeInterp(A, 3, 2, 1 - tw), trimC);
 
         // tieň pod lemovaním + pri zemi (ambient occlusion) — navrchu
         quad3d([A[3][0], A[3][1] - FASC, A[3][2]], [A[2][0], A[2][1] - FASC, A[2][2]],
