@@ -836,8 +836,8 @@
   // ---------------------------------------------------------------------------
   var canvas = document.getElementById('c3d');
   var ctx = canvas.getContext('2d');
-  var cam = { az: -0.62, el: 0.40, zoom: 1 };
-  var CAM_DEF = { az: -0.62, el: 0.40, zoom: 1 };
+  var cam = { az: 0.58, el: 0.33, zoom: 1 };
+  var CAM_DEF = { az: 0.58, el: 0.33, zoom: 1 };
 
   function shade(hex, f) {
     var n = parseInt(hex.slice(1), 16);
@@ -845,6 +845,15 @@
     var g = Math.min(255, Math.round(((n >> 8) & 255) * f));
     var b = Math.min(255, Math.round((n & 255) * f));
     return 'rgb(' + r + ',' + g + ',' + b + ')';
+  }
+  // primiešanie bielej (na zosvetlenie tmavých farieb, kde násobenie nestačí);
+  // vracia hex, aby sa dal ďalej tieňovať cez shade()
+  function lighten(hex, t) {
+    var n = parseInt(hex.slice(1), 16);
+    var r = Math.round(((n >> 16) & 255) * (1 - t) + 255 * t);
+    var g = Math.round(((n >> 8) & 255) * (1 - t) + 255 * t);
+    var b = Math.round((n & 255) * (1 - t) + 255 * t);
+    return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
   }
 
   // svetlo zhora-spredu-zľava
@@ -866,14 +875,14 @@
 
     var W = st.w, D = st.d, Hb = st.h, Hf = Hb + D * 0.05;
     var T = st.terasa ? st.terW : 0;
-    var FND = 0.15;                 // výška základu
+    var FND = st.podlaha ? 0.22 : 0.10; // pätky sú vyššie než dlažba
     var totW = W + T;
     var x0 = st.terSide === 'left' ? -T : 0; // terasa posúva rozsah po x
 
     // kamera
-    var span = Math.max(totW, D, Hf + FND) * 1.15 + 1.6;
-    var dist = span * 2.6 / cam.zoom;
-    var fov = Math.min(cw, ch) * 1.45;
+    var span = Math.max(totW, D, Hf + FND) * 1.12 + 1.4;
+    var dist = span * 2.35 / cam.zoom;
+    var fov = Math.min(cw, ch) * 1.5;
     var C = { cx: x0 + totW / 2, cy: (Hf + FND) / 2, cz: D / 2 };
     var ca = Math.cos(cam.az), sa = Math.sin(cam.az);
     var ce = Math.cos(cam.el), se = Math.sin(cam.el);
@@ -890,10 +899,10 @@
     }
 
     var faces = [];
-    // face: pts (pole [x,y,z]), color, opts {stroke, lines: 'h' pre lamely}
+    // face: pts = [spodok-A, spodok-B, vrch-B, vrch-A] (pre dekory stien),
+    // opts: wall (lamely+lišty+tieň), roofTop, glass, door, flat, alpha, lum
     function face(pts, color, opts) {
       opts = opts || {};
-      // normála z prvých troch bodov
       var a = pts[0], b = pts[1], c = pts[2];
       var u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
       var v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
@@ -901,101 +910,131 @@
       var nl = Math.hypot(n[0], n[1], n[2]) || 1;
       n = [n[0] / nl, n[1] / nl, n[2] / nl];
       var lam = Math.abs(n[0] * LIGHT[0] + n[1] * LIGHT[1] + n[2] * LIGHT[2]);
-      var f = opts.flat ? 1 : (0.62 + 0.38 * lam);
+      var f = opts.flat ? 1 : (0.58 + 0.42 * lam);
       var pp = pts.map(proj);
       var depth = 0;
       pp.forEach(function (q) { depth += q[2]; });
-      faces.push({ pp: pp, pts: pts, color: shade(color, f), depth: depth / pp.length, opts: opts });
+      faces.push({ pp: pp, pts: pts, color: shade(color, f), lum: f, depth: depth / pp.length, opts: opts });
+    }
+    // kváder zo 4 bočných stien (vrch/spodok netreba — nevidno ich alebo ich kryje iné)
+    function box(x1, y1, z1, x2, y2, z2, color, opts) {
+      face([[x1, y1, z1], [x2, y1, z1], [x2, y2, z1], [x1, y2, z1]], color, opts);
+      face([[x2, y1, z1], [x2, y1, z2], [x2, y2, z2], [x2, y2, z1]], color, opts);
+      face([[x2, y1, z2], [x1, y1, z2], [x1, y2, z2], [x2, y2, z2]], color, opts);
+      face([[x1, y1, z2], [x1, y1, z1], [x1, y2, z1], [x1, y2, z2]], color, opts);
     }
 
-    // tieň na zemi
+    // mäkký tieň na zemi (dve jemné vrstvy)
     (function () {
-      var pad = 0.35;
-      face([[x0 - pad, 0.001, -pad], [x0 + totW + pad, 0.001, -pad],
-            [x0 + totW + pad, 0.001, D + pad], [x0 - pad, 0.001, D + pad]],
-        '#000000', { flat: true, alpha: 0.07 });
-    })();
-
-    // základ (doska)
-    (function () {
-      var g = '#b7b2a6';
-      face([[0, 0, 0], [W, 0, 0], [W, FND, 0], [0, FND, 0]], g);
-      face([[W, 0, 0], [W, 0, D], [W, FND, D], [W, FND, 0]], g);
-      face([[0, 0, D], [0, 0, 0], [0, FND, 0], [0, FND, D]], g);
-      face([[W, 0, D], [0, 0, D], [0, FND, D], [W, FND, D]], shade(g, 0.9).replace('rgb', 'rgb'));
+      [[0.45, 0.035], [0.16, 0.05]].forEach(function (sh) {
+        var pad = sh[0];
+        face([[x0 - pad, 0.001, -pad], [x0 + totW + pad, 0.001, -pad],
+              [x0 + totW + pad, 0.001, D + pad], [x0 - pad, 0.001, D + pad]],
+          '#000000', { flat: true, alpha: sh[1] });
+      });
     })();
 
     var y0 = FND;
     var yF = y0 + Hf, yB = y0 + Hb;
 
-    // steny (predná z=0 vyššia, zadná z=D nižšia)
-    face([[0, y0, 0], [W, y0, 0], [W, yF, 0], [0, yF, 0]], st.clad, { lines: 'h', top: yF });
-    face([[W, y0, D], [0, y0, D], [0, yB, D], [W, yB, D]], st.clad, { lines: 'h', top: yB });
-    face([[W, y0, 0], [W, y0, D], [W, yB, D], [W, yF, 0]], st.clad, { lines: 'h', top: yF });
-    face([[0, y0, D], [0, y0, 0], [0, yF, 0], [0, yB, D]], st.clad, { lines: 'h', top: yF });
-
-    // dvere + okno na prednej stene (mierne pred stenou)
-    (function () {
-      var zf = -0.012;
-      var dx = Math.min(0.25, W * 0.06), dw = 0.95, dh = 2.0;
-      dh = Math.min(dh, Hf - 0.1);
-      face([[dx, y0, zf], [dx + dw, y0, zf], [dx + dw, y0 + dh, zf], [dx, y0 + dh, zf]], st.trim, { flat: false });
-      // kľučka
-      face([[dx + dw - 0.09, y0 + dh / 2 - 0.02, zf - 0.004], [dx + dw - 0.04, y0 + dh / 2 - 0.02, zf - 0.004],
-            [dx + dw - 0.04, y0 + dh / 2 + 0.02, zf - 0.004], [dx + dw - 0.09, y0 + dh / 2 + 0.02, zf - 0.004]],
-        '#cfcfcf', { flat: true });
-      // okno vpravo
-      var ww = 1.0, wh = 0.6;
-      var wx = Math.max(dx + dw + 0.25, W - ww - Math.min(0.35, W * 0.08));
-      if (wx + ww < W - 0.05) {
-        var wy = y0 + Math.min(1.35, Hf - wh - 0.25);
-        face([[wx - 0.04, wy - 0.04, zf], [wx + ww + 0.04, wy - 0.04, zf], [wx + ww + 0.04, wy + wh + 0.04, zf], [wx - 0.04, wy + wh + 0.04, zf]], st.trim);
-        face([[wx, wy, zf - 0.004], [wx + ww, wy, zf - 0.004], [wx + ww, wy + wh, zf - 0.004], [wx, wy + wh, zf - 0.004]], '#b8cfd8', { flat: true });
-      }
-    })();
-
-    // terasa: stĺpy (roh terasy vpredu aj vzadu)
-    if (T > 0) {
-      var px = st.terSide === 'left' ? x0 + 0.06 : W + T - 0.18;
-      var ps = 0.12;
-      [[px, 0, 0.03, yF - 0.03], [px, 0, D - ps - 0.03, yB - 0.03]].forEach(function (q) {
-        var sx = q[0], sz = q[2], ph = q[3];
-        // výška stĺpa podľa sklonu strechy v mieste z
-        var c = '#8a6a42';
-        face([[sx, 0, sz], [sx + ps, 0, sz], [sx + ps, ph, sz], [sx, ph, sz]], c);
-        face([[sx + ps, 0, sz], [sx + ps, 0, sz + ps], [sx + ps, ph, sz + ps], [sx + ps, ph, sz]], c);
-        face([[sx, 0, sz + ps], [sx, 0, sz], [sx, ph, sz], [sx, ph, sz + ps]], c);
-        face([[sx + ps, 0, sz + ps], [sx, 0, sz + ps], [sx, ph, sz + ps], [sx + ps, ph, sz + ps]], c);
+    // osadenie: pätky (s podlahou) alebo nízka platňa/dlažba.
+    // Vrchná plocha soklu musí byť plná — inak vidno „do domu" (sokel je
+    // kváder bez vrchu a cez otvor presvitá tieň aj protiľahlé steny).
+    if (st.podlaha) {
+      var bs = 0.24;
+      var xs = [0.12, W - bs - 0.12];
+      if (W > 3.2) xs.push(W / 2 - bs / 2);
+      var zs = [0.12, D - bs - 0.12];
+      xs.forEach(function (bx) {
+        zs.forEach(function (bz) { box(bx, 0, bz, bx + bs, FND - 0.05, bz + bs, '#8d8a82'); });
       });
+      // rám podlahy + oplechovanie po obvode
+      box(0, FND - 0.06, 0, W, FND, D, st.trim);
+      face([[0, FND, 0], [W, FND, 0], [W, FND, D], [0, FND, D]], '#8f8a80');
+    } else {
+      box(0, 0, 0, W, FND, D, '#b7b2a6');
+      face([[0, FND, 0], [W, FND, 0], [W, FND, D], [0, FND, D]], '#aca698');
     }
 
-    // strecha: presah + hrúbka, pokrýva dom aj terasu
+    // steny (predná z=0 vyššia, zadná z=D nižšia) — zvislé lamely kreslí dekor.
+    // Dvere a okno sa kreslia ako dekor prednej steny (front: true) v tom istom
+    // ťahu — samostatné plôšky by painter's algoritmus radil podľa priemernej
+    // hĺbky celej steny a na vzdialenejšom konci by ich stena prekreslila.
+    face([[0, y0, 0], [W, y0, 0], [W, yF, 0], [0, yF, 0]], st.clad, { wall: true, front: true });
+    face([[W, y0, D], [0, y0, D], [0, yB, D], [W, yB, D]], st.clad, { wall: true });
+    face([[W, y0, 0], [W, y0, D], [W, yB, D], [W, yF, 0]], st.clad, { wall: true });
+    face([[0, y0, D], [0, y0, 0], [0, yF, 0], [0, yB, D]], st.clad, { wall: true });
+
+    // terasa: drevené stĺpy + väznica pod strechou na vonkajšej hrane
+    if (T > 0) {
+      var woodC = st.clad;
+      var ps = 0.12;
+      var px = st.terSide === 'left' ? x0 + 0.05 : W + T - ps - 0.05;
+      box(px, 0, 0.04, px + ps, yF - 0.05, 0.04 + ps, woodC);
+      box(px, 0, D - ps - 0.04, px + ps, yB - 0.05, D - 0.04, woodC);
+      // väznica (šikmý trám medzi stĺpmi, kopíruje spád strechy)
+      var bx1 = px, bx2 = px + ps;
+      face([[bx1, yF - 0.17, 0.04], [bx1, yB - 0.17, D - 0.04], [bx1, yB - 0.03, D - 0.04], [bx1, yF - 0.03, 0.04]], woodC);
+      face([[bx2, yF - 0.17, 0.04], [bx2, yB - 0.17, D - 0.04], [bx2, yB - 0.03, D - 0.04], [bx2, yF - 0.03, 0.04]], woodC);
+      face([[bx1, yF - 0.17, 0.04], [bx2, yF - 0.17, 0.04], [bx2, yB - 0.17, D - 0.04], [bx1, yB - 0.17, D - 0.04]], woodC);
+    }
+
+    // strecha: presah + fascia (záveterky) + podhľad + trapézový plech
     (function () {
-      var o = 0.14, th = 0.07;
+      var o = 0.14, th = 0.08;
       var rx0 = x0 - o, rx1 = x0 + totW + o;
       var rz0 = -o, rz1 = D + o;
       var ryF = yF + 0.02, ryB = yB + 0.02;
-      // spodná fascia (predná a bočné hrany)
+      // podhľad (spodok dosky) — nech strecha zospodu nie je „priehľadná"
+      face([[rx0, ryF, rz0], [rx1, ryF, rz0], [rx1, ryB, rz1], [rx0, ryB, rz1]], lighten(st.trim, 0.14));
       face([[rx0, ryF, rz0], [rx1, ryF, rz0], [rx1, ryF + th, rz0], [rx0, ryF + th, rz0]], st.trim);
       face([[rx1, ryF, rz0], [rx1, ryB, rz1], [rx1, ryB + th, rz1], [rx1, ryF + th, rz0]], st.trim);
       face([[rx0, ryB, rz1], [rx0, ryF, rz0], [rx0, ryF + th, rz0], [rx0, ryB + th, rz1]], st.trim);
       face([[rx1, ryB, rz1], [rx0, ryB, rz1], [rx0, ryB + th, rz1], [rx1, ryB + th, rz1]], st.trim);
-      // vrch — trapézový plech (jemné pruhy v smere spádu)
-      face([[rx0, ryF + th, rz0], [rx1, ryF + th, rz0], [rx1, ryB + th, rz1], [rx0, ryB + th, rz1]], st.trim, { lines: 'roof' });
+      face([[rx0, ryF + th, rz0], [rx1, ryF + th, rz0], [rx1, ryB + th, rz1], [rx0, ryB + th, rz1]], st.trim, { roofTop: true });
     })();
 
-    // odkvap: žľab na zadnej (nižšej) hrane + zvod v rohu
+    // odkvap: žľab visí POD zadnou hranou strechy (nech ho nekryje fascia)
     if (st.odkvap) {
-      var gz = D + 0.16, gy = yB - 0.02, gr = 0.07;
-      var gx0 = x0 - 0.1, gx1 = x0 + totW + 0.1;
-      face([[gx0, gy, gz - gr], [gx1, gy, gz - gr], [gx1, gy + gr, gz - gr], [gx0, gy + gr, gz - gr]], '#9aa0a6');
-      face([[gx0, gy, gz - gr], [gx1, gy, gz - gr], [gx1, gy, gz + 0.01], [gx0, gy, gz + 0.01]], '#8a9096');
-      // zvod
-      var vx = x0 + totW - 0.15;
-      face([[vx, 0, D + 0.06], [vx + 0.08, 0, D + 0.06], [vx + 0.08, gy, D + 0.06], [vx, gy, D + 0.06]], '#9aa0a6');
+      var gC = lighten(st.trim, 0.22);
+      var gr = 0.09;
+      var gy = yB - 0.08;           // vrch žľabu tesne pod odkvapovou hranou
+      var gz1 = D + 0.14, gz0 = gz1 - gr;
+      var gx0 = x0 - 0.12, gx1 = x0 + totW + 0.12;
+      face([[gx0, gy, gz0], [gx1, gy, gz0], [gx1, gy + gr, gz0], [gx0, gy + gr, gz0]], gC);
+      face([[gx0, gy, gz0], [gx1, gy, gz0], [gx1, gy, gz1], [gx0, gy, gz1]], '#888e94');
+      face([[gx0, gy, gz1], [gx1, gy, gz1], [gx1, gy + gr, gz1], [gx0, gy + gr, gz1]], gC);
+      // čelá žľabu
+      face([[gx0, gy, gz0], [gx0, gy, gz1], [gx0, gy + gr, gz1], [gx0, gy + gr, gz0]], gC);
+      face([[gx1, gy, gz1], [gx1, gy, gz0], [gx1, gy + gr, gz0], [gx1, gy + gr, gz1]], gC);
+      // zvod pri rohu + kolienko hore
+      var vx = x0 + totW - 0.32;
+      box(vx, 0, D + 0.03, vx + 0.08, gy - 0.1, D + 0.11, gC);
+      face([[vx, gy - 0.1, D + 0.11], [vx + 0.08, gy - 0.1, D + 0.11], [vx + 0.08, gy, D + 0.02], [vx, gy, D + 0.02]], gC);
     }
 
-    // vykreslenie (painter's algorithm)
+    // ── vykreslenie (painter's algorithm) + dekory ──
+    var LAM = 0.095; // šírka lamely
+
+    function edgeInterp(A, i1, i2, t) {
+      var p1 = A[i1], p2 = A[i2];
+      return [p1[0] + (p2[0] - p1[0]) * t, p1[1] + (p2[1] - p1[1]) * t, p1[2] + (p2[2] - p1[2]) * t];
+    }
+    function line3d(a, b) {
+      var A = proj(a), B = proj(b);
+      ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke();
+    }
+    function quad3d(a, b, c, d, style, alpha) {
+      var P = [a, b, c, d].map(proj);
+      ctx.beginPath();
+      P.forEach(function (p, i) { i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); });
+      ctx.closePath();
+      ctx.globalAlpha = alpha != null ? alpha : 1;
+      ctx.fillStyle = style;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
     faces.sort(function (a, b) { return b.depth - a.depth; });
     faces.forEach(function (f) {
       ctx.beginPath();
@@ -1005,45 +1044,79 @@
       ctx.fillStyle = f.color;
       ctx.fill();
       ctx.globalAlpha = 1;
-      if (f.opts.lines === 'h') {
-        // lamely: vodorovné línie vo vnútri steny
+      var A = f.pts;
+
+      if (f.opts.wall) {
+        // stena [spodokA, spodokB, vrchB, vrchA]: zvislé lamely + rohové lišty
+        // + dvere a okno (na prednej) + tiene — všetko v jednom ťahu steny,
+        // takže poradie voči ostatným plochám dedí od steny (painter).
         ctx.save();
         ctx.clip();
-        ctx.strokeStyle = 'rgba(0,0,0,0.13)';
+        var wallLen = Math.hypot(A[1][0] - A[0][0], A[1][2] - A[0][2]);
+        var nLam = Math.max(2, Math.round(wallLen / LAM));
         ctx.lineWidth = 1;
-        var step = 0.095;
-        for (var yy = y0 + step; yy < f.opts.top; yy += step) {
-          // priesečnica steny s rovinou y=yy: interpoluj po hranách polygonu
-          var A = f.pts, seg = [];
-          for (var k = 0; k < A.length; k++) {
-            var p1 = A[k], p2 = A[(k + 1) % A.length];
-            if ((p1[1] - yy) * (p2[1] - yy) < 0) {
-              var tt = (yy - p1[1]) / (p2[1] - p1[1]);
-              seg.push(proj([p1[0] + (p2[0] - p1[0]) * tt, yy, p1[2] + (p2[2] - p1[2]) * tt]));
-            }
+        for (var i = 1; i < nLam; i++) {
+          var t = i / nLam;
+          // medzera medzi lamelami: tmavá + svetlá hrana vedľa (plastickosť)
+          ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+          line3d(edgeInterp(A, 0, 1, t), edgeInterp(A, 3, 2, t));
+          ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+          line3d(edgeInterp(A, 0, 1, t - 0.25 / nLam), edgeInterp(A, 3, 2, t - 0.25 / nLam));
+        }
+        // rohové lišty vo farbe plechov
+        var tw = Math.min(0.06 / wallLen, 0.2);
+        var trimC = shade(st.trim, Math.min(1.15, f.lum + 0.25));
+        quad3d(edgeInterp(A, 0, 1, 0), edgeInterp(A, 0, 1, tw), edgeInterp(A, 3, 2, tw), edgeInterp(A, 3, 2, 0), trimC);
+        quad3d(edgeInterp(A, 0, 1, 1 - tw), edgeInterp(A, 0, 1, 1), edgeInterp(A, 3, 2, 1), edgeInterp(A, 3, 2, 1 - tw), trimC);
+
+        if (f.opts.front) {
+          // dvere so zárubňou, drážkami a kľučkou (rovina steny z=0)
+          var doorC = shade(st.trim, Math.min(1.1, f.lum + 0.12));
+          var frameC = shade(lighten(st.trim, 0.14), f.lum);
+          var dx = Math.min(0.3, W * 0.08), dw = 0.95, dh = Math.min(2.0, Hf - 0.15);
+          quad3d([dx - 0.05, y0, 0], [dx + dw + 0.05, y0, 0], [dx + dw + 0.05, y0 + dh + 0.05, 0], [dx - 0.05, y0 + dh + 0.05, 0], frameC);
+          quad3d([dx, y0, 0], [dx + dw, y0, 0], [dx + dw, y0 + dh, 0], [dx, y0 + dh, 0], doorC);
+          ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+          for (var g = 1; g < 4; g++) {
+            var gx = dx + (dw * g) / 4;
+            line3d([gx, y0 + 0.03, 0], [gx, y0 + dh - 0.03, 0]);
           }
-          if (seg.length === 2) {
-            ctx.beginPath();
-            ctx.moveTo(seg[0][0], seg[0][1]);
-            ctx.lineTo(seg[1][0], seg[1][1]);
-            ctx.stroke();
+          quad3d([dx + dw - 0.1, y0 + dh * 0.4, 0], [dx + dw - 0.065, y0 + dh * 0.4, 0],
+                 [dx + dw - 0.065, y0 + dh * 0.6, 0], [dx + dw - 0.1, y0 + dh * 0.6, 0], '#c9ccce');
+
+          // okno vpravo: rám, sklo s odleskom, parapet
+          var ww = 1.0, wh = 0.6;
+          var wx = Math.max(dx + dw + 0.3, W - ww - Math.max(0.35, W * 0.08));
+          if (wx + ww < W - 0.08) {
+            var wy = y0 + Math.min(1.35, Hf - wh - 0.3);
+            quad3d([wx - 0.05, wy - 0.05, 0], [wx + ww + 0.05, wy - 0.05, 0], [wx + ww + 0.05, wy + wh + 0.05, 0], [wx - 0.05, wy + wh + 0.05, 0], frameC);
+            quad3d([wx, wy, 0], [wx + ww, wy, 0], [wx + ww, wy + wh, 0], [wx, wy + wh, 0], shade('#aec7d2', f.lum + 0.1));
+            quad3d([wx + ww * 0.08, wy, 0], [wx + ww * 0.35, wy, 0], [wx + ww * 0.55, wy + wh, 0], [wx + ww * 0.28, wy + wh, 0], '#ffffff', 0.3);
+            quad3d([wx + ww * 0.45, wy, 0], [wx + ww * 0.55, wy, 0], [wx + ww * 0.75, wy + wh, 0], [wx + ww * 0.65, wy + wh, 0], '#ffffff', 0.16);
+            quad3d([wx - 0.05, wy - 0.09, 0], [wx + ww + 0.05, wy - 0.09, 0], [wx + ww + 0.05, wy - 0.05, 0], [wx - 0.05, wy - 0.05, 0], shade(lighten(st.trim, 0.25), f.lum));
           }
         }
+
+        // tieň pod strechou + pri zemi (ambient occlusion) — navrchu, cez všetko
+        quad3d(edgeInterp(A, 3, 2, 0), edgeInterp(A, 3, 2, 1),
+               [A[2][0], A[2][1] - 0.13, A[2][2]], [A[3][0], A[3][1] - 0.13, A[3][2]],
+               '#000', 0.16);
+        quad3d(A[0], A[1], [A[1][0], A[1][1] + 0.06, A[1][2]], [A[0][0], A[0][1] + 0.06, A[0][2]], '#000', 0.10);
         ctx.restore();
       }
-      if (f.opts.lines === 'roof') {
+
+      if (f.opts.roofTop) {
+        // trapézový plech: pár tmavá/svetlá línia v smere spádu
         ctx.save();
         ctx.clip();
-        ctx.strokeStyle = 'rgba(255,255,255,0.10)';
         ctx.lineWidth = 1;
-        var A2 = f.pts;
-        var nseg = Math.max(6, Math.round((totW) / 0.18));
+        var nseg = Math.max(6, Math.round(totW / 0.18));
         for (var q = 1; q < nseg; q++) {
           var t2 = q / nseg;
-          var pA = [A2[0][0] + (A2[1][0] - A2[0][0]) * t2, A2[0][1] + (A2[1][1] - A2[0][1]) * t2, A2[0][2] + (A2[1][2] - A2[0][2]) * t2];
-          var pB = [A2[3][0] + (A2[2][0] - A2[3][0]) * t2, A2[3][1] + (A2[2][1] - A2[3][1]) * t2, A2[3][2] + (A2[2][2] - A2[3][2]) * t2];
-          var a1 = proj(pA), b1 = proj(pB);
-          ctx.beginPath(); ctx.moveTo(a1[0], a1[1]); ctx.lineTo(b1[0], b1[1]); ctx.stroke();
+          ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+          line3d(edgeInterp(A, 0, 1, t2), edgeInterp(A, 3, 2, t2));
+          ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+          line3d(edgeInterp(A, 0, 1, t2 - 0.3 / nseg), edgeInterp(A, 3, 2, t2 - 0.3 / nseg));
         }
         ctx.restore();
       }
