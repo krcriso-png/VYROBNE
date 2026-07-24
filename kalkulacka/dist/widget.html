@@ -1221,12 +1221,18 @@
       // algoritme súperila priemernou hĺbkou s malými prvkami pod ňou
       // (krokvy, väznica) a pri strmých uhloch by prehrala
       function roofPiece(xa, xb) {
-        var ZSEG = 0.7;
-        for (var zs = -o; zs < D + o - 0.001; zs += ZSEG) {
-          var ze = Math.min(zs + ZSEG + 0.03, D + o); // mierny prekryv pásov
-          face([[xa, topAt(zs) + 0.004, zs], [xb, topAt(zs) + 0.004, zs],
-                [xb, topAt(ze) + 0.004, ze], [xa, topAt(ze) + 0.004, ze]], st.trim,
-            { roofTop: true, outward: [0, 1, 0], bias: -0.25 });
+        // dlaždice v OBOCH smeroch: delenie len po hĺbke nestačilo — priemer
+        // pásu v šírke (stred domu) prehrával s koncami žľabu pri šikmých
+        // azimutoch; s dlaždicami ~0,8×0,7 m je porovnanie vždy lokálne
+        var ZSEG = 0.7, XSEG = 0.8;
+        for (var xs = xa; xs < xb - 0.001; xs += XSEG) {
+          var xe = Math.min(xs + XSEG + 0.03, xb);
+          for (var zs = -o; zs < D + o - 0.001; zs += ZSEG) {
+            var ze = Math.min(zs + ZSEG + 0.03, D + o);
+            face([[xs, topAt(zs) + 0.004, zs], [xe, topAt(zs) + 0.004, zs],
+                  [xe, topAt(ze) + 0.004, ze], [xs, topAt(ze) + 0.004, ze]], st.trim,
+              { roofTop: true, outward: [0, 1, 0], bias: -0.25 });
+          }
         }
       }
       if (T > 0) {
@@ -1245,12 +1251,15 @@
         // výbitie nad terasou tatranským obkladom (skladba z výrobnej časti
         // návrhára: krokvy zospodu, medzi nimi tatranský obklad) — tiež po pásoch
         (function () {
-          var ZSEG = 0.7;
+          var ZSEG = 0.7, XSEG = 0.8;
           var obkC = lighten(st.clad, 0.22);
-          for (var zs = 0; zs < D - 0.001; zs += ZSEG) {
-            var ze = Math.min(zs + ZSEG + 0.03, D); // mierny prekryv pásov
-            face([[t0, topAt(zs) - FASC, zs], [t1, topAt(zs) - FASC, zs],
-                  [t1, topAt(ze) - FASC, ze], [t0, topAt(ze) - FASC, ze]], obkC, { outward: [0, -1, 0], bias: -0.1 });
+          for (var xs2 = t0; xs2 < t1 - 0.001; xs2 += XSEG) {
+            var xe2 = Math.min(xs2 + XSEG + 0.03, t1);
+            for (var zs = 0; zs < D - 0.001; zs += ZSEG) {
+              var ze = Math.min(zs + ZSEG + 0.03, D);
+              face([[xs2, topAt(zs) - FASC, zs], [xe2, topAt(zs) - FASC, zs],
+                    [xe2, topAt(ze) - FASC, ze], [xs2, topAt(ze) - FASC, ze]], obkC, { outward: [0, -1, 0], bias: -0.1 });
+            }
           }
         })();
         // krokvy 45×120 á 50 cm (KVH 45/120 ako vo výrobnom kalkulátore)
@@ -1409,17 +1418,23 @@
       }
 
       if (f.opts.roofTop) {
-        // trapézový plech: pár tmavá/svetlá línia v smere spádu
+        // trapézový plech: pár tmavá/svetlá línia v smere spádu.
+        // Pozície v svetovej osi x (á 18 cm), aby línie nadväzovali
+        // cez dlaždice strechy.
         ctx.save();
         ctx.clip();
         ctx.lineWidth = 1;
-        var nseg = Math.max(6, Math.round(totW / 0.18));
-        for (var q = 1; q < nseg; q++) {
-          var t2 = q / nseg;
+        var xA = A[0][0], xB = A[1][0];
+        for (var xk = Math.ceil(xA / 0.18) * 0.18; xk < xB; xk += 0.18) {
+          var t2 = (xk - xA) / (xB - xA);
+          if (t2 <= 0.001) continue;
           ctx.strokeStyle = 'rgba(0,0,0,0.18)';
           line3d(edgeInterp(A, 0, 1, t2), edgeInterp(A, 3, 2, t2));
-          ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-          line3d(edgeInterp(A, 0, 1, t2 - 0.3 / nseg), edgeInterp(A, 3, 2, t2 - 0.3 / nseg));
+          var t3 = (xk - 0.05 - xA) / (xB - xA);
+          if (t3 > 0.001) {
+            ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+            line3d(edgeInterp(A, 0, 1, t3), edgeInterp(A, 3, 2, t3));
+          }
         }
         ctx.restore();
       }
