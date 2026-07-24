@@ -1094,14 +1094,35 @@
       var pp = pts.map(proj);
       var depth = 0;
       pp.forEach(function (q) { depth += q[2]; });
-      faces.push({ pp: pp, pts: pts, color: shade(color, f), lum: f, depth: depth / pp.length, opts: opts });
+      // bias: jemná korekcia poradia pre plochy, ktoré musia vyhrať nad tým,
+      // čo je tesne pod nimi (strecha vs. krokvy) — culling zaručuje, že sa
+      // bias uplatní len z tej strany, z ktorej je plocha naozaj viditeľná
+      faces.push({ pp: pp, pts: pts, color: shade(color, f), lum: f, depth: depth / pp.length + (opts.bias || 0), opts: opts });
     }
-    // kváder zo 4 bočných stien (vrch/spodok netreba — nevidno ich alebo ich kryje iné)
-    function box(x1, y1, z1, x2, y2, z2, color, opts) {
-      face([[x1, y1, z1], [x2, y1, z1], [x2, y2, z1], [x1, y2, z1]], color, opts);
-      face([[x2, y1, z1], [x2, y1, z2], [x2, y2, z2], [x2, y2, z1]], color, opts);
-      face([[x2, y1, z2], [x1, y1, z2], [x1, y2, z2], [x2, y2, z2]], color, opts);
-      face([[x1, y1, z2], [x1, y1, z1], [x1, y2, z1], [x1, y2, z2]], color, opts);
+    // plný kváder — 6 stien s vonkajšími normálami (odvrátené sa nekreslia,
+    // takže sa painter nemá na čom pomýliť)
+    function box(x1, y1, z1, x2, y2, z2, color) {
+      face([[x1, y1, z1], [x2, y1, z1], [x2, y2, z1], [x1, y2, z1]], color, { outward: [0, 0, -1] });
+      face([[x2, y1, z1], [x2, y1, z2], [x2, y2, z2], [x2, y2, z1]], color, { outward: [1, 0, 0] });
+      face([[x2, y1, z2], [x1, y1, z2], [x1, y2, z2], [x2, y2, z2]], color, { outward: [0, 0, 1] });
+      face([[x1, y1, z2], [x1, y1, z1], [x1, y2, z1], [x1, y2, z2]], color, { outward: [-1, 0, 0] });
+      face([[x1, y2, z1], [x2, y2, z1], [x2, y2, z2], [x1, y2, z2]], color, { outward: [0, 1, 0] });
+      face([[x1, y1, z2], [x2, y1, z2], [x2, y1, z1], [x1, y1, z1]], color, { outward: [0, -1, 0] });
+    }
+    // šikmý trám pozdĺž hĺbky (väznica, krokvy) — rozsekaný na krátke segmenty,
+    // aby dlhý prvok nesúperil o poradie s veľkými plochami naraz
+    function beamZ(bx0, bx1, z0b, z1b, topFnY, depthB, color) {
+      var SEG = 0.6;
+      for (var zs = z0b; zs < z1b - 0.001; zs += SEG) {
+        var ze = Math.min(zs + SEG, z1b);
+        var yT0 = topFnY(zs), yT1 = topFnY(ze);
+        face([[bx0, yT0 - depthB, zs], [bx0, yT1 - depthB, ze], [bx0, yT1, ze], [bx0, yT0, zs]], color, { outward: [-1, 0, 0] });
+        face([[bx1, yT0 - depthB, zs], [bx1, yT1 - depthB, ze], [bx1, yT1, ze], [bx1, yT0, zs]], color, { outward: [1, 0, 0] });
+        face([[bx0, yT0 - depthB, zs], [bx1, yT0 - depthB, zs], [bx1, yT1 - depthB, ze], [bx0, yT1 - depthB, ze]], color, { outward: [0, -1, 0] });
+      }
+      var ya = topFnY(z0b), yb = topFnY(z1b);
+      face([[bx0, ya - depthB, z0b], [bx1, ya - depthB, z0b], [bx1, ya, z0b], [bx0, ya, z0b]], color, { outward: [0, 0, -1] });
+      face([[bx1, yb - depthB, z1b], [bx0, yb - depthB, z1b], [bx0, yb, z1b], [bx1, yb, z1b]], color, { outward: [0, 0, 1] });
     }
 
     // mäkký tieň na zemi (dve jemné vrstvy)
@@ -1137,13 +1158,7 @@
       postAt(D - POST - 0.03);
       if (st.terStlp) postAt((D - POST) / 2);
       // väznica pod lemovaním (kopíruje spád)
-      (function () {
-        var b0 = px, b1 = px + POST;
-        var yT0 = topAt(0.03) - FASC, yT1 = topAt(D - 0.03) - FASC;
-        face([[b0, yT0 - 0.14, 0.03], [b0, yT1 - 0.14, D - 0.03], [b0, yT1, D - 0.03], [b0, yT0, 0.03]], woodC);
-        face([[b1, yT0 - 0.14, 0.03], [b1, yT1 - 0.14, D - 0.03], [b1, yT1, D - 0.03], [b1, yT0, 0.03]], woodC);
-        face([[b0, yT0 - 0.14, 0.03], [b1, yT0 - 0.14, 0.03], [b1, yT1 - 0.14, D - 0.03], [b0, yT1 - 0.14, D - 0.03]], woodC);
-      })();
+      beamZ(px, px + POST, 0.03, D - 0.03, function (z) { return topAt(z) - FASC; }, 0.14, woodC);
 
       // uzatvorenie strán terasy: zábradlie 90 cm / lamelová / plná stena.
       // plane: os 'x' = zvislá rovina kolmá na x (vonkajšia strana),
@@ -1202,9 +1217,17 @@
     //    terasy (menší a bližší by ho prekreslil). ──
     (function () {
       var o = 0.012;
+      // strecha po pásoch ~0,7 m v smere spádu — veľká plocha by v painter's
+      // algoritme súperila priemernou hĺbkou s malými prvkami pod ňou
+      // (krokvy, väznica) a pri strmých uhloch by prehrala
       function roofPiece(xa, xb) {
-        face([[xa, hhiF + 0.004, -o], [xb, hhiF + 0.004, -o],
-              [xb, hloF + 0.004, D + o], [xa, hloF + 0.004, D + o]], st.trim, { roofTop: true, outward: [0, 1, 0] });
+        var ZSEG = 0.7;
+        for (var zs = -o; zs < D + o - 0.001; zs += ZSEG) {
+          var ze = Math.min(zs + ZSEG + 0.03, D + o); // mierny prekryv pásov
+          face([[xa, topAt(zs) + 0.004, zs], [xb, topAt(zs) + 0.004, zs],
+                [xb, topAt(ze) + 0.004, ze], [xa, topAt(ze) + 0.004, ze]], st.trim,
+            { roofTop: true, outward: [0, 1, 0], bias: -0.25 });
+        }
       }
       if (T > 0) {
         var right = st.terSide !== 'left';
@@ -1220,37 +1243,36 @@
         // vonkajšie šikmé lemovanie
         face([[xo, hhiF - FASC, 0], [xo, hloF - FASC, D], [xo, hloF, D], [xo, hhiF, 0]], st.trim, { outward: [right ? 1 : -1, 0, 0] });
         // výbitie nad terasou tatranským obkladom (skladba z výrobnej časti
-        // návrhára: krokvy zospodu, medzi nimi tatranský obklad)
-        face([[t0, hhiF - FASC, 0], [t1, hhiF - FASC, 0], [t1, hloF - FASC, D], [t0, hloF - FASC, D]],
-          lighten(st.clad, 0.22), { outward: [0, -1, 0] });
+        // návrhára: krokvy zospodu, medzi nimi tatranský obklad) — tiež po pásoch
+        (function () {
+          var ZSEG = 0.7;
+          var obkC = lighten(st.clad, 0.22);
+          for (var zs = 0; zs < D - 0.001; zs += ZSEG) {
+            var ze = Math.min(zs + ZSEG + 0.03, D); // mierny prekryv pásov
+            face([[t0, topAt(zs) - FASC, zs], [t1, topAt(zs) - FASC, zs],
+                  [t1, topAt(ze) - FASC, ze], [t0, topAt(ze) - FASC, ze]], obkC, { outward: [0, -1, 0], bias: -0.1 });
+          }
+        })();
         // krokvy 45×120 á 50 cm (KVH 45/120 ako vo výrobnom kalkulátore)
-        var kw = 0.045, kd = 0.12;
         for (var kx = t0 + 0.5; kx < t1 - 0.1; kx += 0.5) {
-          var kT0 = topAt(0.03) - FASC, kT1 = topAt(D - 0.03) - FASC;
-          face([[kx, kT0 - kd, 0.03], [kx, kT1 - kd, D - 0.03], [kx, kT1, D - 0.03], [kx, kT0, 0.03]], st.clad);
-          face([[kx + kw, kT0 - kd, 0.03], [kx + kw, kT1 - kd, D - 0.03], [kx + kw, kT1, D - 0.03], [kx + kw, kT0, 0.03]], st.clad);
-          face([[kx, kT0 - kd, 0.03], [kx + kw, kT0 - kd, 0.03], [kx + kw, kT1 - kd, D - 0.03], [kx, kT1 - kd, D - 0.03]], st.clad, { outward: [0, -1, 0] });
-          // čelo krokvy vpredu
-          face([[kx, kT0 - kd, 0.03], [kx + kw, kT0 - kd, 0.03], [kx + kw, kT0, 0.03], [kx, kT0, 0.03]], st.clad, { outward: [0, 0, -1] });
+          beamZ(kx, kx + 0.045, 0.03, D - 0.03, function (z) { return topAt(z) - FASC; }, 0.12, st.clad);
         }
       } else {
         roofPiece(x0 - o, x0 + totW + o);
       }
     })();
 
-    // odkvap: žľab pod spodkom lemovania na zadnej (nižšej) strane
+    // odkvap: žľab pod spodkom lemovania na zadnej (nižšej) strane —
+    // po segmentoch (dlhý kus by súperil o poradie s veľkými plochami)
     if (st.odkvap) {
       var gC = lighten(st.trim, 0.22);
       var gr = 0.09;
       var gy = hloF - FASC - 0.08;
       var gz1 = D + 0.12, gz0 = gz1 - gr;
       var gx0 = x0 - 0.03, gx1 = x0 + totW + 0.03;
-      face([[gx0, gy, gz0], [gx1, gy, gz0], [gx1, gy + gr, gz0], [gx0, gy + gr, gz0]], gC);
-      face([[gx0, gy, gz0], [gx1, gy, gz0], [gx1, gy, gz1], [gx0, gy, gz1]], '#888e94');
-      face([[gx0, gy, gz1], [gx1, gy, gz1], [gx1, gy + gr, gz1], [gx0, gy + gr, gz1]], gC);
-      // čelá žľabu
-      face([[gx0, gy, gz0], [gx0, gy, gz1], [gx0, gy + gr, gz1], [gx0, gy + gr, gz0]], gC);
-      face([[gx1, gy, gz1], [gx1, gy, gz0], [gx1, gy + gr, gz0], [gx1, gy + gr, gz1]], gC);
+      for (var gxs = gx0; gxs < gx1 - 0.001; gxs += 0.8) {
+        box(gxs, gy, gz0, Math.min(gxs + 0.8, gx1), gy + gr, gz1, gC);
+      }
       // zvod pri rohu + kolienko hore
       var vx = x0 + totW - 0.32;
       box(vx, 0, D + 0.03, vx + 0.08, gy - 0.1, D + 0.11, gC);
