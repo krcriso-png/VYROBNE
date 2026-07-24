@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Konfigurátor záhradného domčeka</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #F6F5F0;
+    --surface: #FFFFFF;
+    --surface-2: #EFEDE4;
+    --ink: #202B21;
+    --muted: #6A7263;
+    --line: #E2E0D5;
+    --accent: #2F6B45;
+    --accent-ink: #FFFFFF;
+    --accent-soft: #E4EEE6;
+    --timber: #A9741F;
+    --sky-top: #EAF0EA;
+    --sky-bottom: #F6F5F0;
+    --shadow: 0 1px 2px rgba(32, 43, 33, 0.06), 0 4px 14px rgba(32, 43, 33, 0.05);
+    --radius: 12px;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161B16; --surface: #1E241E; --surface-2: #242B24; --ink: #E7E5DA;
+      --muted: #9AA491; --line: #313A31; --accent: #74B086; --accent-ink: #12190E;
+      --accent-soft: #23372A; --timber: #D9A24B;
+      --sky-top: #1B221C; --sky-bottom: #161B16;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 14px rgba(0, 0, 0, 0.3);
+    }
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #F6F5F0; --surface: #FFFFFF; --surface-2: #EFEDE4; --ink: #202B21;
+    --muted: #6A7263; --line: #E2E0D5; --accent: #2F6B45; --accent-ink: #FFFFFF;
+    --accent-soft: #E4EEE6; --timber: #A9741F;
+    --sky-top: #EAF0EA; --sky-bottom: #F6F5F0;
+    --shadow: 0 1px 2px rgba(32, 43, 33, 0.06), 0 4px 14px rgba(32, 43, 33, 0.05);
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #161B16; --surface: #1E241E; --surface-2: #242B24; --ink: #E7E5DA;
+    --muted: #9AA491; --line: #313A31; --accent: #74B086; --accent-ink: #12190E;
+    --accent-soft: #23372A; --timber: #D9A24B;
+    --sky-top: #1B221C; --sky-bottom: #161B16;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 14px rgba(0, 0, 0, 0.3);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: var(--sans); font-size: 14px; line-height: 1.45;
+  }
+
+  .widget {
+    display: grid; grid-template-columns: minmax(0, 1fr) 330px;
+    gap: 14px; padding: 14px; height: 100%; max-width: 1200px; margin: 0 auto;
+  }
+  @media (max-width: 820px) {
+    .widget { grid-template-columns: 1fr; height: auto; }
+  }
+
+  /* ---------- 3D scéna ---------- */
+  .scene {
+    position: relative; border-radius: var(--radius); overflow: hidden;
+    border: 1px solid var(--line); box-shadow: var(--shadow);
+    background: linear-gradient(var(--sky-top), var(--sky-bottom));
+    min-height: 380px;
+  }
+  @media (max-width: 820px) { .scene { height: 52vh; min-height: 320px; } }
+  .scene canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+  .scene canvas.dragging { cursor: grabbing; }
+  .scene .brand {
+    position: absolute; top: 12px; left: 14px;
+    font-family: var(--serif); font-size: 15px; font-weight: 700; letter-spacing: 0.02em;
+    color: var(--ink); opacity: 0.85; pointer-events: none;
+  }
+  .scene .dims-badge {
+    position: absolute; bottom: 12px; left: 14px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 99px;
+    padding: 4px 12px; font-size: 12px; font-variant-numeric: tabular-nums;
+    box-shadow: var(--shadow); pointer-events: none;
+  }
+  .scene .hint3d {
+    position: absolute; bottom: 12px; right: 14px;
+    font-size: 11px; color: var(--muted); pointer-events: none;
+  }
+  .view-btns {
+    position: absolute; top: 12px; right: 12px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .view-btns button {
+    width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--surface); color: var(--ink); font-size: 16px; cursor: pointer;
+    box-shadow: var(--shadow);
+  }
+  .view-btns button:hover { background: var(--surface-2); }
+  .view-btns button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  /* ---------- panel ---------- */
+  .panel { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px;
+  }
+  .price-card { text-align: center; }
+  .price-card .variant { font-family: var(--serif); font-size: 15px; font-weight: 600; }
+  .price-card .big {
+    font-size: 34px; font-weight: 800; color: var(--timber);
+    font-variant-numeric: tabular-nums; line-height: 1.15; margin: 2px 0;
+  }
+  .price-card .sub { font-size: 12.5px; color: var(--muted); }
+
+  .lbl {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.07em;
+    text-transform: uppercase; color: var(--muted); margin: 10px 0 2px;
+  }
+  .lbl:first-child { margin-top: 0; }
+  .lbl output { font-size: 14px; font-weight: 700; color: var(--ink); text-transform: none; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+  .slider-row { display: flex; align-items: center; gap: 8px; }
+  .slider-row button {
+    width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--surface-2); color: var(--ink); font-size: 16px; font-weight: 700;
+    cursor: pointer; flex: none; line-height: 1;
+  }
+  .slider-row button:hover { background: var(--accent-soft); }
+  .slider-row button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input[type="range"] { flex: 1; accent-color: var(--accent); min-width: 0; }
+  select {
+    font: inherit; color: var(--ink); background: var(--surface);
+    border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; width: 100%;
+  }
+  .check { display: flex; align-items: center; gap: 8px; padding: 5px 0; cursor: pointer; font-weight: 500; }
+  .check input { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
+  .seg { display: flex; gap: 6px; }
+  .seg button {
+    flex: 1; padding: 6px 0; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--surface); color: var(--ink); font: inherit; cursor: pointer;
+  }
+  .seg button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+
+  .swatches { display: flex; flex-wrap: wrap; gap: 7px; padding: 4px 0; }
+  .swatch {
+    width: 34px; height: 24px; border-radius: 6px; cursor: pointer;
+    border: 2px solid var(--line); padding: 0;
+  }
+  .swatch[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .cta { display: flex; flex-direction: column; gap: 8px; }
+  .cta a.btn-main {
+    display: block; text-align: center; text-decoration: none;
+    background: var(--accent); color: var(--accent-ink);
+    border-radius: 10px; padding: 12px; font-weight: 700; font-size: 15px;
+  }
+  .cta a.btn-main:hover { filter: brightness(1.07); }
+  .cta button.btn-ghost {
+    background: none; border: none; color: var(--muted); font: inherit; font-size: 12px;
+    cursor: pointer; text-decoration: underline; padding: 2px;
+  }
+  .cta button.btn-ghost:hover { color: var(--ink); }
+  .note { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="widget">
+  <div class="scene">
+    <canvas id="c3d" aria-label="3D model záhradného domčeka — ťahaním otáčaj, kolieskom približuj"></canvas>
+    <div class="brand">EXPERTWOOD</div>
+    <div class="dims-badge" id="dimsBadge">4,0 × 2,5 m</div>
+    <div class="hint3d">ťahaj = otáčanie · koliesko = zoom</div>
+    <div class="view-btns">
+      <button id="btnZoomIn" aria-label="Priblížiť" title="Priblížiť">+</button>
+      <button id="btnZoomOut" aria-label="Oddialiť" title="Oddialiť">−</button>
+      <button id="btnReset" aria-label="Východzí pohľad" title="Východzí pohľad">⟲</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="card price-card">
+      <div class="variant" id="pVariant">Domček</div>
+      <div class="big" id="pTotal">—</div>
+      <div class="sub" id="pSub">vrátane DPH · materiál, výroba, doprava aj montáž</div>
+    </div>
+
+    <div class="card">
+      <div class="lbl"><span>Šírka</span><output id="oW">4,0 m</output></div>
+      <div class="slider-row">
+        <button data-step="w:-0.1" aria-label="Zmenšiť šírku">−</button>
+        <input type="range" id="sW" min="2" max="8" step="0.1" value="4" aria-label="Šírka domčeka v metroch">
+        <button data-step="w:0.1" aria-label="Zväčšiť šírku">+</button>
+      </div>
+      <div class="lbl"><span>Hĺbka</span><output id="oD">2,5 m</output></div>
+      <div class="slider-row">
+        <button data-step="d:-0.1" aria-label="Zmenšiť hĺbku">−</button>
+        <input type="range" id="sD" min="2" max="6" step="0.1" value="2.5" aria-label="Hĺbka domčeka v metroch">
+        <button data-step="d:0.1" aria-label="Zväčšiť hĺbku">+</button>
+      </div>
+      <div class="lbl"><span>Výška (zadná stena)</span><output id="oH">2,10 m</output></div>
+      <div class="slider-row">
+        <button data-step="h:-0.05" aria-label="Znížiť výšku">−</button>
+        <input type="range" id="sH" min="1.9" max="2.7" step="0.05" value="2.1" aria-label="Výška zadnej steny v metroch">
+        <button data-step="h:0.05" aria-label="Zvýšiť výšku">+</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <label class="check"><input type="checkbox" id="cTer"> Terasa (prístrešok)</label>
+      <div id="terOpts" style="display:none; padding-left: 4px;">
+        <div class="seg" role="group" aria-label="Strana terasy">
+          <button id="terLeft" aria-pressed="false">Vľavo</button>
+          <button id="terRight" aria-pressed="true">Vpravo</button>
+        </div>
+        <div class="lbl"><span>Šírka terasy</span><output id="oT">2,0 m</output></div>
+        <div class="slider-row">
+          <button data-step="t:-0.1" aria-label="Zmenšiť terasu">−</button>
+          <input type="range" id="sT" min="1" max="4" step="0.1" value="2" aria-label="Šírka terasy v metroch">
+          <button data-step="t:0.1" aria-label="Zväčšiť terasu">+</button>
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" id="cPod"> Podlaha v domčeku</label>
+      <label class="check"><input type="checkbox" id="cOdk" checked> Odkvapový systém</label>
+      <div class="lbl"><span>Zateplenie</span></div>
+      <select id="selZat" aria-label="Zateplenie">
+        <option value="none">bez zateplenia</option>
+        <option value="osb">zateplenie + záklop OSB</option>
+        <option value="tatran">zateplenie + tatranský obklad</option>
+      </select>
+    </div>
+
+    <div class="card">
+      <div class="lbl"><span>Farba dreva</span></div>
+      <div class="swatches" id="swClad"></div>
+      <div class="lbl"><span>Farba strechy a plechov</span></div>
+      <div class="swatches" id="swTrim"></div>
+    </div>
+
+    <div class="cta">
+      <a class="btn-main" id="ctaMail" href="#">Mám záujem o tento domček</a>
+      <button class="btn-ghost" id="btnJson">Stiahnuť konfiguráciu pre návrhára (JSON)</button>
+    </div>
+    <p class="note">Cena je informatívna, počítaná z aktuálneho cenníka výrobcu. Konečnú ponuku
+    pripravíme po overení konfigurácie.</p>
+  </div>
+</div>
+
+<script src="engine.js"></script>
+<script>
+(function () {
+  'use strict';
+  var E = window.KalkEngine;
+
+  // e-mail pre CTA: ?email=... v URL alebo predvolený
+  var CONTACT_EMAIL = (function () {
+    try {
+      var p = new URLSearchParams(location.search).get('email');
+      if (p && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(p)) return p;
+    } catch (e) { /* ignore */ }
+    return 'krcriso@gmail.com';
+  })();
+
+  // ---------------------------------------------------------------------------
+  // Stav konfigurácie
+  // ---------------------------------------------------------------------------
+  var st = {
+    w: 4, d: 2.5, h: 2.1,
+    terasa: false, terSide: 'right', terW: 2,
+    podlaha: false, odkvap: true, zat: 'none',
+    clad: '#d49030', trim: '#2b2b2b',
+  };
+
+  // palety prevzaté z návrhára (EXPERTWOOD)
+  var CLADS = [
+    { c: '#f0dfa0', n: 'Breza' }, { c: '#e8b83a', n: 'Lipa' }, { c: '#d49030', n: 'Pínia' },
+    { c: '#d4a828', n: 'Dub' }, { c: '#b87e1a', n: 'Orech' }, { c: '#9e2020', n: 'Gaštan' },
+    { c: '#7a2818', n: 'Mahagón' }, { c: '#3a1408', n: 'Tmavý palisander' },
+  ];
+  var TRIMS = [
+    { c: '#3b1f0a', n: 'Hnedá' }, { c: '#2b2b2b', n: 'Antracit' }, { c: '#000000', n: 'Čierna' },
+  ];
+
+  // ---------------------------------------------------------------------------
+  // Cenník: ak beží na rovnakej doméne ako kalkulačka, použije jej uložené ceny
+  // ---------------------------------------------------------------------------
+  function loadConfig() {
+    var cfg = E.defaultConfig();
+    var raw = null;
+    try { raw = localStorage.getItem('kalkulacka-vyrobne-v1'); } catch (e) { /* ignore */ }
+    if (!raw) return cfg;
+    try {
+      var saved = JSON.parse(raw);
+      if (saved && saved.config) {
+        var ss = saved.config.settings || {};
+        Object.keys(cfg.settings).forEach(function (k) {
+          var v = ss[k];
+          if (v == null) return;
+          if (typeof cfg.settings[k] === 'object' && typeof v === 'object') {
+            Object.keys(cfg.settings[k]).forEach(function (k2) {
+              if (typeof v[k2] === 'number' && isFinite(v[k2])) cfg.settings[k][k2] = v[k2];
+            });
+          } else if (typeof v === 'number' && isFinite(v)) {
+            cfg.settings[k] = v;
+          }
+        });
+        var byKey = {};
+        (saved.config.materials || []).forEach(function (m) { if (m && m.key) byKey[m.key] = m; });
+        cfg.materials.forEach(function (m) {
+          var s = byKey[m.key];
+          if (!s) return;
+          if (typeof s.price === 'number' && isFinite(s.price)) m.price = s.price;
+          if (typeof s.vatPayer === 'boolean') m.vatPayer = s.vatPayer;
+          if (typeof s.packQty === 'number' && isFinite(s.packQty) && s.packQty > 0) m.packQty = s.packQty;
+        });
+      }
+    } catch (e) { /* poškodený záznam → predvolené ceny */ }
+    return cfg;
+  }
+
+  var eurFmt = new Intl.NumberFormat('sk-SK', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0, minimumFractionDigits: 0 });
+  var eurFmt2 = new Intl.NumberFormat('sk-SK', { style: 'currency', currency: 'EUR' });
+  function m(x, dec) { return x.toFixed(dec == null ? 1 : dec).replace('.', ',') + ' m'; }
+
+  function computePrice() {
+    var cfg = loadConfig();
+    var r = E.compute({
+      sirka: st.w, hlbka: st.d, vyskaZadu: st.h,
+      plochaOkna: 0.6, plochaDveri: 2,
+      sirkaAltanku: st.terasa ? st.terW : 0,
+      odkvap: st.odkvap, zateplenie: st.zat,
+    }, cfg);
+    var vk = E.pickVariant(st.terasa, st.podlaha, false);
+    var v = r.variants[vk];
+    var odk = st.odkvap ? (v.withTerasa ? r.odkvap.sTerasou : r.odkvap.bezTerasy) : null;
+    return {
+      label: v.label,
+      bezDph: v.predajnaBezDph + (odk ? odk.predajnaBezDph : 0),
+      sDph: v.predajSDph + (odk ? odk.predajSDph : 0),
+      dph: cfg.settings.dph,
+    };
+  }
+
+  function renderPrice() {
+    var p = computePrice();
+    document.getElementById('pVariant').textContent = p.label +
+      (st.zat !== 'none' ? ' + zateplenie' : '') + (st.odkvap ? ' + odkvap' : '');
+    document.getElementById('pTotal').textContent = eurFmt.format(Math.round(p.sDph));
+    document.getElementById('pSub').textContent =
+      eurFmt2.format(p.bezDph) + ' bez DPH · s DPH ' + Math.round(p.dph * 100) + ' % · materiál, výroba, doprava aj montáž';
+    updateCta(p);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 3D renderer (vlastná projekcia, žiadne knižnice)
+  // ---------------------------------------------------------------------------
+  var canvas = document.getElementById('c3d');
+  var ctx = canvas.getContext('2d');
+  var cam = { az: -0.62, el: 0.40, zoom: 1 };
+  var CAM_DEF = { az: -0.62, el: 0.40, zoom: 1 };
+
+  function shade(hex, f) {
+    var n = parseInt(hex.slice(1), 16);
+    var r = Math.min(255, Math.round(((n >> 16) & 255) * f));
+    var g = Math.min(255, Math.round(((n >> 8) & 255) * f));
+    var b = Math.min(255, Math.round((n & 255) * f));
+    return 'rgb(' + r + ',' + g + ',' + b + ')';
+  }
+
+  // svetlo zhora-spredu-zľava
+  var LIGHT = (function () {
+    var l = [0.45, 0.85, 0.55];
+    var len = Math.hypot(l[0], l[1], l[2]);
+    return [l[0] / len, l[1] / len, l[2] / len];
+  })();
+
+  function draw() {
+    var dpr = window.devicePixelRatio || 1;
+    var cw = canvas.clientWidth, ch = canvas.clientHeight;
+    if (!cw || !ch) return;
+    if (canvas.width !== cw * dpr || canvas.height !== ch * dpr) {
+      canvas.width = cw * dpr; canvas.height = ch * dpr;
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cw, ch);
+
+    var W = st.w, D = st.d, Hb = st.h, Hf = Hb + D * 0.05;
+    var T = st.terasa ? st.terW : 0;
+    var FND = 0.15;                 // výška základu
+    var totW = W + T;
+    var x0 = st.terSide === 'left' ? -T : 0; // terasa posúva rozsah po x
+
+    // kamera
+    var span = Math.max(totW, D, Hf + FND) * 1.15 + 1.6;
+    var dist = span * 2.6 / cam.zoom;
+    var fov = Math.min(cw, ch) * 1.45;
+    var C = { cx: x0 + totW / 2, cy: (Hf + FND) / 2, cz: D / 2 };
+    var ca = Math.cos(cam.az), sa = Math.sin(cam.az);
+    var ce = Math.cos(cam.el), se = Math.sin(cam.el);
+
+    function proj(p) {
+      var x = p[0] - C.cx, y = p[1] - C.cy, z = p[2] - C.cz;
+      var x1 = x * ca + z * sa;
+      var z1 = -x * sa + z * ca;
+      var y2 = y * ce - z1 * se;
+      var z2 = y * se + z1 * ce;
+      var z3 = z2 + dist;
+      var s = fov / z3;
+      return [cw / 2 + x1 * s, ch * 0.56 - y2 * s, z3];
+    }
+
+    var faces = [];
+    // face: pts (pole [x,y,z]), color, opts {stroke, lines: 'h' pre lamely}
+    function face(pts, color, opts) {
+      opts = opts || {};
+      // normála z prvých troch bodov
+      var a = pts[0], b = pts[1], c = pts[2];
+      var u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+      var v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+      var n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+      var nl = Math.hypot(n[0], n[1], n[2]) || 1;
+      n = [n[0] / nl, n[1] / nl, n[2] / nl];
+      var lam = Math.abs(n[0] * LIGHT[0] + n[1] * LIGHT[1] + n[2] * LIGHT[2]);
+      var f = opts.flat ? 1 : (0.62 + 0.38 * lam);
+      var pp = pts.map(proj);
+      var depth = 0;
+      pp.forEach(function (q) { depth += q[2]; });
+      faces.push({ pp: pp, pts: pts, color: shade(color, f), depth: depth / pp.length, opts: opts });
+    }
+
+    // tieň na zemi
+    (function () {
+      var pad = 0.35;
+      face([[x0 - pad, 0.001, -pad], [x0 + totW + pad, 0.001, -pad],
+            [x0 + totW + pad, 0.001, D + pad], [x0 - pad, 0.001, D + pad]],
+        '#000000', { flat: true, alpha: 0.07 });
+    })();
+
+    // základ (doska)
+    (function () {
+      var g = '#b7b2a6';
+      face([[0, 0, 0], [W, 0, 0], [W, FND, 0], [0, FND, 0]], g);
+      face([[W, 0, 0], [W, 0, D], [W, FND, D], [W, FND, 0]], g);
+      face([[0, 0, D], [0, 0, 0], [0, FND, 0], [0, FND, D]], g);
+      face([[W, 0, D], [0, 0, D], [0, FND, D], [W, FND, D]], shade(g, 0.9).replace('rgb', 'rgb'));
+    })();
+
+    var y0 = FND;
+    var yF = y0 + Hf, yB = y0 + Hb;
+
+    // steny (predná z=0 vyššia, zadná z=D nižšia)
+    face([[0, y0, 0], [W, y0, 0], [W, yF, 0], [0, yF, 0]], st.clad, { lines: 'h', top: yF });
+    face([[W, y0, D], [0, y0, D], [0, yB, D], [W, yB, D]], st.clad, { lines: 'h', top: yB });
+    face([[W, y0, 0], [W, y0, D], [W, yB, D], [W, yF, 0]], st.clad, { lines: 'h', top: yF });
+    face([[0, y0, D], [0, y0, 0], [0, yF, 0], [0, yB, D]], st.clad, { lines: 'h', top: yF });
+
+    // dvere + okno na prednej stene (mierne pred stenou)
+    (function () {
+      var zf = -0.012;
+      var dx = Math.min(0.25, W * 0.06), dw = 0.95, dh = 2.0;
+      dh = Math.min(dh, Hf - 0.1);
+      face([[dx, y0, zf], [dx + dw, y0, zf], [dx + dw, y0 + dh, zf], [dx, y0 + dh, zf]], st.trim, { flat: false });
+      // kľučka
+      face([[dx + dw - 0.09, y0 + dh / 2 - 0.02, zf - 0.004], [dx + dw - 0.04, y0 + dh / 2 - 0.02, zf - 0.004],
+            [dx + dw - 0.04, y0 + dh / 2 + 0.02, zf - 0.004], [dx + dw - 0.09, y0 + dh / 2 + 0.02, zf - 0.004]],
+        '#cfcfcf', { flat: true });
+      // okno vpravo
+      var ww = 1.0, wh = 0.6;
+      var wx = Math.max(dx + dw + 0.25, W - ww - Math.min(0.35, W * 0.08));
+      if (wx + ww < W - 0.05) {
+        var wy = y0 + Math.min(1.35, Hf - wh - 0.25);
+        face([[wx - 0.04, wy - 0.04, zf], [wx + ww + 0.04, wy - 0.04, zf], [wx + ww + 0.04, wy + wh + 0.04, zf], [wx - 0.04, wy + wh + 0.04, zf]], st.trim);
+        face([[wx, wy, zf - 0.004], [wx + ww, wy, zf - 0.004], [wx + ww, wy + wh, zf - 0.004], [wx, wy + wh, zf - 0.004]], '#b8cfd8', { flat: true });
+      }
+    })();
+
+    // terasa: stĺpy (roh terasy vpredu aj vzadu)
+    if (T > 0) {
+      var px = st.terSide === 'left' ? x0 + 0.06 : W + T - 0.18;
+      var ps = 0.12;
+      [[px, 0, 0.03, yF - 0.03], [px, 0, D - ps - 0.03, yB - 0.03]].forEach(function (q) {
+        var sx = q[0], sz = q[2], ph = q[3];
+        // výška stĺpa podľa sklonu strechy v mieste z
+        var c = '#8a6a42';
+        face([[sx, 0, sz], [sx + ps, 0, sz], [sx + ps, ph, sz], [sx, ph, sz]], c);
+        face([[sx + ps, 0, sz], [sx + ps, 0, sz + ps], [sx + ps, ph, sz + ps], [sx + ps, ph, sz]], c);
+        face([[sx, 0, sz + ps], [sx, 0, sz], [sx, ph, sz], [sx, ph, sz + ps]], c);
+        face([[sx + ps, 0, sz + ps], [sx, 0, sz + ps], [sx, ph, sz + ps], [sx + ps, ph, sz + ps]], c);
+      });
+    }
+
+    // strecha: presah + hrúbka, pokrýva dom aj terasu
+    (function () {
+      var o = 0.14, th = 0.07;
+      var rx0 = x0 - o, rx1 = x0 + totW + o;
+      var rz0 = -o, rz1 = D + o;
+      var ryF = yF + 0.02, ryB = yB + 0.02;
+      // spodná fascia (predná a bočné hrany)
+      face([[rx0, ryF, rz0], [rx1, ryF, rz0], [rx1, ryF + th, rz0], [rx0, ryF + th, rz0]], st.trim);
+      face([[rx1, ryF, rz0], [rx1, ryB, rz1], [rx1, ryB + th, rz1], [rx1, ryF + th, rz0]], st.trim);
+      face([[rx0, ryB, rz1], [rx0, ryF, rz0], [rx0, ryF + th, rz0], [rx0, ryB + th, rz1]], st.trim);
+      face([[rx1, ryB, rz1], [rx0, ryB, rz1], [rx0, ryB + th, rz1], [rx1, ryB + th, rz1]], st.trim);
+      // vrch — trapézový plech (jemné pruhy v smere spádu)
+      face([[rx0, ryF + th, rz0], [rx1, ryF + th, rz0], [rx1, ryB + th, rz1], [rx0, ryB + th, rz1]], st.trim, { lines: 'roof' });
+    })();
+
+    // odkvap: žľab na zadnej (nižšej) hrane + zvod v rohu
+    if (st.odkvap) {
+      var gz = D + 0.16, gy = yB - 0.02, gr = 0.07;
+      var gx0 = x0 - 0.1, gx1 = x0 + totW + 0.1;
+      face([[gx0, gy, gz - gr], [gx1, gy, gz - gr], [gx1, gy + gr, gz - gr], [gx0, gy + gr, gz - gr]], '#9aa0a6');
+      face([[gx0, gy, gz - gr], [gx1, gy, gz - gr], [gx1, gy, gz + 0.01], [gx0, gy, gz + 0.01]], '#8a9096');
+      // zvod
+      var vx = x0 + totW - 0.15;
+      face([[vx, 0, D + 0.06], [vx + 0.08, 0, D + 0.06], [vx + 0.08, gy, D + 0.06], [vx, gy, D + 0.06]], '#9aa0a6');
+    }
+
+    // vykreslenie (painter's algorithm)
+    faces.sort(function (a, b) { return b.depth - a.depth; });
+    faces.forEach(function (f) {
+      ctx.beginPath();
+      f.pp.forEach(function (p, i) { i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); });
+      ctx.closePath();
+      ctx.globalAlpha = f.opts.alpha != null ? f.opts.alpha : 1;
+      ctx.fillStyle = f.color;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      if (f.opts.lines === 'h') {
+        // lamely: vodorovné línie vo vnútri steny
+        ctx.save();
+        ctx.clip();
+        ctx.strokeStyle = 'rgba(0,0,0,0.13)';
+        ctx.lineWidth = 1;
+        var step = 0.095;
+        for (var yy = y0 + step; yy < f.opts.top; yy += step) {
+          // priesečnica steny s rovinou y=yy: interpoluj po hranách polygonu
+          var A = f.pts, seg = [];
+          for (var k = 0; k < A.length; k++) {
+            var p1 = A[k], p2 = A[(k + 1) % A.length];
+            if ((p1[1] - yy) * (p2[1] - yy) < 0) {
+              var tt = (yy - p1[1]) / (p2[1] - p1[1]);
+              seg.push(proj([p1[0] + (p2[0] - p1[0]) * tt, yy, p1[2] + (p2[2] - p1[2]) * tt]));
+            }
+          }
+          if (seg.length === 2) {
+            ctx.beginPath();
+            ctx.moveTo(seg[0][0], seg[0][1]);
+            ctx.lineTo(seg[1][0], seg[1][1]);
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+      }
+      if (f.opts.lines === 'roof') {
+        ctx.save();
+        ctx.clip();
+        ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+        ctx.lineWidth = 1;
+        var A2 = f.pts;
+        var nseg = Math.max(6, Math.round((totW) / 0.18));
+        for (var q = 1; q < nseg; q++) {
+          var t2 = q / nseg;
+          var pA = [A2[0][0] + (A2[1][0] - A2[0][0]) * t2, A2[0][1] + (A2[1][1] - A2[0][1]) * t2, A2[0][2] + (A2[1][2] - A2[0][2]) * t2];
+          var pB = [A2[3][0] + (A2[2][0] - A2[3][0]) * t2, A2[3][1] + (A2[2][1] - A2[3][1]) * t2, A2[3][2] + (A2[2][2] - A2[3][2]) * t2];
+          var a1 = proj(pA), b1 = proj(pB);
+          ctx.beginPath(); ctx.moveTo(a1[0], a1[1]); ctx.lineTo(b1[0], b1[1]); ctx.stroke();
+        }
+        ctx.restore();
+      }
+    });
+
+    document.getElementById('dimsBadge').textContent =
+      m(st.w) + ' × ' + m(st.d) + (st.terasa ? ' + terasa ' + m(st.terW) : '');
+  }
+
+  // interakcia: orbit + zoom (myš aj dotyk)
+  var pointers = {};
+  var lastPinch = 0;
+  canvas.addEventListener('pointerdown', function (ev) {
+    canvas.setPointerCapture(ev.pointerId);
+    pointers[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
+    canvas.classList.add('dragging');
+  });
+  canvas.addEventListener('pointermove', function (ev) {
+    var p = pointers[ev.pointerId];
+    if (!p) return;
+    var keys = Object.keys(pointers);
+    if (keys.length === 2) {
+      pointers[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
+      var a = pointers[keys[0]], b = pointers[keys[1]];
+      var dist2 = Math.hypot(a.x - b.x, a.y - b.y);
+      if (lastPinch) {
+        cam.zoom = Math.min(2.5, Math.max(0.5, cam.zoom * dist2 / lastPinch));
+        draw();
+      }
+      lastPinch = dist2;
+      return;
+    }
+    var dx = ev.clientX - p.x, dy = ev.clientY - p.y;
+    pointers[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
+    cam.az += dx * 0.008;
+    cam.el = Math.min(1.05, Math.max(0.12, cam.el + dy * 0.006));
+    draw();
+  });
+  function endPointer(ev) {
+    delete pointers[ev.pointerId];
+    lastPinch = 0;
+    if (!Object.keys(pointers).length) canvas.classList.remove('dragging');
+  }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+  canvas.addEventListener('wheel', function (ev) {
+    ev.preventDefault();
+    cam.zoom = Math.min(2.5, Math.max(0.5, cam.zoom * (ev.deltaY < 0 ? 1.1 : 0.9)));
+    draw();
+  }, { passive: false });
+  canvas.addEventListener('dblclick', function () { cam = { az: CAM_DEF.az, el: CAM_DEF.el, zoom: CAM_DEF.zoom }; draw(); });
+  document.getElementById('btnZoomIn').addEventListener('click', function () { cam.zoom = Math.min(2.5, cam.zoom * 1.15); draw(); });
+  document.getElementById('btnZoomOut').addEventListener('click', function () { cam.zoom = Math.max(0.5, cam.zoom / 1.15); draw(); });
+  document.getElementById('btnReset').addEventListener('click', function () { cam = { az: CAM_DEF.az, el: CAM_DEF.el, zoom: CAM_DEF.zoom }; draw(); });
+  window.addEventListener('resize', draw);
+
+  // ---------------------------------------------------------------------------
+  // Ovládanie
+  // ---------------------------------------------------------------------------
+  function refreshOutputs() {
+    document.getElementById('oW').textContent = m(st.w);
+    document.getElementById('oD').textContent = m(st.d);
+    document.getElementById('oH').textContent = m(st.h, 2);
+    document.getElementById('oT').textContent = m(st.terW);
+    document.getElementById('sW').value = st.w;
+    document.getElementById('sD').value = st.d;
+    document.getElementById('sH').value = st.h;
+    document.getElementById('sT').value = st.terW;
+    document.getElementById('terOpts').style.display = st.terasa ? '' : 'none';
+    document.getElementById('terLeft').setAttribute('aria-pressed', st.terSide === 'left' ? 'true' : 'false');
+    document.getElementById('terRight').setAttribute('aria-pressed', st.terSide === 'right' ? 'true' : 'false');
+  }
+  function update() {
+    refreshOutputs();
+    draw();
+    renderPrice();
+  }
+
+  function clampRange(el, v) {
+    return Math.min(Number(el.max), Math.max(Number(el.min), v));
+  }
+  document.getElementById('sW').addEventListener('input', function () { st.w = Number(this.value); update(); });
+  document.getElementById('sD').addEventListener('input', function () { st.d = Number(this.value); update(); });
+  document.getElementById('sH').addEventListener('input', function () { st.h = Number(this.value); update(); });
+  document.getElementById('sT').addEventListener('input', function () { st.terW = Number(this.value); update(); });
+  document.querySelectorAll('button[data-step]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var parts = this.dataset.step.split(':');
+      var delta = Number(parts[1]);
+      if (parts[0] === 'w') st.w = clampRange(document.getElementById('sW'), Math.round((st.w + delta) * 10) / 10);
+      if (parts[0] === 'd') st.d = clampRange(document.getElementById('sD'), Math.round((st.d + delta) * 10) / 10);
+      if (parts[0] === 'h') st.h = clampRange(document.getElementById('sH'), Math.round((st.h + delta) * 100) / 100);
+      if (parts[0] === 't') st.terW = clampRange(document.getElementById('sT'), Math.round((st.terW + delta) * 10) / 10);
+      update();
+    });
+  });
+  document.getElementById('cTer').addEventListener('change', function () { st.terasa = this.checked; update(); });
+  document.getElementById('cPod').addEventListener('change', function () { st.podlaha = this.checked; update(); });
+  document.getElementById('cOdk').addEventListener('change', function () { st.odkvap = this.checked; update(); });
+  document.getElementById('selZat').addEventListener('change', function () { st.zat = this.value; update(); });
+  document.getElementById('terLeft').addEventListener('click', function () { st.terSide = 'left'; update(); });
+  document.getElementById('terRight').addEventListener('click', function () { st.terSide = 'right'; update(); });
+
+  // farebné vzorkovníky
+  function buildSwatches(elId, list, key) {
+    var host = document.getElementById(elId);
+    list.forEach(function (it) {
+      var b = document.createElement('button');
+      b.className = 'swatch';
+      b.style.background = it.c;
+      b.title = it.n;
+      b.setAttribute('aria-label', it.n);
+      b.setAttribute('aria-pressed', st[key] === it.c ? 'true' : 'false');
+      b.addEventListener('click', function () {
+        st[key] = it.c;
+        host.querySelectorAll('.swatch').forEach(function (s) { s.setAttribute('aria-pressed', 'false'); });
+        b.setAttribute('aria-pressed', 'true');
+        draw();
+        updateCta(computePrice());
+      });
+      host.appendChild(b);
+    });
+  }
+  buildSwatches('swClad', CLADS, 'clad');
+  buildSwatches('swTrim', TRIMS, 'trim');
+
+  function colorName(list, c) {
+    var hit = list.filter(function (x) { return x.c === c; })[0];
+    return hit ? hit.n : c;
+  }
+
+  // ---------------------------------------------------------------------------
+  // CTA: e-mail so zhrnutím + JSON pre návrhár
+  // ---------------------------------------------------------------------------
+  function summaryLines(p) {
+    return [
+      'Dobrý deň, mám záujem o záhradný domček v tejto konfigurácii:',
+      '',
+      'Rozmer: ' + m(st.w) + ' × ' + m(st.d) + ' (výška vzadu ' + m(st.h, 2) + ')',
+      'Terasa: ' + (st.terasa ? 'áno, ' + (st.terSide === 'left' ? 'vľavo' : 'vpravo') + ', šírka ' + m(st.terW) : 'nie'),
+      'Podlaha v domčeku: ' + (st.podlaha ? 'áno' : 'nie'),
+      'Odkvapový systém: ' + (st.odkvap ? 'áno' : 'nie'),
+      'Zateplenie: ' + (st.zat === 'none' ? 'nie' : st.zat === 'osb' ? 'áno — záklop OSB' : 'áno — tatranský obklad'),
+      'Farba dreva: ' + colorName(CLADS, st.clad),
+      'Farba strechy a plechov: ' + colorName(TRIMS, st.trim),
+      '',
+      'Orientačná cena z konfigurátora: ' + eurFmt2.format(p.sDph) + ' s DPH',
+      '',
+      'Meno a telefón: ',
+    ];
+  }
+  function updateCta(p) {
+    var a = document.getElementById('ctaMail');
+    a.href = 'mailto:' + CONTACT_EMAIL +
+      '?subject=' + encodeURIComponent('Záujem o záhradný domček ' + m(st.w) + ' × ' + m(st.d)) +
+      '&body=' + encodeURIComponent(summaryLines(p).join('\n'));
+  }
+
+  // JSON kompatibilný s návrhárom (EXPERTWOOD) — načíta sa cez „📂 Načítať"
+  document.getElementById('btnJson').addEventListener('click', function () {
+    var cfg = {
+      hw: Math.round(st.w * 100),
+      hd: Math.round(st.d * 100),
+      hlo: Math.round(st.h * 100) + 15, // návrhár: svetlá výška = výška steny + 15 cm konštrukcia
+      wt: 10.6,
+      slope: 'north',
+      doorWall: 'front', doorPos: 'left', dW: 95, dH: 200,
+      hasTer: st.terasa,
+      terPos: st.terSide === 'left' ? 'left' : 'right',
+      tw: Math.round(st.d * 100),
+      td: Math.round(st.terW * 100),
+      foundType: st.podlaha ? 'footings' : 'paving',
+      hasGutter: st.odkvap,
+      units: 'cm',
+      _trimColor: st.trim,
+      _cladColor: st.clad,
+    };
+    var blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'expertwood-konfig-' + String(st.w).replace('.', ',') + 'x' + String(st.d).replace('.', ',') + 'm.json';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  });
+
+  update();
+})();
+</script>
+</body>
+</html>

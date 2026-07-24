@@ -1,0 +1,173 @@
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     PREPOJENIE S KALKULAČKOU (kalkulacka/engine.js)
+     Plávajúci panel s predajnou cenou — počíta sa z rovnakej logiky ako
+     appka Kalkulačka (smerodajná sekcia „bez DPH" z KALKULACKA_FINAL.xlsx).
+     Ceny materiálov si berie z localStorage kalkulačky (ak beží na rovnakej
+     doméne), inak z predvoleného cenníka.
+     Tento blok pridáva build — nezasahuje do pôvodného kódu návrhára.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<style>
+  #kalkPriceBadge {
+    position: fixed; right: 16px; bottom: 16px; z-index: 3000;
+    background: #1f2a21; color: #f2f0e6; border-radius: 12px;
+    box-shadow: 0 4px 18px rgba(0,0,0,.35); font-family: 'Segoe UI', Arial, sans-serif;
+    min-width: 230px; overflow: hidden;
+  }
+  #kalkPriceBadge .kpb-head {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+    padding: 10px 14px; cursor: pointer;
+  }
+  #kalkPriceBadge .kpb-title { font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; color: #a9b5a5; }
+  #kalkPriceBadge .kpb-price { font-size: 1.25rem; font-weight: 800; color: #e8b862; font-variant-numeric: tabular-nums; }
+  #kalkPriceBadge .kpb-detail {
+    display: none; border-top: 1px solid rgba(255,255,255,.12);
+    padding: 9px 14px 11px; font-size: .8rem; line-height: 1.55; color: #d9d6c8;
+    font-variant-numeric: tabular-nums;
+  }
+  #kalkPriceBadge.open .kpb-detail { display: block; }
+  #kalkPriceBadge .kpb-detail b { color: #fff; }
+  #kalkPriceBadge .kpb-note { font-size: .68rem; color: #8d9889; margin-top: 5px; }
+  @media print { #kalkPriceBadge { display: none !important; } }
+</style>
+<div id="kalkPriceBadge" title="Klikni pre detail">
+  <div class="kpb-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="kpb-title">Predajná cena<br>s DPH</span>
+    <span class="kpb-price" id="kpbPrice">—</span>
+  </div>
+  <div class="kpb-detail" id="kpbDetail"></div>
+</div>
+<script src="engine.js"></script>
+<script>
+(function () {
+  'use strict';
+  var E = window.KalkEngine;
+  if (!E) return;
+
+  var eurF = new Intl.NumberFormat('sk-SK', { style: 'currency', currency: 'EUR' });
+
+  function cennik() {
+    var cfg = E.defaultConfig();
+    var raw = null;
+    try { raw = localStorage.getItem('kalkulacka-vyrobne-v1'); } catch (e) { /* ignore */ }
+    if (!raw) return cfg;
+    try {
+      var saved = JSON.parse(raw);
+      if (saved && saved.config) {
+        var ss = saved.config.settings || {};
+        Object.keys(cfg.settings).forEach(function (k) {
+          var v = ss[k];
+          if (v == null) return;
+          if (typeof cfg.settings[k] === 'object' && typeof v === 'object') {
+            Object.keys(cfg.settings[k]).forEach(function (k2) {
+              if (typeof v[k2] === 'number' && isFinite(v[k2])) cfg.settings[k][k2] = v[k2];
+            });
+          } else if (typeof v === 'number' && isFinite(v)) cfg.settings[k] = v;
+        });
+        var byKey = {};
+        (saved.config.materials || []).forEach(function (mm) { if (mm && mm.key) byKey[mm.key] = mm; });
+        cfg.materials.forEach(function (mm) {
+          var s = byKey[mm.key];
+          if (!s) return;
+          if (typeof s.price === 'number' && isFinite(s.price)) mm.price = s.price;
+          if (typeof s.vatPayer === 'boolean') mm.vatPayer = s.vatPayer;
+          if (typeof s.packQty === 'number' && isFinite(s.packQty) && s.packQty > 0) mm.packQty = s.packQty;
+        });
+      }
+    } catch (e) { /* poškodené → predvolené */ }
+    return cfg;
+  }
+
+  function val(id) {
+    var el = document.getElementById(id);
+    return el ? parseFloat(el.value) || 0 : 0;
+  }
+  function chk(id) {
+    var el = document.getElementById(id);
+    return !!(el && el.checked);
+  }
+  function sel(id) {
+    var el = document.getElementById(id);
+    return el ? el.value : '';
+  }
+
+  function updateBadge() {
+    try {
+      var hw = val('hw'), hd = val('hd'), hlo = val('hlo');
+      if (!hw || !hd) {
+        document.getElementById('kpbPrice').textContent = 'zadaj rozmery';
+        document.getElementById('kpbPrice').style.fontSize = '.85rem';
+        document.getElementById('kpbDetail').innerHTML =
+          '<div class="kpb-note">Cena sa zobrazí po zadaní šírky a hĺbky domu.</div>';
+        return;
+      }
+      document.getElementById('kpbPrice').style.fontSize = '';
+      var slope = sel('slope') || 'north';
+      // rovnaká konvencia ako syncToVyrobne: S kolmo na sklon, H v smere sklonu
+      var S = (slope === 'east' || slope === 'west') ? hd : hw;
+      var H = (slope === 'east' || slope === 'west') ? hw : hd;
+
+      var hasTer = chk('hasTer');
+      var td = hasTer ? val('td') : 0;
+
+      // plochy okien a dverí z reálneho stavu návrhára
+      var oknoM2 = 0;
+      if (Array.isArray(window.windows)) {
+        window.windows.forEach(function (w) {
+          oknoM2 += ((w.w || 0) * (w.h || 0) * (w.count || 1)) / 10000;
+        });
+      }
+      var dvereM2 = (val('dW') * val('dH')) / 10000;
+
+      var podlaha = sel('foundType') === 'footings'; // „Podlaha na pätkách"
+      var odkvap = chk('hasGutter');
+
+      var cfg = cennik();
+      var r = E.compute({
+        sirka: S / 100,
+        hlbka: H / 100,
+        vyskaZadu: Math.max(0, (hlo - 15)) / 100, // svetlá výška − 15 cm konštrukcia
+        plochaOkna: oknoM2,
+        plochaDveri: dvereM2,
+        sirkaAltanku: td / 100,
+        odkvap: odkvap,
+        zateplenie: 'none',
+      }, cfg);
+      var vk = E.pickVariant(hasTer && td > 0, podlaha, false);
+      var v = r.variants[vk];
+      var odk = odkvap ? (v.withTerasa ? r.odkvap.sTerasou : r.odkvap.bezTerasy) : null;
+      var bez = v.predajnaBezDph + (odk ? odk.predajnaBezDph : 0);
+      var sdph = v.predajSDph + (odk ? odk.predajSDph : 0);
+
+      document.getElementById('kpbPrice').textContent = eurF.format(sdph);
+      document.getElementById('kpbDetail').innerHTML =
+        '<b>' + v.label + '</b>' + (odkvap ? ' + odkvap' : '') + '<br>' +
+        'Bez DPH: <b>' + eurF.format(bez) + '</b><br>' +
+        'Materiál: ' + eurF.format(v.materialNoVat) +
+        ' · výroba: ' + eurF.format(v.vyroba) + '<br>' +
+        'Montáž: ' + eurF.format(v.montaz) + ' · doprava: ' + eurF.format(v.doprava) +
+        (v.priplatokVelkost > 0 ? ' · príplatok: ' + eurF.format(v.priplatokVelkost) : '') + '<br>' +
+        'Zisk: ' + eurF.format(v.zisk) +
+        '<div class="kpb-note">' + Math.round(S) + '×' + Math.round(H) + ' cm · logika Kalkulačky (bez DPH sekcia), ceny ' +
+        'z cenníka kalkulačky · zateplenie sa tu neráta</div>';
+    } catch (e) { /* cena nesmie zhodiť návrhár */ }
+  }
+
+  // hook: každé prekreslenie návrhára prepočíta aj cenu
+  function arm() {
+    if (typeof window.redraw === 'function' && !window.redraw._kalkHooked) {
+      var orig = window.redraw;
+      var wrapped = function () {
+        var out = orig.apply(this, arguments);
+        updateBadge();
+        return out;
+      };
+      wrapped._kalkHooked = true;
+      window.redraw = wrapped;
+    }
+    updateBadge();
+  }
+  if (document.readyState === 'complete') arm();
+  else window.addEventListener('load', arm);
+  setTimeout(arm, 400); // istota po štartovacom redraw()
+})();
+</script>

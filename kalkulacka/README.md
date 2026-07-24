@@ -1,7 +1,16 @@
 # Kalkulačka záhradných domčekov
 
-Webová aplikácia postavená podľa `KALKULACKA_FINAL.xlsx`. Smerodajná je logika
-spodnej sekcie **„bez DPH“** hárku `kalkulacka` (riadky 44–51):
+Sada troch prepojených nástrojov nad jednou cenovou logikou
+(`engine.js`, podľa `KALKULACKA_FINAL.xlsx`):
+
+| Nástroj | Súbor | Pre koho |
+| --- | --- | --- |
+| **Kalkulačka** | `index.html` (`dist/kalkulacka.html`) | interná — ceny, marže, cenník, ponuky |
+| **3D konfigurátor (widget)** | `widget.html` (`dist/widget.html`) | zákaznícka — na web stránku |
+| **Návrhár EXPERTWOOD** | `navrhar.html` (`dist/navrhar.html`) | interná — technické výkresy + živá cena |
+
+Smerodajná je logika spodnej sekcie **„bez DPH“** hárku `kalkulacka`
+(riadky 44–51):
 
 ```
 predajná cena BEZ DPH = (materiál × 1,5 + výroba + doprava + montáž + príplatok) × 1,12
@@ -51,6 +60,33 @@ Všetko sa automaticky ukladá v prehliadači (localStorage).
 5. **Zateplenie**: podľa poznámky v Exceli („rátať ×2 do ceny domčeka“) sa 2×
    materiál zateplenia pripočíta k materiálu domčeka pred prirážkami;
    koeficient je v Nastaveniach.
+
+## 3D konfigurátor pre web (widget)
+
+`widget.html` — zákaznícky konfigurátor s 3D modelom (vlastný canvas renderer,
+žiadne externé knižnice): ťahaním sa otáča, kolieskom približuje. Zákazník si
+nastaví rozmery, terasu, podlahu, odkvap, zateplenie a farby a hneď vidí
+predajnú cenu s DPH (interné údaje — nákupné ceny, zisk, marža — sa
+nezobrazujú, sú však v zdrojáku enginu).
+
+- **Vloženie na stránku:**
+  `<iframe src="widget.html?email=objednavky@firma.sk" style="width:100%;height:720px;border:0"></iframe>`
+  (parameter `email` určuje, kam smeruje tlačidlo „Mám záujem“).
+- Ak beží na rovnakej doméne ako kalkulačka, číta jej uložený cenník
+  (localStorage) — zmena cien v kalkulačke sa hneď prejaví vo widgete.
+- „Stiahnuť konfiguráciu pre návrhára (JSON)“ vytvorí súbor, ktorý sa dá
+  v návrhári otvoriť cez **📂 Načítať** (rozmery, terasa, osadenie, odkvap,
+  farby).
+
+## Návrhár EXPERTWOOD + živá cena
+
+`navrhar.html` je pôvodný návrhár (technické pohľady, výrobný kalkulátor,
+rezivo) doplnený o **cenový panel vpravo dole** — pri každej zmene prepočíta
+predajnú cenu logikou kalkulačky (mapovanie: šírka/hĺbka podľa smeru sklonu,
+výška = svetlá výška − 15 cm, plochy okien a dverí z reálneho stavu, terasa
+z „Šírka terasy“, podlaha = osadenie „Podlaha na pätkách“, odkvap =
+odvodnenie). Zdroj bloku: `navrhar-bridge.html`; do `navrhar.html` ho vkladá
+build. Panel tiež číta cenník kalkulačky z localStorage.
 
 ## Testy
 
