@@ -979,13 +979,14 @@
       face([[bx1, yF - 0.17, 0.04], [bx2, yF - 0.17, 0.04], [bx2, yB - 0.17, D - 0.04], [bx1, yB - 0.17, D - 0.04]], woodC);
     }
 
-    // strecha: presah + fascia (záveterky) + podhľad + trapézový plech
+    // strecha BEZ podstrešia — zarovno so stenami, olemovaná záveterkami
+    // (naše domčeky nikdy nemajú presah strechy; podhľad vidno len nad terasou)
     (function () {
-      var o = 0.14, th = 0.08;
+      var o = 0.015, th = 0.09;
       var rx0 = x0 - o, rx1 = x0 + totW + o;
       var rz0 = -o, rz1 = D + o;
-      var ryF = yF + 0.02, ryB = yB + 0.02;
-      // podhľad (spodok dosky) — nech strecha zospodu nie je „priehľadná"
+      var ryF = yF, ryB = yB;
+      // podhľad (spodok dosky) — viditeľný len nad terasou
       face([[rx0, ryF, rz0], [rx1, ryF, rz0], [rx1, ryB, rz1], [rx0, ryB, rz1]], lighten(st.trim, 0.14));
       face([[rx0, ryF, rz0], [rx1, ryF, rz0], [rx1, ryF + th, rz0], [rx0, ryF + th, rz0]], st.trim);
       face([[rx1, ryF, rz0], [rx1, ryB, rz1], [rx1, ryB + th, rz1], [rx1, ryF + th, rz0]], st.trim);
@@ -994,13 +995,13 @@
       face([[rx0, ryF + th, rz0], [rx1, ryF + th, rz0], [rx1, ryB + th, rz1], [rx0, ryB + th, rz1]], st.trim, { roofTop: true });
     })();
 
-    // odkvap: žľab visí POD zadnou hranou strechy (nech ho nekryje fascia)
+    // odkvap: žľab tesne pod zadnou (nižšou) hranou strechy
     if (st.odkvap) {
       var gC = lighten(st.trim, 0.22);
       var gr = 0.09;
-      var gy = yB - 0.08;           // vrch žľabu tesne pod odkvapovou hranou
-      var gz1 = D + 0.14, gz0 = gz1 - gr;
-      var gx0 = x0 - 0.12, gx1 = x0 + totW + 0.12;
+      var gy = yB - 0.07;           // vrch žľabu nadväzuje na spodok záveterky
+      var gz1 = D + 0.12, gz0 = gz1 - gr;
+      var gx0 = x0 - 0.03, gx1 = x0 + totW + 0.03;
       face([[gx0, gy, gz0], [gx1, gy, gz0], [gx1, gy + gr, gz0], [gx0, gy + gr, gz0]], gC);
       face([[gx0, gy, gz0], [gx1, gy, gz0], [gx1, gy, gz1], [gx0, gy, gz1]], '#888e94');
       face([[gx0, gy, gz1], [gx1, gy, gz1], [gx1, gy + gr, gz1], [gx0, gy + gr, gz1]], gC);
@@ -1097,10 +1098,10 @@
           }
         }
 
-        // tieň pod strechou + pri zemi (ambient occlusion) — navrchu, cez všetko
+        // tieň pod záveterkou + pri zemi (ambient occlusion) — navrchu, cez všetko
         quad3d(edgeInterp(A, 3, 2, 0), edgeInterp(A, 3, 2, 1),
-               [A[2][0], A[2][1] - 0.13, A[2][2]], [A[3][0], A[3][1] - 0.13, A[3][2]],
-               '#000', 0.16);
+               [A[2][0], A[2][1] - 0.07, A[2][2]], [A[3][0], A[3][1] - 0.07, A[3][2]],
+               '#000', 0.10);
         quad3d(A[0], A[1], [A[1][0], A[1][1] + 0.06, A[1][2]], [A[0][0], A[0][1] + 0.06, A[0][2]], '#000', 0.10);
         ctx.restore();
       }
