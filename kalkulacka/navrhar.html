@@ -7436,7 +7436,7 @@ redraw();
       var odkvap = chk('hasGutter');
 
       var cfg = cennik();
-      var r = E.compute({
+      var inp = {
         sirka: S / 100,
         hlbka: H / 100,
         vyskaZadu: Math.max(0, (hlo - 15)) / 100, // svetlá výška − 15 cm konštrukcia
@@ -7445,12 +7445,26 @@ redraw();
         sirkaAltanku: td / 100,
         odkvap: odkvap,
         zateplenie: 'none',
-      }, cfg);
+      };
+      var r = E.compute(inp, cfg);
       var vk = E.pickVariant(hasTer && td > 0, podlaha, false);
       var v = r.variants[vk];
       var odk = odkvap ? (v.withTerasa ? r.odkvap.sTerasou : r.odkvap.bezTerasy) : null;
-      var bez = v.predajnaBezDph + (odk ? odk.predajnaBezDph : 0);
-      var sdph = v.predajSDph + (odk ? odk.predajSDph : 0);
+
+      // doplnky terasy (zábradlie / priehľadná / plná stena) — len bočná terasa
+      var dop = { predajnaBezDph: 0, predajSDph: 0 };
+      var terPos = sel('terPos');
+      if (hasTer && td > 0 && (terPos === 'right' || terPos === 'left') && E.terasaDoplnky) {
+        var tm = { none: 'none', railing: 'zabradlie', transparent: 'lamelova', full: 'plna' };
+        var outSide = terPos === 'right' ? 'east' : 'west';
+        dop = E.terasaDoplnky(inp, cfg, {
+          vonkajsia: tm[sel('teE_' + outSide + '_t')] || 'none',
+          predna: tm[sel('teE_south_t')] || 'none',
+          zadna: tm[sel('teE_north_t')] || 'none',
+        });
+      }
+      var bez = v.predajnaBezDph + (odk ? odk.predajnaBezDph : 0) + dop.predajnaBezDph;
+      var sdph = v.predajSDph + (odk ? odk.predajSDph : 0) + dop.predajSDph;
 
       document.getElementById('kpbPrice').textContent = eurF.format(sdph);
       document.getElementById('kpbDetail').innerHTML =
@@ -7461,6 +7475,7 @@ redraw();
         'Montáž: ' + eurF.format(v.montaz) + ' · doprava: ' + eurF.format(v.doprava) +
         (v.priplatokVelkost > 0 ? ' · príplatok: ' + eurF.format(v.priplatokVelkost) : '') + '<br>' +
         'Zisk: ' + eurF.format(v.zisk) +
+        (dop.predajnaBezDph > 0 ? '<br>Doplnky terasy: <b>' + eurF.format(dop.predajnaBezDph) + '</b> bez DPH' : '') +
         '<div class="kpb-note">' + Math.round(S) + '×' + Math.round(H) + ' cm · logika Kalkulačky (bez DPH sekcia), ceny ' +
         'z cenníka kalkulačky · zateplenie sa tu neráta</div>';
     } catch (e) { /* cena nesmie zhodiť návrhár */ }

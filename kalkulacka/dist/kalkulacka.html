@@ -349,6 +349,13 @@
     odkvapKoef: 3,           // odkvap: materiál × 3
     odkvapFinalnyKoef: 1.12, // … × 1,12  (kalkulacka I51)
     zateplenieKoef: 2,       // poznámka v Exceli: „rátať x2 do ceny domčeka"
+    // Doplnky terasy — predajné ceny bez DPH podľa poznámok v Exceli
+    // (kalkulacka!G11–G13): „zabradlie 75e za meter", „plna stena … 90€ m2",
+    // „lamelova stena 100€/bm". Pripočítavajú sa k predajnej cene priamo
+    // (bez marže ×1,5 a koeficientu ×1,12 — sú to už predajné sadzby).
+    terasaZabradlieBm: 75,
+    terasaPlnaStenaM2: 90,
+    terasaLamelovaBm: 100,
   };
 
   var DEFAULT_INPUTS = {
@@ -725,6 +732,42 @@
     };
   }
 
+  // Doplnky terasy — uzatvorenie strán (zábradlie / priehľadná lamelová /
+  // plná stena). `strany` = { predna, zadna, vonkajsia } s hodnotami
+  // 'none' | 'zabradlie' | 'lamelova' | 'plna'.
+  // Výšky stien: fasáda = svetlá výška (vyskaZadu + 15 cm konštrukcia),
+  // mínus lemovanie 18 cm (podľa návrhára).
+  function terasaDoplnky(inputs, config, strany) {
+    config = config || defaultConfig();
+    var st = config.settings || {};
+    var d = derive(inputs);
+    strany = strany || {};
+    var FASC = 0.18;
+    var hloF = d.vyskaZadu + 0.15 - FASC;                 // svetlá stena vzadu
+    var hhiF = d.vyskaZadu + 0.15 + d.hlbka * 0.05 - FASC; // vpredu
+    var items = [];
+    function side(key, label, len, hWall) {
+      var t = strany[key];
+      if (!t || t === 'none' || !(len > 0)) return;
+      if (t === 'zabradlie') {
+        items.push({ key: key, label: 'Zábradlie — ' + label, qty: len, unit: 'bm',
+          rate: fin(st.terasaZabradlieBm), total: len * fin(st.terasaZabradlieBm) });
+      } else if (t === 'lamelova') {
+        items.push({ key: key, label: 'Priehľadná (lamelová) stena — ' + label, qty: len, unit: 'bm',
+          rate: fin(st.terasaLamelovaBm), total: len * fin(st.terasaLamelovaBm) });
+      } else if (t === 'plna') {
+        var m2 = len * max0(hWall);
+        items.push({ key: key, label: 'Plná stena — ' + label, qty: m2, unit: 'm2',
+          rate: fin(st.terasaPlnaStenaM2), total: m2 * fin(st.terasaPlnaStenaM2) });
+      }
+    }
+    side('predna', 'predná strana', d.sirkaAltanku, hhiF);
+    side('zadna', 'zadná strana', d.sirkaAltanku, hloF);
+    side('vonkajsia', 'vonkajšia strana', d.hlbka, (hhiF + hloF) / 2);
+    var bez = items.reduce(function (s, i) { return s + i.total; }, 0);
+    return { items: items, predajnaBezDph: bez, predajSDph: bez * (1 + fin(st.dph)) };
+  }
+
   // Výber variantu podľa volieb (logika KALKMAKE K2/L2 + rozšírenie o v4).
   function pickVariant(terasa, podlahaDomcek, podlahaTerasa) {
     if (terasa && podlahaDomcek && podlahaTerasa) return 'v4';
@@ -743,6 +786,7 @@
     derive: derive,
     compute: compute,
     pickVariant: pickVariant,
+    terasaDoplnky: terasaDoplnky,
     unitPrice: unitPrice,
   };
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -1240,6 +1284,14 @@
       numField('Odkvap — finálny koeficient (×)', 'config.settings.odkvapFinalnyKoef', { min: 0 }) +
       numField('Zateplenie — koeficient k materiálu domčeka (×)', 'config.settings.zateplenieKoef',
         { min: 0, hint: 'poznámka z Excelu „rátať ×2 do ceny domčeka" — pripočíta sa k materiálu pred maržou' }) +
+      '</div>' +
+
+      '<div class="card settings-block">' +
+      '<h3 class="section">Terasa — doplnky (predajné ceny bez DPH)</h3>' +
+      '<p class="note">Podľa poznámok v Exceli; používa ich 3D konfigurátor na webe.</p>' +
+      numField('Zábradlie (€/bm)', 'config.settings.terasaZabradlieBm', { min: 0 }) +
+      numField('Plná stena (€/m²)', 'config.settings.terasaPlnaStenaM2', { min: 0 }) +
+      numField('Priehľadná — lamelová stena (€/bm)', 'config.settings.terasaLamelovaBm', { min: 0 }) +
       '</div>' +
 
       '<div class="card settings-block">' +

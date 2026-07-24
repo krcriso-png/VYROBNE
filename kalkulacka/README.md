@@ -69,6 +69,15 @@ nastaví rozmery, terasu, podlahu, odkvap, zateplenie a farby a hneď vidí
 predajnú cenu s DPH (interné údaje — nákupné ceny, zisk, marža — sa
 nezobrazujú, sú však v zdrojáku enginu).
 
+Model dodržiava miery návrhára: fasáda = svetlá výška, lemovanie 18 cm,
+rohovníky 10 cm, lamely s rozstupom 11 cm, dvere 16 cm od rohu, vrch okna =
+vrch dverí, stĺpy terasy 12 cm, plech panely á 31 cm. Podporuje aj
+**uzatvorenie terasy** (zábradlie 90 cm / priehľadná lamelová / plná stena,
+per strana + stredný stĺp) a **oplechovanie stien**. Doplnky terasy sa
+oceňujú sadzbami z poznámok Excelu (zábradlie 75 €/bm, plná stena 90 €/m²,
+lamelová 100 €/bm — editovateľné v Nastaveniach kalkulačky); oplechovanie
+je vizuálna voľba bez ceny.
+
 - **Vloženie na stránku:**
   `<iframe src="widget.html?email=objednavky@firma.sk" style="width:100%;height:720px;border:0"></iframe>`
   (parameter `email` určuje, kam smeruje tlačidlo „Mám záujem“).

@@ -141,6 +141,19 @@
   }
   .check { display: flex; align-items: center; gap: 8px; padding: 5px 0; cursor: pointer; font-weight: 500; }
   .check input { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
+  .enc-row { display: grid; grid-template-columns: 105px 1fr; gap: 6px; align-items: center; margin: 5px 0; }
+  .enc-row > span { font-size: 12.5px; color: var(--muted); }
+  .enc-row select { padding: 5px 7px; font-size: 13px; }
+  .plech-rows .prow { display: flex; align-items: center; gap: 6px; margin: 4px 0; flex-wrap: wrap; }
+  .plech-rows .prow .check { padding: 2px 0; min-width: 86px; }
+  .plech-rows .prow select { width: auto; padding: 4px 6px; font-size: 12.5px; }
+  .plech-rows .prow .cnt { display: flex; align-items: center; gap: 4px; }
+  .plech-rows .prow .cnt button {
+    width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--line);
+    background: var(--surface-2); color: var(--ink); cursor: pointer; font-weight: 700; line-height: 1;
+  }
+  .plech-rows .prow .cnt output { min-width: 20px; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .plech-rows .prow[data-off] select, .plech-rows .prow[data-off] .cnt { opacity: 0.35; pointer-events: none; }
   .seg { display: flex; gap: 6px; }
   .seg button {
     flex: 1; padding: 6px 0; border-radius: 8px; border: 1px solid var(--line);
@@ -230,6 +243,31 @@
           <button data-step="t:0.1" aria-label="Zväčšiť terasu">+</button>
         </div>
       </div>
+      <div id="terEncBox" style="display:none; padding-left: 4px;">
+        <div class="lbl"><span>Uzatvorenie terasy</span></div>
+        <div class="enc-row"><span>Vonkajšia strana</span>
+          <select data-strana="vonkajsia" aria-label="Vonkajšia strana terasy">
+            <option value="none">otvorená</option>
+            <option value="zabradlie">zábradlie (90 cm)</option>
+            <option value="lamelova">priehľadná stena (lamely)</option>
+            <option value="plna">plná stena</option>
+          </select></div>
+        <div class="enc-row"><span>Predná strana</span>
+          <select data-strana="predna" aria-label="Predná strana terasy">
+            <option value="none">otvorená</option>
+            <option value="zabradlie">zábradlie (90 cm)</option>
+            <option value="lamelova">priehľadná stena (lamely)</option>
+            <option value="plna">plná stena</option>
+          </select></div>
+        <div class="enc-row"><span>Zadná strana</span>
+          <select data-strana="zadna" aria-label="Zadná strana terasy">
+            <option value="none">otvorená</option>
+            <option value="zabradlie">zábradlie (90 cm)</option>
+            <option value="lamelova">priehľadná stena (lamely)</option>
+            <option value="plna">plná stena</option>
+          </select></div>
+        <label class="check"><input type="checkbox" id="cStlp"> Stredný stĺp</label>
+      </div>
       <label class="check"><input type="checkbox" id="cPod"> Podlaha v domčeku</label>
       <label class="check"><input type="checkbox" id="cOdk" checked> Odkvapový systém</label>
       <div class="lbl"><span>Zateplenie</span></div>
@@ -238,6 +276,13 @@
         <option value="osb">zateplenie + záklop OSB</option>
         <option value="tatran">zateplenie + tatranský obklad</option>
       </select>
+    </div>
+
+    <div class="card">
+      <div class="lbl"><span>Oplechovanie stien</span></div>
+      <div class="plech-rows" id="plechRows"></div>
+      <p class="note" style="margin:6px 0 0;">Falcované panely á 31 cm od zvoleného rohu.
+      Cenu oplechovania doladíme v konečnej ponuke.</p>
     </div>
 
     <div class="card">
@@ -279,7 +324,21 @@
     terasa: false, terSide: 'right', terW: 2,
     podlaha: false, odkvap: true, zat: 'none',
     clad: '#d49030', trim: '#2b2b2b',
+    // uzatvorenie terasy per strana: none | zabradlie | lamelova | plna
+    terStrany: { vonkajsia: 'none', predna: 'none', zadna: 'none' },
+    terStlp: false,
+    // oplechovanie stien: falcované panely á 31 cm od rohu
+    plech: {
+      front: { on: false, from: 'left', n: 3 },
+      back: { on: false, from: 'left', n: 3 },
+      left: { on: false, from: 'left', n: 3 },
+      right: { on: false, from: 'left', n: 3 },
+    },
   };
+  var PLECH_WALLS = [
+    { k: 'front', l: 'Predná' }, { k: 'back', l: 'Zadná' },
+    { k: 'left', l: 'Ľavá' }, { k: 'right', l: 'Pravá' },
+  ];
 
   // palety prevzaté z návrhára (EXPERTWOOD)
   var CLADS = [
@@ -334,19 +393,22 @@
 
   function computePrice() {
     var cfg = loadConfig();
-    var r = E.compute({
+    var inp = {
       sirka: st.w, hlbka: st.d, vyskaZadu: st.h,
       plochaOkna: 0.6, plochaDveri: 2,
       sirkaAltanku: st.terasa ? st.terW : 0,
       odkvap: st.odkvap, zateplenie: st.zat,
-    }, cfg);
+    };
+    var r = E.compute(inp, cfg);
     var vk = E.pickVariant(st.terasa, st.podlaha, false);
     var v = r.variants[vk];
     var odk = st.odkvap ? (v.withTerasa ? r.odkvap.sTerasou : r.odkvap.bezTerasy) : null;
+    var dop = E.terasaDoplnky(inp, cfg, st.terasa ? st.terStrany : {});
     return {
       label: v.label,
-      bezDph: v.predajnaBezDph + (odk ? odk.predajnaBezDph : 0),
-      sDph: v.predajSDph + (odk ? odk.predajSDph : 0),
+      bezDph: v.predajnaBezDph + (odk ? odk.predajnaBezDph : 0) + dop.predajnaBezDph,
+      sDph: v.predajSDph + (odk ? odk.predajSDph : 0) + dop.predajSDph,
+      doplnky: dop,
       dph: cfg.settings.dph,
     };
   }
@@ -357,7 +419,10 @@
       (st.zat !== 'none' ? ' + zateplenie' : '') + (st.odkvap ? ' + odkvap' : '');
     document.getElementById('pTotal').textContent = eurFmt.format(Math.round(p.sDph));
     document.getElementById('pSub').textContent =
-      eurFmt2.format(p.bezDph) + ' bez DPH · s DPH ' + Math.round(p.dph * 100) + ' % · materiál, výroba, doprava aj montáž';
+      eurFmt2.format(p.bezDph) + ' bez DPH · s DPH ' + Math.round(p.dph * 100) + ' %' +
+      (p.doplnky.predajnaBezDph > 0
+        ? ' · vrátane doplnkov terasy ' + eurFmt2.format(p.doplnky.predajSDph) + ' s DPH'
+        : ' · materiál, výroba, doprava aj montáž');
     updateCta(p);
   }
 
@@ -403,22 +468,29 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cw, ch);
 
-    var W = st.w, D = st.d, Hb = st.h, Hf = Hb + D * 0.05;
+    // Miery podľa návrhára (drawElev): fasáda = svetlá výška (hlo),
+    // lemovanie/fascia 18 cm ako vrchný pás fasády, rohovníky 10 cm,
+    // lamela 8,2 cm s rozstupom 11 cm, plech panely á 31 cm, stĺpy 12 cm,
+    // dvere 16 cm od rohu, vrch okna = vrch dverí. Steny idú až po zem.
+    var FASC = 0.18, LAMSTEP = 0.11, LAMW = 0.082, CORNER = 0.10;
+    var POST = 0.12, PANEL = 0.31, DOOR_M = 0.16;
+    var W = st.w, D = st.d;
+    var hloF = st.h + 0.15;            // fasáda vzadu = svetlá výška (hlo)
+    var hhiF = hloF + D * 0.05;        // fasáda vpredu (spád 5 cm/m)
     var T = st.terasa ? st.terW : 0;
-    var FND = st.podlaha ? 0.22 : 0.10; // pätky sú vyššie než dlažba
     var totW = W + T;
     var x0 = st.terSide === 'left' ? -T : 0; // terasa posúva rozsah po x
+    function topAt(z) { return hhiF - (hhiF - hloF) * (z / D); }
 
     // Kamera: korektná orbitálna transformácia. Kamera stojí v bode
     //   P = stred + dist·(sin(az)·cos(el), sin(el), cos(az)·cos(el))
     // a pozerá na stred scény. Rovnaká hĺbka `d` slúži perspektívnemu deleniu
-    // aj painter's algoritmu — čiastkové „opravy znamienok" v ad-hoc projekcii
-    // spôsobovali strihanie modelu pri šikmých uhloch.
+    // aj painter's algoritmu.
     //   az=0 → pohľad spredu (stena s dverami), el→π/2 → pohľad zhora.
-    var span = Math.max(totW, D, Hf + FND) * 1.12 + 1.4;
+    var span = Math.max(totW, D, hhiF) * 1.12 + 1.4;
     var dist = span * 2.35 / cam.zoom;
     var fov = Math.min(cw, ch) * 1.5;
-    var C = { cx: x0 + totW / 2, cy: (Hf + FND) / 2, cz: D / 2 };
+    var C = { cx: x0 + totW / 2, cy: hhiF / 2, cz: D / 2 };
     var ca = Math.cos(cam.az), sa = Math.sin(cam.az);
     var ce = Math.cos(cam.el), se = Math.sin(cam.el);
 
@@ -470,72 +542,106 @@
       });
     })();
 
-    var y0 = FND;
-    var yF = y0 + Hf, yB = y0 + Hb;
+    // steny až po zem (ako v pohľadoch návrhára), predná z=0 vyššia.
+    // Dvere/okno/plech kreslí dekor steny v jednom ťahu (painter by malé
+    // plôšky na kraji veľkej steny prekresľoval).
+    face([[0, 0, 0], [W, 0, 0], [W, hhiF, 0], [0, hhiF, 0]], st.clad, { wall: true, front: true, faceKey: 'front' });
+    face([[W, 0, D], [0, 0, D], [0, hloF, D], [W, hloF, D]], st.clad, { wall: true, faceKey: 'back' });
+    face([[W, 0, 0], [W, 0, D], [W, hloF, D], [W, hhiF, 0]], st.clad, { wall: true, faceKey: 'right' });
+    face([[0, 0, D], [0, 0, 0], [0, hhiF, 0], [0, hloF, D]], st.clad, { wall: true, faceKey: 'left' });
 
-    // osadenie: pätky (s podlahou) alebo nízka platňa/dlažba.
-    // Vrchná plocha soklu musí byť plná — inak vidno „do domu" (sokel je
-    // kváder bez vrchu a cez otvor presvitá tieň aj protiľahlé steny).
-    if (st.podlaha) {
-      var bs = 0.24;
-      var xs = [0.12, W - bs - 0.12];
-      if (W > 3.2) xs.push(W / 2 - bs / 2);
-      var zs = [0.12, D - bs - 0.12];
-      xs.forEach(function (bx) {
-        zs.forEach(function (bz) { box(bx, 0, bz, bx + bs, FND - 0.05, bz + bs, '#8d8a82'); });
-      });
-      // rám podlahy + oplechovanie po obvode
-      box(0, FND - 0.06, 0, W, FND, D, st.trim);
-      face([[0, FND, 0], [W, FND, 0], [W, FND, D], [0, FND, D]], '#8f8a80');
-    } else {
-      box(0, 0, 0, W, FND, D, '#b7b2a6');
-      face([[0, FND, 0], [W, FND, 0], [W, FND, D], [0, FND, D]], '#aca698');
-    }
-
-    // steny (predná z=0 vyššia, zadná z=D nižšia) — zvislé lamely kreslí dekor.
-    // Dvere a okno sa kreslia ako dekor prednej steny (front: true) v tom istom
-    // ťahu — samostatné plôšky by painter's algoritmus radil podľa priemernej
-    // hĺbky celej steny a na vzdialenejšom konci by ich stena prekreslila.
-    face([[0, y0, 0], [W, y0, 0], [W, yF, 0], [0, yF, 0]], st.clad, { wall: true, front: true });
-    face([[W, y0, D], [0, y0, D], [0, yB, D], [W, yB, D]], st.clad, { wall: true });
-    face([[W, y0, 0], [W, y0, D], [W, yB, D], [W, yF, 0]], st.clad, { wall: true });
-    face([[0, y0, D], [0, y0, 0], [0, yF, 0], [0, yB, D]], st.clad, { wall: true });
-
-    // terasa: drevené stĺpy + väznica pod strechou na vonkajšej hrane
+    // ── terasa: stĺpy 12 cm po spodok lemovania, väznica, uzatvorenie strán ──
     if (T > 0) {
       var woodC = st.clad;
-      var ps = 0.12;
-      var px = st.terSide === 'left' ? x0 + 0.05 : W + T - ps - 0.05;
-      box(px, 0, 0.04, px + ps, yF - 0.05, 0.04 + ps, woodC);
-      box(px, 0, D - ps - 0.04, px + ps, yB - 0.05, D - 0.04, woodC);
-      // väznica (šikmý trám medzi stĺpmi, kopíruje spád strechy)
-      var bx1 = px, bx2 = px + ps;
-      face([[bx1, yF - 0.17, 0.04], [bx1, yB - 0.17, D - 0.04], [bx1, yB - 0.03, D - 0.04], [bx1, yF - 0.03, 0.04]], woodC);
-      face([[bx2, yF - 0.17, 0.04], [bx2, yB - 0.17, D - 0.04], [bx2, yB - 0.03, D - 0.04], [bx2, yF - 0.03, 0.04]], woodC);
-      face([[bx1, yF - 0.17, 0.04], [bx2, yF - 0.17, 0.04], [bx2, yB - 0.17, D - 0.04], [bx1, yB - 0.17, D - 0.04]], woodC);
+      var right = st.terSide !== 'left';
+      var xOut = right ? W + T : x0;                    // vonkajšia hrana
+      var px = right ? xOut - POST - 0.03 : xOut + 0.03; // stĺpy pri vonkajšej hrane
+      function postAt(z0p) {
+        var hTop = topAt(z0p + POST / 2) - FASC;
+        box(px, 0, z0p, px + POST, hTop, z0p + POST, woodC);
+      }
+      postAt(0.03);
+      postAt(D - POST - 0.03);
+      if (st.terStlp) postAt((D - POST) / 2);
+      // väznica pod lemovaním (kopíruje spád)
+      (function () {
+        var b0 = px, b1 = px + POST;
+        var yT0 = topAt(0.03) - FASC, yT1 = topAt(D - 0.03) - FASC;
+        face([[b0, yT0 - 0.14, 0.03], [b0, yT1 - 0.14, D - 0.03], [b0, yT1, D - 0.03], [b0, yT0, 0.03]], woodC);
+        face([[b1, yT0 - 0.14, 0.03], [b1, yT1 - 0.14, D - 0.03], [b1, yT1, D - 0.03], [b1, yT0, 0.03]], woodC);
+        face([[b0, yT0 - 0.14, 0.03], [b1, yT0 - 0.14, 0.03], [b1, yT1 - 0.14, D - 0.03], [b0, yT1 - 0.14, D - 0.03]], woodC);
+      })();
+
+      // uzatvorenie strán terasy: zábradlie 90 cm / lamelová / plná stena.
+      // plane: os 'x' = zvislá rovina kolmá na x (vonkajšia strana),
+      //        os 'z' = predná/zadná strana; u beží po dĺžke strany.
+      function encPoint(plane, u, y) {
+        return plane.axis === 'x' ? [plane.at, y, u] : [u, y, plane.at];
+      }
+      function encSide(type, plane) {
+        if (!type || type === 'none') return;
+        var from = Math.min(plane.from, plane.to), to = Math.max(plane.from, plane.to);
+        if (to - from < 0.1) return;
+        function q(u0, u1, y0q, y1a, y1b, color, opts) {
+          face([encPoint(plane, u0, y0q), encPoint(plane, u1, y0q),
+                encPoint(plane, u1, y1b), encPoint(plane, u0, y1a)], color, opts);
+        }
+        if (type === 'zabradlie') {
+          // horné madlo + zvislé lamely do 85 cm (madlo 85–90)
+          q(from, to, 0.85, 0.90, 0.90, woodC);
+          for (var u = from + 0.02; u + LAMW < to; u += LAMSTEP) {
+            q(u, u + LAMW, 0, 0.85, 0.85, woodC);
+          }
+        } else if (type === 'lamelova') {
+          // lamely v plnej výške s medzerami (priehľadná stena)
+          for (var u2 = from + 0.02; u2 + LAMW < to; u2 += LAMSTEP) {
+            var yT = plane.topFn(u2 + LAMW / 2);
+            q(u2, u2 + LAMW, 0, yT, yT, woodC);
+          }
+        } else if (type === 'plna') {
+          face([encPoint(plane, from, 0), encPoint(plane, to, 0),
+                encPoint(plane, to, plane.topFn(to)), encPoint(plane, from, plane.topFn(from))],
+            st.clad, { wall: true });
+        }
+      }
+      var xEnc = right ? xOut - 0.09 : xOut + 0.09;    // stred stĺpov
+      var innerX0 = right ? W + 0.02 : x0 + 0.03 + POST;
+      var innerX1 = right ? xOut - 0.03 - POST : -0.02;
+      encSide(st.terStrany.vonkajsia, {
+        axis: 'x', at: xEnc, from: 0.03 + POST, to: D - 0.03 - POST,
+        topFn: function (z) { return topAt(z) - FASC; },
+      });
+      encSide(st.terStrany.predna, {
+        axis: 'z', at: 0.09, from: innerX0, to: innerX1,
+        topFn: function () { return hhiF - FASC; },
+      });
+      encSide(st.terStrany.zadna, {
+        axis: 'z', at: D - 0.09, from: innerX0, to: innerX1,
+        topFn: function () { return hloF - FASC; },
+      });
     }
 
-    // strecha BEZ podstrešia — zarovno so stenami, olemovaná záveterkami
-    // (naše domčeky nikdy nemajú presah strechy; podhľad vidno len nad terasou)
+    // ── strecha bez podstrešia + lemovanie (fascia 18 cm) po celom obvode ──
     (function () {
-      var o = 0.015, th = 0.09;
+      var o = 0.015;
       var rx0 = x0 - o, rx1 = x0 + totW + o;
-      var rz0 = -o, rz1 = D + o;
-      var ryF = yF, ryB = yB;
-      // podhľad (spodok dosky) — viditeľný len nad terasou
-      face([[rx0, ryF, rz0], [rx1, ryF, rz0], [rx1, ryB, rz1], [rx0, ryB, rz1]], lighten(st.trim, 0.14));
-      face([[rx0, ryF, rz0], [rx1, ryF, rz0], [rx1, ryF + th, rz0], [rx0, ryF + th, rz0]], st.trim);
-      face([[rx1, ryF, rz0], [rx1, ryB, rz1], [rx1, ryB + th, rz1], [rx1, ryF + th, rz0]], st.trim);
-      face([[rx0, ryB, rz1], [rx0, ryF, rz0], [rx0, ryF + th, rz0], [rx0, ryB + th, rz1]], st.trim);
-      face([[rx1, ryB, rz1], [rx0, ryB, rz1], [rx0, ryB + th, rz1], [rx1, ryB + th, rz1]], st.trim);
-      face([[rx0, ryF + th, rz0], [rx1, ryF + th, rz0], [rx1, ryB + th, rz1], [rx0, ryB + th, rz1]], st.trim, { roofTop: true });
+      // predné a zadné lemovanie (zvislé pásy 18 cm od vrchu fasády nadol)
+      face([[rx0, hhiF - FASC, -o], [rx1, hhiF - FASC, -o], [rx1, hhiF, -o], [rx0, hhiF, -o]], st.trim);
+      face([[rx1, hloF - FASC, D + o], [rx0, hloF - FASC, D + o], [rx0, hloF, D + o], [rx1, hloF, D + o]], st.trim);
+      // bočné lemovanie (šikmé, kopíruje spád)
+      face([[rx0, hloF - FASC, D + o], [rx0, hhiF - FASC, -o], [rx0, hhiF, -o], [rx0, hloF, D + o]], st.trim);
+      face([[rx1, hhiF - FASC, -o], [rx1, hloF - FASC, D + o], [rx1, hloF, D + o], [rx1, hhiF, -o]], st.trim);
+      // podhľad nad terasou (spodok strešnej dosky na úrovni spodku lemovania)
+      face([[rx0, hhiF - FASC, -o], [rx1, hhiF - FASC, -o], [rx1, hloF - FASC, D + o], [rx0, hloF - FASC, D + o]], lighten(st.trim, 0.14));
+      // vrch strechy — trapézový plech
+      face([[rx0, hhiF + 0.004, -o], [rx1, hhiF + 0.004, -o], [rx1, hloF + 0.004, D + o], [rx0, hloF + 0.004, D + o]], st.trim, { roofTop: true });
     })();
 
-    // odkvap: žľab tesne pod zadnou (nižšou) hranou strechy
+    // odkvap: žľab pod spodkom lemovania na zadnej (nižšej) strane
     if (st.odkvap) {
       var gC = lighten(st.trim, 0.22);
       var gr = 0.09;
-      var gy = yB - 0.07;           // vrch žľabu nadväzuje na spodok záveterky
+      var gy = hloF - FASC - 0.08;
       var gz1 = D + 0.12, gz0 = gz1 - gr;
       var gx0 = x0 - 0.03, gx1 = x0 + totW + 0.03;
       face([[gx0, gy, gz0], [gx1, gy, gz0], [gx1, gy + gr, gz0], [gx0, gy + gr, gz0]], gC);
@@ -551,8 +657,6 @@
     }
 
     // ── vykreslenie (painter's algorithm) + dekory ──
-    var LAM = 0.095; // šírka lamely
-
     function edgeInterp(A, i1, i2, t) {
       var p1 = A[i1], p2 = A[i2];
       return [p1[0] + (p2[0] - p1[0]) * t, p1[1] + (p2[1] - p1[1]) * t, p1[2] + (p2[2] - p1[2]) * t];
@@ -584,13 +688,13 @@
       var A = f.pts;
 
       if (f.opts.wall) {
-        // stena [spodokA, spodokB, vrchB, vrchA]: zvislé lamely + rohové lišty
-        // + dvere a okno (na prednej) + tiene — všetko v jednom ťahu steny,
-        // takže poradie voči ostatným plochám dedí od steny (painter).
+        // stena [spodokA, spodokB, vrchB, vrchA] — A0 = ľavý roh pri pohľade
+        // zvonku. Dekor: lamely (rozstup 11 cm), oplechovanie (panely 31 cm),
+        // rohovníky 10 cm, na prednej dvere+okno; tiene navrchu.
         ctx.save();
         ctx.clip();
         var wallLen = Math.hypot(A[1][0] - A[0][0], A[1][2] - A[0][2]);
-        var nLam = Math.max(2, Math.round(wallLen / LAM));
+        var nLam = Math.max(2, Math.round(wallLen / LAMSTEP));
         ctx.lineWidth = 1;
         for (var i = 1; i < nLam; i++) {
           var t = i / nLam;
@@ -600,32 +704,50 @@
           ctx.strokeStyle = 'rgba(255,255,255,0.10)';
           line3d(edgeInterp(A, 0, 1, t - 0.25 / nLam), edgeInterp(A, 3, 2, t - 0.25 / nLam));
         }
-        // rohové lišty vo farbe plechov
-        var tw = Math.min(0.06 / wallLen, 0.2);
+
+        // oplechovanie: falcované panely á 31 cm od zvoleného rohu
+        var pcfg = f.opts.faceKey ? st.plech[f.opts.faceKey] : null;
+        if (pcfg && pcfg.on && pcfg.n > 0) {
+          var metal = Math.min(pcfg.n * PANEL, wallLen);
+          var mt0 = pcfg.from === 'left' ? 0 : 1 - metal / wallLen;
+          var mt1 = pcfg.from === 'left' ? metal / wallLen : 1;
+          var plechC = shade(st.trim, Math.min(1.12, f.lum + 0.14));
+          quad3d(edgeInterp(A, 0, 1, mt0), edgeInterp(A, 0, 1, mt1),
+                 edgeInterp(A, 3, 2, mt1), edgeInterp(A, 3, 2, mt0), plechC);
+          ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+          for (var sPan = 1; sPan * PANEL < metal + 0.001; sPan++) {
+            var ts = mt0 + (sPan * PANEL) / wallLen;
+            if (ts >= mt1 - 0.001) break;
+            line3d(edgeInterp(A, 0, 1, ts), edgeInterp(A, 3, 2, ts));
+          }
+        }
+
+        // rohovníky — kovové L-profily 10 cm vo farbe plechov (celá výška)
+        var tw = Math.min(CORNER / wallLen, 0.2);
         var trimC = shade(st.trim, Math.min(1.15, f.lum + 0.25));
         quad3d(edgeInterp(A, 0, 1, 0), edgeInterp(A, 0, 1, tw), edgeInterp(A, 3, 2, tw), edgeInterp(A, 3, 2, 0), trimC);
         quad3d(edgeInterp(A, 0, 1, 1 - tw), edgeInterp(A, 0, 1, 1), edgeInterp(A, 3, 2, 1), edgeInterp(A, 3, 2, 1 - tw), trimC);
 
         if (f.opts.front) {
-          // dvere so zárubňou, drážkami a kľučkou (rovina steny z=0)
+          // dvere 16 cm od rohu, od zeme; vrch okna = vrch dverí (návrhár)
           var doorC = shade(st.trim, Math.min(1.1, f.lum + 0.12));
           var frameC = shade(lighten(st.trim, 0.14), f.lum);
-          var dx = Math.min(0.3, W * 0.08), dw = 0.95, dh = Math.min(2.0, Hf - 0.15);
-          quad3d([dx - 0.05, y0, 0], [dx + dw + 0.05, y0, 0], [dx + dw + 0.05, y0 + dh + 0.05, 0], [dx - 0.05, y0 + dh + 0.05, 0], frameC);
-          quad3d([dx, y0, 0], [dx + dw, y0, 0], [dx + dw, y0 + dh, 0], [dx, y0 + dh, 0], doorC);
+          var dx = DOOR_M, dw = 0.95, dh = Math.min(2.0, hhiF - FASC - 0.1);
+          quad3d([dx - 0.05, 0, 0], [dx + dw + 0.05, 0, 0], [dx + dw + 0.05, dh + 0.05, 0], [dx - 0.05, dh + 0.05, 0], frameC);
+          quad3d([dx, 0, 0], [dx + dw, 0, 0], [dx + dw, dh, 0], [dx, dh, 0], doorC);
           ctx.strokeStyle = 'rgba(0,0,0,0.28)';
           for (var g = 1; g < 4; g++) {
             var gx = dx + (dw * g) / 4;
-            line3d([gx, y0 + 0.03, 0], [gx, y0 + dh - 0.03, 0]);
+            line3d([gx, 0.03, 0], [gx, dh - 0.03, 0]);
           }
-          quad3d([dx + dw - 0.1, y0 + dh * 0.4, 0], [dx + dw - 0.065, y0 + dh * 0.4, 0],
-                 [dx + dw - 0.065, y0 + dh * 0.6, 0], [dx + dw - 0.1, y0 + dh * 0.6, 0], '#c9ccce');
+          quad3d([dx + dw - 0.1, dh * 0.4, 0], [dx + dw - 0.065, dh * 0.4, 0],
+                 [dx + dw - 0.065, dh * 0.6, 0], [dx + dw - 0.1, dh * 0.6, 0], '#c9ccce');
 
-          // okno vpravo: rám, sklo s odleskom, parapet
-          var ww = 1.0, wh = 0.6;
-          var wx = Math.max(dx + dw + 0.3, W - ww - Math.max(0.35, W * 0.08));
-          if (wx + ww < W - 0.08) {
-            var wy = y0 + Math.min(1.35, Hf - wh - 0.3);
+          // okno vpravo (16 cm od rohu): rám, sklo s odleskom, parapet
+          var ww = 1.0, wh = 0.55;
+          var wx = W - 0.16 - ww;
+          if (wx > dx + dw + 0.2) {
+            var wy = dh - wh; // vrch okna = vrch dverí
             quad3d([wx - 0.05, wy - 0.05, 0], [wx + ww + 0.05, wy - 0.05, 0], [wx + ww + 0.05, wy + wh + 0.05, 0], [wx - 0.05, wy + wh + 0.05, 0], frameC);
             quad3d([wx, wy, 0], [wx + ww, wy, 0], [wx + ww, wy + wh, 0], [wx, wy + wh, 0], shade('#aec7d2', f.lum + 0.1));
             quad3d([wx + ww * 0.08, wy, 0], [wx + ww * 0.35, wy, 0], [wx + ww * 0.55, wy + wh, 0], [wx + ww * 0.28, wy + wh, 0], '#ffffff', 0.3);
@@ -634,11 +756,11 @@
           }
         }
 
-        // tieň pod záveterkou + pri zemi (ambient occlusion) — navrchu, cez všetko
-        quad3d(edgeInterp(A, 3, 2, 0), edgeInterp(A, 3, 2, 1),
-               [A[2][0], A[2][1] - 0.07, A[2][2]], [A[3][0], A[3][1] - 0.07, A[3][2]],
+        // tieň pod lemovaním + pri zemi (ambient occlusion) — navrchu
+        quad3d([A[3][0], A[3][1] - FASC, A[3][2]], [A[2][0], A[2][1] - FASC, A[2][2]],
+               [A[2][0], A[2][1] - FASC - 0.05, A[2][2]], [A[3][0], A[3][1] - FASC - 0.05, A[3][2]],
                '#000', 0.10);
-        quad3d(A[0], A[1], [A[1][0], A[1][1] + 0.06, A[1][2]], [A[0][0], A[0][1] + 0.06, A[0][2]], '#000', 0.10);
+        quad3d(A[0], A[1], [A[1][0], A[1][1] + 0.05, A[1][2]], [A[0][0], A[0][1] + 0.05, A[0][2]], '#000', 0.10);
         ctx.restore();
       }
 
@@ -771,8 +893,16 @@
     document.getElementById('sH').value = st.h;
     document.getElementById('sT').value = st.terW;
     document.getElementById('terOpts').style.display = st.terasa ? '' : 'none';
+    document.getElementById('terEncBox').style.display = st.terasa ? '' : 'none';
     document.getElementById('terLeft').setAttribute('aria-pressed', st.terSide === 'left' ? 'true' : 'false');
     document.getElementById('terRight').setAttribute('aria-pressed', st.terSide === 'right' ? 'true' : 'false');
+    PLECH_WALLS.forEach(function (wdef) {
+      var row = document.querySelector('.prow[data-wall="' + wdef.k + '"]');
+      if (!row) return;
+      if (st.plech[wdef.k].on) row.removeAttribute('data-off');
+      else row.setAttribute('data-off', '1');
+      row.querySelector('.cnt output').textContent = st.plech[wdef.k].n;
+    });
   }
   function update() {
     refreshOutputs();
@@ -801,9 +931,48 @@
   document.getElementById('cTer').addEventListener('change', function () { st.terasa = this.checked; update(); });
   document.getElementById('cPod').addEventListener('change', function () { st.podlaha = this.checked; update(); });
   document.getElementById('cOdk').addEventListener('change', function () { st.odkvap = this.checked; update(); });
+  document.getElementById('cStlp').addEventListener('change', function () { st.terStlp = this.checked; update(); });
   document.getElementById('selZat').addEventListener('change', function () { st.zat = this.value; update(); });
   document.getElementById('terLeft').addEventListener('click', function () { st.terSide = 'left'; update(); });
   document.getElementById('terRight').addEventListener('click', function () { st.terSide = 'right'; update(); });
+
+  // uzatvorenie terasy — selecty per strana
+  document.querySelectorAll('#terEncBox select[data-strana]').forEach(function (sel) {
+    sel.addEventListener('change', function () {
+      st.terStrany[this.dataset.strana] = this.value;
+      update();
+    });
+  });
+
+  // oplechovanie stien — riadky s ovládaním
+  (function buildPlechRows() {
+    var host = document.getElementById('plechRows');
+    PLECH_WALLS.forEach(function (wdef) {
+      var row = document.createElement('div');
+      row.className = 'prow';
+      row.dataset.wall = wdef.k;
+      row.setAttribute('data-off', '1');
+      row.innerHTML =
+        '<label class="check"><input type="checkbox" aria-label="Oplechovanie — ' + wdef.l + ' stena"> ' + wdef.l + '</label>' +
+        '<select aria-label="Od ktorého rohu — ' + wdef.l + '">' +
+        '<option value="left">zľava</option><option value="right">sprava</option></select>' +
+        '<span class="cnt"><button type="button" aria-label="Menej panelov">−</button>' +
+        '<output>3</output>' +
+        '<button type="button" aria-label="Viac panelov">+</button>' +
+        '<span class="note">panelov</span></span>';
+      var cfg = st.plech[wdef.k];
+      row.querySelector('input[type=checkbox]').addEventListener('change', function () {
+        cfg.on = this.checked; update();
+      });
+      row.querySelector('select').addEventListener('change', function () {
+        cfg.from = this.value; update();
+      });
+      var btns = row.querySelectorAll('.cnt button');
+      btns[0].addEventListener('click', function () { cfg.n = Math.max(1, cfg.n - 1); update(); });
+      btns[1].addEventListener('click', function () { cfg.n = Math.min(40, cfg.n + 1); update(); });
+      host.appendChild(row);
+    });
+  })();
 
   // farebné vzorkovníky
   function buildSwatches(elId, list, key) {
@@ -836,22 +1005,40 @@
   // ---------------------------------------------------------------------------
   // CTA: e-mail so zhrnutím + JSON pre návrhár
   // ---------------------------------------------------------------------------
+  var STRANA_LBL = { none: 'otvorená', zabradlie: 'zábradlie', lamelova: 'priehľadná (lamelová) stena', plna: 'plná stena' };
   function summaryLines(p) {
-    return [
+    var lines = [
       'Dobrý deň, mám záujem o záhradný domček v tejto konfigurácii:',
       '',
       'Rozmer: ' + m(st.w) + ' × ' + m(st.d) + ' (výška vzadu ' + m(st.h, 2) + ')',
       'Terasa: ' + (st.terasa ? 'áno, ' + (st.terSide === 'left' ? 'vľavo' : 'vpravo') + ', šírka ' + m(st.terW) : 'nie'),
+    ];
+    if (st.terasa) {
+      ['vonkajsia', 'predna', 'zadna'].forEach(function (k) {
+        if (st.terStrany[k] !== 'none') {
+          lines.push('Terasa — ' + (k === 'vonkajsia' ? 'vonkajšia strana' : k === 'predna' ? 'predná strana' : 'zadná strana') +
+            ': ' + STRANA_LBL[st.terStrany[k]]);
+        }
+      });
+      if (st.terStlp) lines.push('Terasa — stredný stĺp: áno');
+    }
+    PLECH_WALLS.forEach(function (wdef) {
+      var c = st.plech[wdef.k];
+      if (c.on) lines.push('Oplechovanie — ' + wdef.l.toLowerCase() + ' stena: ' + c.n + ' panelov (á 31 cm) ' + (c.from === 'left' ? 'zľava' : 'sprava'));
+    });
+    lines = lines.concat([
       'Podlaha v domčeku: ' + (st.podlaha ? 'áno' : 'nie'),
       'Odkvapový systém: ' + (st.odkvap ? 'áno' : 'nie'),
       'Zateplenie: ' + (st.zat === 'none' ? 'nie' : st.zat === 'osb' ? 'áno — záklop OSB' : 'áno — tatranský obklad'),
       'Farba dreva: ' + colorName(CLADS, st.clad),
       'Farba strechy a plechov: ' + colorName(TRIMS, st.trim),
       '',
-      'Orientačná cena z konfigurátora: ' + eurFmt2.format(p.sDph) + ' s DPH',
+      'Orientačná cena z konfigurátora: ' + eurFmt2.format(p.sDph) + ' s DPH' +
+      (p.doplnky.predajnaBezDph > 0 ? ' (vrátane doplnkov terasy)' : ''),
       '',
       'Meno a telefón: ',
-    ];
+    ]);
+    return lines;
   }
   function updateCta(p) {
     var a = document.getElementById('ctaMail');
@@ -873,12 +1060,33 @@
       terPos: st.terSide === 'left' ? 'left' : 'right',
       tw: Math.round(st.d * 100),
       td: Math.round(st.terW * 100),
+      terStrednyStlp: st.terasa && st.terStlp,
       foundType: st.podlaha ? 'footings' : 'paving',
       hasGutter: st.odkvap,
       units: 'cm',
       _trimColor: st.trim,
       _cladColor: st.clad,
     };
+    // oplechovanie stien (falcované panely á 31 cm)
+    var anyPlech = PLECH_WALLS.some(function (wdef) { return st.plech[wdef.k].on; });
+    cfg.hasPlech = anyPlech;
+    var plechIdMap = { front: 'Front', back: 'Back', left: 'Left', right: 'Right' };
+    PLECH_WALLS.forEach(function (wdef) {
+      var c = st.plech[wdef.k];
+      cfg['plech' + plechIdMap[wdef.k]] = c.on;
+      cfg['plech' + plechIdMap[wdef.k] + 'From'] = c.from;
+      cfg['plech' + plechIdMap[wdef.k] + 'N'] = c.n;
+    });
+    // uzatvorenie terasy → teE_<strana>_t (mapovanie strán podľa polohy terasy)
+    if (st.terasa) {
+      var typeMap = { none: 'none', zabradlie: 'railing', lamelova: 'transparent', plna: 'full' };
+      var sideMap = st.terSide === 'left'
+        ? { vonkajsia: 'west', predna: 'south', zadna: 'north' }
+        : { vonkajsia: 'east', predna: 'south', zadna: 'north' };
+      Object.keys(sideMap).forEach(function (k) {
+        cfg['teE_' + sideMap[k] + '_t'] = typeMap[st.terStrany[k]];
+      });
+    }
     var blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' });
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
