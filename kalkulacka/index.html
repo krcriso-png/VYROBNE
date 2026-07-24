@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kalkulačka záhradných domčekov</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #F6F5F0;
+    --surface: #FFFFFF;
+    --surface-2: #EFEDE4;
+    --ink: #202B21;
+    --muted: #6A7263;
+    --line: #E2E0D5;
+    --accent: #2F6B45;
+    --accent-ink: #FFFFFF;
+    --accent-soft: #E4EEE6;
+    --timber: #A9741F;
+    --timber-soft: #F4EAD6;
+    --danger: #A33B2E;
+    --danger-soft: #F6E4E1;
+    --shadow: 0 1px 2px rgba(32, 43, 33, 0.06), 0 4px 14px rgba(32, 43, 33, 0.05);
+    --radius: 10px;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161B16;
+      --surface: #1E241E;
+      --surface-2: #242B24;
+      --ink: #E7E5DA;
+      --muted: #9AA491;
+      --line: #313A31;
+      --accent: #74B086;
+      --accent-ink: #12190E;
+      --accent-soft: #23372A;
+      --timber: #D9A24B;
+      --timber-soft: #38301C;
+      --danger: #D4796B;
+      --danger-soft: #3C2622;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 14px rgba(0, 0, 0, 0.3);
+    }
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #F6F5F0; --surface: #FFFFFF; --surface-2: #EFEDE4; --ink: #202B21;
+    --muted: #6A7263; --line: #E2E0D5; --accent: #2F6B45; --accent-ink: #FFFFFF;
+    --accent-soft: #E4EEE6; --timber: #A9741F; --timber-soft: #F4EAD6;
+    --danger: #A33B2E; --danger-soft: #F6E4E1;
+    --shadow: 0 1px 2px rgba(32, 43, 33, 0.06), 0 4px 14px rgba(32, 43, 33, 0.05);
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #161B16; --surface: #1E241E; --surface-2: #242B24; --ink: #E7E5DA;
+    --muted: #9AA491; --line: #313A31; --accent: #74B086; --accent-ink: #12190E;
+    --accent-soft: #23372A; --timber: #D9A24B; --timber-soft: #38301C;
+    --danger: #D4796B; --danger-soft: #3C2622;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 14px rgba(0, 0, 0, 0.3);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.45;
+  }
+
+  /* ---------- hlavička + záložky ---------- */
+  header.app {
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+    padding: 18px 22px 0;
+  }
+  header.app h1 {
+    font-family: var(--serif);
+    font-size: 24px; font-weight: 600; margin: 0;
+    letter-spacing: 0.01em;
+  }
+  header.app .sub { color: var(--muted); font-size: 13px; }
+  nav.tabs {
+    display: flex; gap: 4px; padding: 12px 22px 0; flex-wrap: wrap;
+    border-bottom: 1px solid var(--line);
+  }
+  nav.tabs button {
+    appearance: none; border: 1px solid var(--line); border-bottom: none;
+    background: var(--surface-2); color: var(--ink);
+    font: inherit; padding: 8px 16px; cursor: pointer;
+    border-radius: 8px 8px 0 0; position: relative; top: 1px;
+  }
+  nav.tabs button[aria-selected="true"] {
+    background: var(--surface); font-weight: 600;
+    border-bottom: 1px solid var(--surface);
+  }
+  nav.tabs button:focus-visible,
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+
+  main { padding: 18px 22px 60px; }
+
+  /* ---------- všeobecné prvky ---------- */
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 16px;
+  }
+  .label {
+    display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 4px;
+  }
+  .field { display: flex; flex-direction: column; gap: 2px; }
+  .field .hint { font-size: 12px; color: var(--muted); }
+  input[type="number"], input[type="text"], input[type="email"], input[type="tel"], select, textarea {
+    font: inherit; color: var(--ink);
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 7px; padding: 7px 9px; width: 100%;
+  }
+  input[type="number"], input[inputmode="decimal"] { font-variant-numeric: tabular-nums; text-align: right; }
+  .check { display: flex; align-items: center; gap: 8px; padding: 6px 0; cursor: pointer; }
+  .check input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+  button.btn {
+    appearance: none; font: inherit; cursor: pointer;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--surface); color: var(--ink);
+    padding: 8px 14px;
+  }
+  button.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  button.btn.danger { color: var(--danger); border-color: var(--danger); background: transparent; }
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  table.data {
+    width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums;
+  }
+  table.data th, table.data td {
+    padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  table.data th {
+    font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600;
+  }
+  table.data th:first-child, table.data td:first-child { text-align: left; white-space: normal; }
+  table.data tr.total td { font-weight: 700; border-top: 2px solid var(--ink); }
+  .scroll-x { overflow-x: auto; }
+  .note { font-size: 12px; color: var(--muted); }
+  .pill {
+    display: inline-block; font-size: 11px; font-weight: 600;
+    border-radius: 99px; padding: 2px 9px;
+    background: var(--accent-soft); color: var(--accent);
+  }
+  .pill.warn { background: var(--danger-soft); color: var(--danger); }
+
+  /* ---------- kalkulácia: rozloženie ---------- */
+  .kalk-grid {
+    display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 18px;
+    align-items: start;
+  }
+  @media (max-width: 900px) { .kalk-grid { grid-template-columns: 1fr; } }
+  .sidebar {
+    display: flex; flex-direction: column; gap: 14px; position: sticky; top: 12px;
+    max-height: calc(100vh - 24px); overflow-y: auto;
+  }
+  @media (max-width: 900px) { .sidebar { position: static; max-height: none; overflow: visible; } }
+  .sidebar .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .results { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+
+  .hero { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: start; }
+  @media (max-width: 700px) { .hero { grid-template-columns: 1fr; } }
+  .hero h2 { font-family: var(--serif); font-size: 19px; margin: 0 0 4px; font-weight: 600; }
+  .price-big { text-align: right; }
+  .price-big .novat { font-size: 15px; color: var(--muted); }
+  .price-big .withvat {
+    font-size: 30px; font-weight: 700; color: var(--timber);
+    font-variant-numeric: tabular-nums; line-height: 1.15;
+  }
+  .price-big .caption { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .breakdown {
+    display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 10px;
+    font-variant-numeric: tabular-nums; font-size: 13px;
+  }
+  .breakdown .item b { font-weight: 600; }
+  .breakdown .item span { color: var(--muted); }
+
+  tr.selected td { background: var(--accent-soft); }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover td { background: var(--surface-2); }
+  tr.selected.clickable:hover td { background: var(--accent-soft); }
+  tr.clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  details.bom { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+  details.bom + details.bom { margin-top: 10px; }
+  details.bom summary {
+    cursor: pointer; padding: 10px 14px; font-weight: 600;
+    display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    font-variant-numeric: tabular-nums;
+  }
+  details.bom summary .sum { color: var(--muted); font-weight: 500; }
+  details.bom .inner { padding: 0 14px 12px; }
+
+  h3.section {
+    font-family: var(--serif); font-size: 16px; font-weight: 600;
+    margin: 0 0 10px;
+  }
+  .settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+  .settings-block { display: flex; flex-direction: column; gap: 10px; }
+
+  /* ---------- cenník ---------- */
+  #tab-cennik input[data-field="price"] { width: 110px; }
+  #tab-cennik input[data-field="supplier"] { width: 140px; }
+  #tab-cennik td.center, #tab-cennik th.center { text-align: center; }
+
+  /* ---------- ponuka ---------- */
+  .ponuka-grid { display: grid; grid-template-columns: minmax(0, 420px) minmax(0, 1fr); gap: 18px; align-items: start; }
+  @media (max-width: 900px) { .ponuka-grid { grid-template-columns: 1fr; } }
+  .quote-doc {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 28px 32px; max-width: 760px;
+  }
+  .quote-doc .qhead { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; border-bottom: 2px solid var(--ink); padding-bottom: 12px; }
+  .quote-doc .qhead .firm { font-size: 13px; }
+  .quote-doc .qhead .firm b { font-size: 15px; }
+  .quote-doc h2 { font-family: var(--serif); font-size: 22px; margin: 0; font-weight: 700; }
+  .quote-doc .qmeta { font-size: 12px; color: var(--muted); text-align: right; }
+  .quote-doc .qsection { margin-top: 18px; }
+  .quote-doc .qsection > .label { margin-bottom: 6px; }
+  .quote-doc table.data td, .quote-doc table.data th { white-space: normal; }
+  .quote-doc .qfoot { margin-top: 22px; font-size: 12px; color: var(--muted); }
+
+  /* ---------- tlač ---------- */
+  @media print {
+    /* tlač je vždy na bielom — vynúť svetlé tokeny aj pri tmavej téme */
+    :root, :root[data-theme="dark"], :root[data-theme="light"] {
+      --bg: #fff; --surface: #fff; --surface-2: #fff; --ink: #111;
+      --muted: #555; --line: #bbb; --accent: #2F6B45; --accent-ink: #fff;
+      --accent-soft: #fff; --timber: #7a5210; --timber-soft: #fff;
+      --danger: #A33B2E; --danger-soft: #fff; --shadow: none;
+    }
+    body { background: #fff; color: #111; font-size: 12px; }
+    header.app, nav.tabs, .no-print { display: none !important; }
+    main { padding: 0; }
+    .ponuka-grid { display: block; }
+    .ponuka-form { display: none; }
+    .quote-doc { border: none; box-shadow: none; padding: 0; max-width: none; }
+    .quote-doc .qhead { border-color: #111; }
+    table.data th, table.data td { border-color: #bbb; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    nav.tabs button, button.btn { transition: background 120ms ease; }
+  }
+</style>
+</head>
+<body>
+  <header class="app">
+    <h1>Kalkulačka záhradných domčekov</h1>
+    <span class="sub">ceny bez DPH sú základ výpočtu · predaj s DPH = predajná cena × (1 + DPH)</span>
+  </header>
+  <nav class="tabs" role="tablist" aria-label="Sekcie kalkulačky">
+    <button id="tabbtn-kalk" role="tab" data-tab="kalk" aria-selected="true" aria-controls="tab-kalk">Kalkulácia</button>
+    <button id="tabbtn-cennik" role="tab" data-tab="cennik" aria-selected="false" aria-controls="tab-cennik">Cenník materiálov</button>
+    <button id="tabbtn-nastavenia" role="tab" data-tab="nastavenia" aria-selected="false" aria-controls="tab-nastavenia">Nastavenia</button>
+    <button id="tabbtn-ponuka" role="tab" data-tab="ponuka" aria-selected="false" aria-controls="tab-ponuka">Cenová ponuka</button>
+  </nav>
+  <main>
+    <section id="tab-kalk" role="tabpanel" aria-labelledby="tabbtn-kalk" tabindex="-1"></section>
+    <section id="tab-cennik" role="tabpanel" aria-labelledby="tabbtn-cennik" tabindex="-1" hidden></section>
+    <section id="tab-nastavenia" role="tabpanel" aria-labelledby="tabbtn-nastavenia" tabindex="-1" hidden></section>
+    <section id="tab-ponuka" role="tabpanel" aria-labelledby="tabbtn-ponuka" tabindex="-1" hidden></section>
+  </main>
+  <script src="engine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
